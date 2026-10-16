@@ -1,6 +1,8 @@
 package cn.market.assistant.data.market
 
 import cn.market.assistant.domain.market.MarketBoard
+import cn.market.assistant.domain.market.MarketBoardMember
+import cn.market.assistant.domain.market.MarketBoardMemberSnapshot
 import cn.market.assistant.domain.market.MarketBoardType
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -11,6 +13,7 @@ import java.nio.charset.StandardCharsets
 /** Eastmoney industry/concept board feed. A snapshot is returned only after every page validates. */
 internal object EastMoneyBoardDataSource {
     private const val PAGE_SIZE = 100
+    private const val MEMBER_PAGE_SIZE = 100
     private const val USER_AGENT = "Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36 Chrome/140.0 Mobile Safari/537.36"
     private const val SOURCE = "eastmoney-board"
 
@@ -64,6 +67,72 @@ internal object EastMoneyBoardDataSource {
 
         require(boards.size >= expectedCount) { "东方财富板块数据不完整：${boards.size}/$expectedCount" }
         return boards.values.toList()
+    }
+
+    /**
+     * Largest constituents of one board. The feed is requested by market-cap descending order and only
+     * the first page is cached, so the snapshot explicitly records the full member count.
+     */
+    fun fetchMembers(boardId: String, boardName: String): MarketBoardMemberSnapshot {
+        val boardCode = boardId.substringAfter('.', boardId)
+        require(boardCode.matches(Regex("BK\\d{4}"))) { "板块代码格式无效" }
+        val root = readPage(memberUrl(boardCode))
+        val data = root.optJSONObject("data") ?: error("东方财富没有返回板块成分数据")
+        val totalCount = data.optInt("total", 0)
+        val rows = data.optJSONArray("diff") ?: error("东方财富板块成分缺少数据")
+        val fetchedAt = System.currentTimeMillis() / 1000
+        val members = buildList {
+            for (index in 0 until rows.length()) {
+                val row = rows.optJSONObject(index) ?: continue
+                val code = row.optString("f12").takeIf { it.isNotBlank() } ?: continue
+                val market = row.optString("f13").takeIf { it == "0" || it == "1" } ?: continue
+                val name = row.optString("f14").takeIf { it.isNotBlank() } ?: continue
+                val price = row.number("f2") ?: continue
+                val changePct = row.number("f3") ?: continue
+                if (price <= 0.0 || changePct <= -100.0) continue
+                val sourceTime = row.number("f124")?.toLong()
+                    ?.takeIf { it > 0 && it <= fetchedAt + 5 * 60 }
+                    ?: fetchedAt
+                add(
+                    MarketBoardMember(
+                        secid = "$market.$code",
+                        code = code,
+                        name = name,
+                        price = price,
+                        changePct = changePct,
+                        turnoverRatePct = row.number("f8"),
+                        marketCap = row.number("f20"),
+                        quoteTime = sourceTime,
+                        fetchedAt = fetchedAt,
+                        source = SOURCE
+                    )
+                )
+            }
+        }
+        require(members.isNotEmpty()) { "东方财富没有返回板块成分股" }
+        return MarketBoardMemberSnapshot(
+            boardId = boardId,
+            boardName = boardName,
+            members = members,
+            totalCount = maxOf(totalCount, members.size),
+            fetchedAt = fetchedAt,
+            source = SOURCE
+        )
+    }
+
+    private fun memberUrl(boardCode: String): String {
+        val query = listOf(
+            "pn=1",
+            "pz=$MEMBER_PAGE_SIZE",
+            "po=1",
+            "np=1",
+            "fltt=2",
+            "invt=2",
+            "fid=f20",
+            "fs=${encode("b:$boardCode")}",
+            "fields=f2,f3,f8,f12,f13,f14,f20,f124"
+        ).joinToString("&")
+        return "https://push2.eastmoney.com/api/qt/clist/get?$query"
     }
 
     private fun url(type: MarketBoardType, page: Int): String {

@@ -78,6 +78,9 @@ class AgentToolRegistry(tools: Collection<AgentTool>) {
         toolsById = tools.associateBy { it.id }
     }
 
+    /** Every registered tool id, used by the settings surface to build the allowlist UI. */
+    val toolIds: Set<String> get() = toolsById.keys
+
     fun descriptors(allowedToolIds: Set<String>): List<AgentToolDescriptor> = allowedToolIds
         .mapNotNull(toolsById::get)
         .sortedBy { it.id }

@@ -4,6 +4,9 @@ enum class FundEstimateGrade { HIGH, MEDIUM, LOW, NONE, UNAVAILABLE }
 enum class FundEstimateMethod {
     INDEX_OLS,
     LINKED_ETF_OLS,
+    BOND_INDEX_OLS,
+    CONVERTIBLE_INDEX_OLS,
+    QDII_INDEX_OLS,
     DISCLOSED_HOLDINGS_OLS,
     DISCLOSED_HOLDINGS,
     NONE,

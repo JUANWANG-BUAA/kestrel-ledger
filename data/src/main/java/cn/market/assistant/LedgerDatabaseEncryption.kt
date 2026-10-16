@@ -254,7 +254,30 @@ internal object LedgerDatabaseEncryption {
             val sourceSequences = sqliteSequences(source, "main")
             val escapedPath = temporaryFile.absolutePath.replace("'", "''")
             val escapedKey = passphrase.replace("'", "''")
-            source.execSQL("ATTACH DATABASE '$escapedPath' AS encrypted KEY '$escapedKey'")
+            // Pre-create the target file: some Android SQLCipher builds return SQLITE_CANTOPEN (ENOENT)
+            // when ATTACH has to create the file itself on a freshly restored app data directory.
+            if (temporaryFile.exists() && !temporaryFile.delete()) {
+                throw IOException("无法清理旧的加密迁移临时文件")
+            }
+            if (!temporaryFile.createNewFile()) {
+                throw IOException("无法创建加密迁移临时文件：${temporaryFile.absolutePath}")
+            }
+            android.util.Log.i(
+                "LedgerMigration",
+                "attach path=${temporaryFile.absolutePath} parent=${temporaryFile.parentFile?.absolutePath} " +
+                    "parentExists=${temporaryFile.parentFile?.exists()} " +
+                    "parentWritable=${temporaryFile.parentFile?.canWrite()} sourceLength=${sourceFile.length()}"
+            )
+            try {
+                source.execSQL("ATTACH DATABASE '$escapedPath' AS encrypted KEY '$escapedKey'")
+            } catch (error: Exception) {
+                android.util.Log.e(
+                    "LedgerMigration",
+                    "ATTACH failed: ${error.message}; tempExists=${temporaryFile.exists()} " +
+                        "tempLength=${temporaryFile.length()}"
+                )
+                throw error
+            }
             try {
                 source.rawQuery("SELECT sqlcipher_export('encrypted')", null).use { cursor ->
                     if (!cursor.moveToFirst()) throw IOException("SQLCipher 未能导出旧账本")

@@ -1,5 +1,8 @@
 package cn.market.assistant.domain.portfolio
 
+import cn.market.assistant.domain.market.MarketOhlcBar
+import cn.market.assistant.domain.market.MarketVenue
+import cn.market.assistant.domain.market.TradingCalendar
 import java.math.BigDecimal
 import java.time.LocalDate
 import org.junit.Assert.assertEquals
@@ -71,6 +74,62 @@ class PortfolioRiskAnalyticsTest {
         assertNull(result.accountMaxDrawdownMissingReason)
         assertNotNull(result.accountTwrPct)
         assertTrue(result.accountMaxDrawdownMissingDays.isEmpty())
+    }
+
+    @Test
+    fun authoritativeSessionCalendarSkipsHolidaysInsteadOfReportingMissingSnapshots() {
+        val weekdays = (0 until 90).mapNotNull { offset ->
+            val day = LocalDate.parse("2026-01-05").plusDays(offset.toLong())
+            day.takeIf { it.dayOfWeek.value <= 5 }
+        }
+        val holiday = LocalDate.parse("2026-02-17")
+        val sessions = weekdays.filterNot { it == holiday }
+        val calendar = TradingCalendar.fromBars(
+            MarketVenue.SHANGHAI,
+            sessions.map { MarketOhlcBar(it.toString(), 100.0, 100.0, 100.0, 100.0, 0.0) }
+        )
+        val snapshots = sessions.mapIndexed { index, day -> snapshot(day, (100 + index).toString(), "0") }
+
+        val result = PortfolioRiskAnalytics.trailingSummary(
+            asOf = sessions.last(),
+            snapshots = snapshots,
+            positionsByDay = emptyMap(),
+            trades = emptyList(),
+            cashEvents = emptyList(),
+            sessionCalendar = calendar
+        )
+
+        assertNull(result.missingReason)
+        assertEquals(sessions.size - 1, result.observationCount)
+        assertNotNull(result.annualizedVolatilityPct)
+    }
+
+    @Test
+    fun calendarNamesAMissingRealSessionAsThePathBreak() {
+        val weekdays = (0 until 90).mapNotNull { offset ->
+            val day = LocalDate.parse("2026-01-05").plusDays(offset.toLong())
+            day.takeIf { it.dayOfWeek.value <= 5 }
+        }
+        val blocked = weekdays[weekdays.size - 3]
+        // The benchmark calendar saw the session; only the account snapshot is missing for that day.
+        val calendar = TradingCalendar.fromBars(
+            MarketVenue.SHANGHAI,
+            weekdays.map { MarketOhlcBar(it.toString(), 100.0, 100.0, 100.0, 100.0, 0.0) }
+        )
+        val sessions = weekdays.filterNot { it == blocked }
+        val snapshots = sessions.mapIndexed { index, day -> snapshot(day, (100 + index).toString(), "0") }
+
+        val result = PortfolioRiskAnalytics.trailingSummary(
+            asOf = sessions.last(),
+            snapshots = snapshots,
+            positionsByDay = emptyMap(),
+            trades = emptyList(),
+            cashEvents = emptyList(),
+            sessionCalendar = calendar
+        )
+
+        assertNull(result.annualizedVolatilityPct)
+        assertTrue(result.missingReason!!.contains(blocked.toString()))
     }
 
     private fun snapshot(day: LocalDate, market: String, cash: String) = PortfolioSnapshot(

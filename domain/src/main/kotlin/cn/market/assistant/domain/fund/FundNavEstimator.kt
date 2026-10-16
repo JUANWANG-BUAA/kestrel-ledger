@@ -35,19 +35,70 @@ object FundNavEstimator {
     private val OLS_METHODS = setOf(
         FundEstimateMethod.INDEX_OLS,
         FundEstimateMethod.LINKED_ETF_OLS,
+        FundEstimateMethod.BOND_INDEX_OLS,
+        FundEstimateMethod.CONVERTIBLE_INDEX_OLS,
+        FundEstimateMethod.QDII_INDEX_OLS,
         FundEstimateMethod.DISCLOSED_HOLDINGS_OLS
     )
     private val marketZone = ZoneId.of("Asia/Shanghai")
 
+    fun classificationText(profile: FundProfile): String = "${profile.name} ${profile.fundType.orEmpty()}"
+
+    /** Short-duration debt where the research pipeline proved the model noise exceeds the signal. */
+    fun isUnmodeledShortDuration(profile: FundProfile): Boolean {
+        val text = classificationText(profile)
+        return text.contains("短债") || text.contains("中短债") || text.contains("同业存单")
+    }
+
     fun usesIndexBenchmarkRoute(profile: FundProfile): Boolean {
         val fundType = profile.fundType.orEmpty()
-        return !fundType.contains("QDII", ignoreCase = true) &&
+        return !fundType.contains("QDII", ignoreCase = true) && !usesBondBenchmarkRoute(profile) &&
+            !usesConvertibleBenchmarkRoute(profile) &&
             (fundType.contains("指数型") || profile.name.contains("ETF联接"))
     }
+
+    fun usesConvertibleBenchmarkRoute(profile: FundProfile): Boolean {
+        val text = classificationText(profile)
+        return !text.contains("QDII", ignoreCase = true) && !text.contains("货币") &&
+            (text.contains("转债") || text.contains("可转换"))
+    }
+
+    /**
+     * Long/medium duration and credit bond funds, including fixed-income index funds. Short-duration
+     * debt, money funds and convertible funds are handled by their own routes.
+     */
+    fun usesBondBenchmarkRoute(profile: FundProfile): Boolean {
+        val fundType = profile.fundType.orEmpty()
+        if (fundType.contains("QDII", ignoreCase = true)) return false
+        if (isUnmodeledShortDuration(profile) || classificationText(profile).contains("货币")) return false
+        if (usesConvertibleBenchmarkRoute(profile)) return false
+        return fundType.contains("债券") || fundType.contains("固收")
+    }
+
+    fun usesQdiiBenchmarkRoute(profile: FundProfile): Boolean =
+        profile.fundType.orEmpty().contains("QDII", ignoreCase = true)
+
+    /** Bond funds with an equity sleeve; the equity part stays unmodeled and caps the grade. */
+    fun isMixedBondFund(profile: FundProfile): Boolean {
+        val fundType = profile.fundType.orEmpty()
+        return usesBondBenchmarkRoute(profile) &&
+            (fundType.contains("混合一级") || fundType.contains("混合二级"))
+    }
+
+    /** Disclosed tracking index, linked ETF or a published default index for bond categories. */
+    fun benchmarkSecid(profile: FundProfile): String? = profile.trackingIndexSecid
+        ?: (if (usesIndexBenchmarkRoute(profile)) FundListedPriceAnalytics.marketSecid(profile.linkedEtfCode.orEmpty()) else null)
+        ?: FundBenchmarkDefaults.benchmarkSecid(profile)
+
+    /** True when the profile resolves to a benchmark quote/history the UI should fetch. */
+    fun usesBenchmarkQuoteRoute(profile: FundProfile): Boolean = benchmarkSecid(profile) != null &&
+        (usesIndexBenchmarkRoute(profile) || usesBondBenchmarkRoute(profile) ||
+            usesConvertibleBenchmarkRoute(profile) || usesQdiiBenchmarkRoute(profile))
 
     fun usesDisclosedHoldingsRoute(profile: FundProfile): Boolean {
         val fundType = profile.fundType.orEmpty()
         return !fundType.contains("QDII", ignoreCase = true) && !usesIndexBenchmarkRoute(profile) &&
+            !usesBondBenchmarkRoute(profile) && !usesConvertibleBenchmarkRoute(profile) &&
             (fundType.contains("股票") || fundType.contains("混合"))
     }
 
@@ -141,12 +192,17 @@ object FundNavEstimator {
             )
         }
 
+        val specialized = specializedBenchmarkRoute(profile)
+        if (specialized != null) {
+            return estimateBenchmarkRoute(profile, specialized, indexBars, indexQuote, now)
+        }
+
         val fundType = profile.fundType.orEmpty()
         if (fundType.contains("QDII", ignoreCase = true)) {
             return emptyResult(
                 profile,
                 FundEstimateGrade.UNAVAILABLE,
-                "QDII 净值时区与披露滞后尚未校准，暂不平移指数收益"
+                "QDII 缺少可验证的海外基准指数，暂不平移指数收益"
             )
         }
         val isIndexLinked = usesIndexBenchmarkRoute(profile)
@@ -282,6 +338,222 @@ object FundNavEstimator {
             calibrationRouteKey = routeKey,
             calibrationSamples = calibrationSamples
         )
+    }
+
+    private data class BenchmarkRouteSpec(
+        val method: FundEstimateMethod,
+        val routePrefix: String,
+        val benchmarkId: String,
+        val label: String,
+        val lagDays: Int,
+        val highRSquared: Double,
+        val highMaePct: Double,
+        val mediumRSquared: Double,
+        val mediumMaePct: Double,
+        val maximumGrade: FundEstimateGrade? = null,
+        val gradeReason: String? = null
+    )
+
+    /**
+     * Bond, convertible and QDII benchmark routes. The original index/linked-ETF route stays in
+     * [estimate] so its persisted residual route keys (`v1:index` / `v1:linked-etf`) and calibrated
+     * intervals keep their history.
+     */
+    private fun specializedBenchmarkRoute(profile: FundProfile): BenchmarkRouteSpec? {
+        val benchmarkId = benchmarkSecid(profile) ?: return null
+        val label = FundBenchmarkDefaults.benchmarkName(benchmarkId)
+            ?: profile.trackingIndexName
+            ?: profile.linkedEtfName
+            ?: "基准指数"
+        return when {
+            usesConvertibleBenchmarkRoute(profile) -> BenchmarkRouteSpec(
+                method = FundEstimateMethod.CONVERTIBLE_INDEX_OLS,
+                routePrefix = "v2:convertible",
+                benchmarkId = benchmarkId,
+                label = label,
+                lagDays = 0,
+                highRSquared = 0.90,
+                highMaePct = 0.35,
+                mediumRSquared = 0.70,
+                mediumMaePct = 0.70
+            )
+            usesBondBenchmarkRoute(profile) -> BenchmarkRouteSpec(
+                method = FundEstimateMethod.BOND_INDEX_OLS,
+                routePrefix = "v2:bond",
+                benchmarkId = benchmarkId,
+                label = label,
+                lagDays = 0,
+                highRSquared = 0.95,
+                highMaePct = 0.06,
+                mediumRSquared = 0.85,
+                mediumMaePct = 0.15,
+                maximumGrade = if (isMixedBondFund(profile)) FundEstimateGrade.LOW else null,
+                gradeReason = if (isMixedBondFund(profile)) "含权部分未建模，仅估计债券底仓，最高显示为低质量" else null
+            )
+            usesQdiiBenchmarkRoute(profile) -> BenchmarkRouteSpec(
+                method = FundEstimateMethod.QDII_INDEX_OLS,
+                routePrefix = "v2:qdii",
+                benchmarkId = benchmarkId,
+                label = label,
+                lagDays = 1,
+                highRSquared = 0.90,
+                highMaePct = 0.20,
+                mediumRSquared = 0.75,
+                mediumMaePct = 0.60,
+                maximumGrade = FundEstimateGrade.LOW,
+                gradeReason = "按 T-1 海外收盘对齐，不预测当晚海外时段，最高显示为低质量"
+            )
+            else -> null
+        }
+    }
+
+    private fun estimateBenchmarkRoute(
+        profile: FundProfile,
+        spec: BenchmarkRouteSpec,
+        indexBars: List<MarketOhlcBar>,
+        indexQuote: MarketQuote?,
+        now: Long
+    ): FundNavEstimate {
+        if (indexQuote == null || indexQuote.secid != spec.benchmarkId) {
+            return emptyResult(profile, FundEstimateGrade.UNAVAILABLE, "缺少对应${spec.label}的当前行情")
+        }
+        if (!indexQuote.changePct.isFinite() || indexQuote.quoteTime <= 0 || indexQuote.fetchedAt <= 0 ||
+            indexQuote.fetchedAt > now + 300 || now - indexQuote.fetchedAt > MAX_QUOTE_AGE_SECONDS
+        ) {
+            return emptyResult(profile, FundEstimateGrade.UNAVAILABLE, "${spec.label}行情已过期或字段无效", indexQuote)
+        }
+        val quoteDay = runCatching {
+            Instant.ofEpochSecond(indexQuote.quoteTime).atZone(marketZone).toLocalDate().toString()
+        }.getOrNull() ?: return emptyResult(profile, FundEstimateGrade.UNAVAILABLE, "无法识别${spec.label}行情日期", indexQuote)
+        val baseNav = profile.navHistory.filter { it.day < quoteDay }.maxByOrNull { it.day }
+            ?: return emptyResult(profile, FundEstimateGrade.UNAVAILABLE, "基准行情当日没有可用的前一日基金净值", indexQuote)
+        val baseNavAge = runCatching {
+            ChronoUnit.DAYS.between(LocalDate.parse(baseNav.day), LocalDate.parse(quoteDay))
+        }.getOrDefault(Long.MAX_VALUE)
+        if (baseNavAge > MAX_BASE_NAV_AGE_DAYS) {
+            return emptyResult(
+                profile,
+                FundEstimateGrade.UNAVAILABLE,
+                "最近公布净值距今 $baseNavAge 天，超过 $MAX_BASE_NAV_AGE_DAYS 天，暂不估算",
+                indexQuote
+            )
+        }
+
+        val fundReturns = fundReturns(profile.navHistory)
+        val benchmarkReturns = shiftReturnsByLag(indexReturns(indexBars), spec.lagDays)
+        val paired = fundReturns.keys.intersect(benchmarkReturns.keys).sorted()
+            .filter { it < quoteDay }
+            .mapNotNull { day ->
+                val fundReturn = fundReturns[day] ?: return@mapNotNull null
+                val benchmarkReturn = benchmarkReturns[day] ?: return@mapNotNull null
+                if (fundReturn.isFinite() && benchmarkReturn.isFinite()) {
+                    ReturnPair(day, benchmarkReturn, fundReturn)
+                } else null
+            }
+        if (paired.size < TRAINING_WINDOW + MIN_VALIDATION_COUNT) {
+            return emptyResult(
+                profile,
+                FundEstimateGrade.UNAVAILABLE,
+                "对齐净值与${spec.label}历史不足 ${TRAINING_WINDOW + MIN_VALIDATION_COUNT} 个交易日",
+                indexQuote,
+                coverage = coveragePct(paired.size, profile.navHistory.size)
+            )
+        }
+
+        val validationStart = (paired.size - VALIDATION_WINDOW).coerceAtLeast(TRAINING_WINDOW)
+        val residualStart = (paired.size - MAX_OOS_RESIDUAL_SAMPLES_PER_REFRESH).coerceAtLeast(TRAINING_WINDOW)
+        val walkForwardPredictions = mutableListOf<OosPrediction>()
+        val validationPredictions = mutableListOf<OosPrediction>()
+        for (index in residualStart until paired.size) {
+            val model = fit(paired.subList(index - TRAINING_WINDOW, index)) ?: continue
+            val point = paired[index]
+            val prediction = OosPrediction(point.day, model.predict(point.indexPct), point.fundPct)
+            walkForwardPredictions += prediction
+            if (index >= validationStart) validationPredictions += prediction
+        }
+        if (validationPredictions.size < MIN_VALIDATION_COUNT) {
+            return emptyResult(
+                profile,
+                FundEstimateGrade.UNAVAILABLE,
+                "样本外验证数据不足，暂不显示估算数字",
+                indexQuote,
+                coverage = coveragePct(paired.size, profile.navHistory.size)
+            )
+        }
+
+        val mae = validationPredictions.sumOf { abs(it.actualPct - it.predictedPct) } / validationPredictions.size
+        val mse = validationPredictions.sumOf {
+            (it.actualPct - it.predictedPct) * (it.actualPct - it.predictedPct)
+        } / validationPredictions.size
+        val zeroBaselineMae = validationPredictions.sumOf { abs(it.actualPct) } / validationPredictions.size
+        val baselineMse = validationPredictions.sumOf { it.actualPct * it.actualPct } / validationPredictions.size
+        val rSquared = if (baselineMse > 1e-12) 1.0 - mse / baselineMse else null
+        val routeKey = "${spec.routePrefix}:${spec.benchmarkId}"
+        val calibrationSamples = residualSamples(profile.code, routeKey, walkForwardPredictions)
+        if (!mae.isFinite() || !mse.isFinite() || !zeroBaselineMae.isFinite() ||
+            rSquared == null || !rSquared.isFinite() || rSquared <= 0.0 || mae >= zeroBaselineMae
+        ) {
+            return emptyResult(
+                profile,
+                FundEstimateGrade.UNAVAILABLE,
+                "${spec.label}滚动样本外 MAE 未优于零收益基线，已暂停该估值路由",
+                indexQuote,
+                coverage = coveragePct(paired.size, profile.navHistory.size)
+            ).copy(calibrationRouteKey = routeKey, calibrationSamples = calibrationSamples)
+        }
+        val model = fit(paired.takeLast(TRAINING_WINDOW))
+            ?: return emptyResult(profile, FundEstimateGrade.UNAVAILABLE, "基准回归拟合失败", indexQuote)
+        val estimatePct = model.predict(indexQuote.changePct)
+        if (!estimatePct.isFinite()) {
+            return emptyResult(profile, FundEstimateGrade.UNAVAILABLE, "估算结果无效", indexQuote)
+        }
+        val fittedGrade = when {
+            rSquared >= spec.highRSquared && mae <= spec.highMaePct -> FundEstimateGrade.HIGH
+            rSquared >= spec.mediumRSquared || mae <= spec.mediumMaePct -> FundEstimateGrade.MEDIUM
+            else -> FundEstimateGrade.LOW
+        }
+        val grade = if (spec.maximumGrade != null && fittedGrade.ordinal < spec.maximumGrade.ordinal) {
+            spec.maximumGrade
+        } else {
+            fittedGrade
+        }
+        val reason = listOfNotNull(
+            if (grade == FundEstimateGrade.LOW && spec.gradeReason == null) {
+                "近 ${validationPredictions.size} 个样本外交易日表现偏弱，请谨慎参考"
+            } else null,
+            spec.gradeReason
+        ).joinToString("；").ifEmpty { null }
+        return FundNavEstimate(
+            code = profile.code,
+            grade = grade,
+            method = spec.method,
+            estimatedChangePct = estimatePct,
+            lowerBoundPct = null,
+            upperBoundPct = null,
+            estimatedUnitNav = baseNav.unitNav * (1.0 + estimatePct / 100.0),
+            baseNavDate = baseNav.day,
+            trackingIndexId = spec.benchmarkId,
+            trackingIndexName = profile.trackingIndexName ?: profile.linkedEtfName
+                ?: FundBenchmarkDefaults.benchmarkName(spec.benchmarkId) ?: spec.label,
+            source = indexQuote.source,
+            sourceTime = indexQuote.quoteTime,
+            rSquared = rSquared,
+            outOfSampleMaePct = mae,
+            trainingCount = TRAINING_WINDOW,
+            validationCount = validationPredictions.size,
+            inputCoveragePct = coveragePct(paired.size, profile.navHistory.size),
+            reason = reason,
+            calibrationRouteKey = routeKey,
+            calibrationSamples = calibrationSamples
+        )
+    }
+
+    private fun shiftReturnsByLag(returns: Map<String, Double>, lagDays: Int): Map<String, Double> {
+        if (lagDays <= 0) return returns
+        return returns.mapNotNull { (day, value) ->
+            val date = runCatching { LocalDate.parse(day) }.getOrNull() ?: return@mapNotNull null
+            date.plusDays(lagDays.toLong()).toString() to value
+        }.toMap()
     }
 
     private fun estimateDisclosedHoldings(

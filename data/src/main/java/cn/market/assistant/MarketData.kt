@@ -44,7 +44,10 @@ object MarketInstrumentCatalog {
         MarketInstrument("1.512480", "半导体 ETF", "A股", "sh512480"),
         MarketInstrument("0.159869", "游戏 ETF", "A股", "sz159869"),
         MarketInstrument("0.159819", "人工智能 ETF", "A股", "sz159819"),
-        MarketInstrument("1.515880", "通信 ETF", "A股", "sh515880")
+        MarketInstrument("1.515880", "通信 ETF", "A股", "sh515880"),
+        MarketInstrument("1.000012", "上证国债指数", "债券", "sh000012"),
+        MarketInstrument("1.000013", "上证企债指数", "债券", "sh000013"),
+        MarketInstrument("1.000832", "中证转债", "债券", "sh000832")
     )
     val byId = items.associateBy { it.secid }
     val indices = items.take(11)
@@ -77,6 +80,13 @@ object MarketApi {
     const val GOLD_SPOT_ID = "GOLD.XAU.USD.OZ"
     const val GOLD_CNY_GRAM_ID = "GOLD.XAU.CNY.GRAM"
     private const val TROY_OUNCE_GRAMS = 31.1034768
+
+    /** Total budget for sequential per-instrument fallbacks so one blocked provider cannot stall a refresh. */
+    private const val FALLBACK_BUDGET_MILLIS = 15_000L
+    private const val MIN_REQUEST_BUDGET_MILLIS = 5_000L
+
+    private fun hasBudget(deadlineMillis: Long): Boolean =
+        deadlineMillis - System.currentTimeMillis() >= MIN_REQUEST_BUDGET_MILLIS
 
     fun fetchQuotes(): List<MarketQuote> = fetchQuotesWithDiagnostics().quotes
 
@@ -128,8 +138,15 @@ object MarketApi {
         val primary = (eastMoneyQuotes + tencentRows).associateBy { it.secid }.toMutableMap()
         val missingYahoo = MarketInstrumentCatalog.items.filter { it.yahooSymbol != null && it.secid !in primary }
         if (missingYahoo.isNotEmpty()) {
+            // A blocked provider must not stall the whole refresh: bound the sequential fallback.
+            val deadline = System.currentTimeMillis() + FALLBACK_BUDGET_MILLIS
             var yahooFailures = 0
+            var yahooSkipped = 0
             missingYahoo.forEach { instrument ->
+                if (!hasBudget(deadline)) {
+                    yahooSkipped++
+                    return@forEach
+                }
                 val result = runCatching { fetchYahooQuote(instrument) }
                 val quote = result.getOrNull()
                 if (quote == null) yahooFailures++ else primary[quote.secid] = quote
@@ -137,17 +154,26 @@ object MarketApi {
             recordProvider(
                 source = "yahoo",
                 expectedCount = missingYahoo.size,
-                itemCount = missingYahoo.size - yahooFailures,
-                errorCount = yahooFailures,
-                errorCode = if (yahooFailures > 0) "SourceFailures" else null
+                itemCount = missingYahoo.size - yahooFailures - yahooSkipped,
+                errorCount = yahooFailures + yahooSkipped,
+                errorCode = when {
+                    yahooSkipped > 0 -> "BudgetExceeded"
+                    yahooFailures > 0 -> "SourceFailures"
+                    else -> null
+                }
             )
         }
         val proxyFallbacks = MarketInstrumentCatalog.sectorEtfProxies.mapNotNull { MarketInstrumentCatalog.byId[it.instrumentId] }
             .filter { it.secid !in primary }
         if (proxyFallbacks.isNotEmpty()) {
+            val deadline = System.currentTimeMillis() + FALLBACK_BUDGET_MILLIS
             var fallbackFailures = 0
             val fallbackQuotes = mutableListOf<MarketQuote>()
             proxyFallbacks.forEach { instrument ->
+                if (!hasBudget(deadline)) {
+                    fallbackFailures++
+                    return@forEach
+                }
                 val result = runCatching { fetchQuote(instrument.secid) }
                 val quote = result.getOrNull()
                 if (quote == null) fallbackFailures++ else {
@@ -240,19 +266,42 @@ object MarketApi {
     }
 
     fun fetchQuote(secid: String): MarketQuote {
-        val instrument = MarketInstrumentCatalog.byId[secid] ?: return fetchListedFundQuote(secid)
+        val instrument = MarketInstrumentCatalog.byId[secid]
+        if (instrument == null) {
+            // Bond benchmarks are resolved by exchange prefix instead of a fixed preset list.
+            val tencentCode = synthesizedTencentCode(secid)
+            if (tencentCode != null) {
+                runCatching { fetchTencentQuote(secid, secid, tencentCode) }.getOrNull()?.let { return it }
+            }
+            return fetchListedFundQuote(secid)
+        }
         if (instrument.yahooSymbol != null) runCatching { fetchYahooQuote(instrument) }.getOrNull()?.let { return it }
-        val raw = request("https://qt.gtimg.cn/q=${encode(instrument.tencentCode)}", "https://gu.qq.com/")
-        val matcher = Pattern.compile("v_([^=]+)=\\\"(.*?)\\\";", Pattern.DOTALL).matcher(raw)
+        return fetchTencentQuote(secid, instrument.name, instrument.tencentCode)
+    }
+
+    private fun fetchTencentQuote(secid: String, fallbackName: String, tencentCode: String): MarketQuote {
+        val raw = request("https://qt.gtimg.cn/q=${encode(tencentCode)}", "https://gu.qq.com/")
+        val matcher = Pattern.compile("v_([^=]+)=\"(.*?)\";", Pattern.DOTALL).matcher(raw)
         require(matcher.find()) { "腾讯行情暂不可用" }
         val fields = (matcher.group(2) ?: "").split('~')
         val price = fields.getOrNull(3)?.toDoubleOrNull()?.takeIf { it > 0 } ?: error("实时价格暂不可用")
         val change = fields.getOrNull(31)?.toDoubleOrNull() ?: 0.0
         val changePct = fields.getOrNull(32)?.toDoubleOrNull() ?: 0.0
+        val name = fields.getOrNull(1)?.takeIf { it.isNotBlank() } ?: fallbackName
         val fetchedAt = System.currentTimeMillis() / 1000
-        return MarketQuote(secid, instrument.name, price, change, changePct, fetchedAt, fetchedAt, "tencent")
+        return MarketQuote(secid, name, price, change, changePct, fetchedAt, fetchedAt, "tencent")
     }
 
+    /** Resolves `1.000012` / `0.399001` style secids to Tencent codes without a preset entry. */
+    internal fun synthesizedTencentCode(secid: String): String? {
+        val parts = secid.split('.')
+        if (parts.size != 2 || !parts[1].matches(Regex("\\d{6}"))) return null
+        return when (parts[0]) {
+            "1" -> "sh${parts[1]}"
+            "0" -> "sz${parts[1]}"
+            else -> null
+        }
+    }
     fun fetchListedFundQuote(secid: String): MarketQuote {
         val parts = secid.split('.')
         require(parts.size == 2 && parts[0] in setOf("0", "1") && parts[1].matches(Regex("\\d{6}"))) {
@@ -515,8 +564,9 @@ object MarketApi {
     }
 
     private fun fetchTencentChartBars(secid: String, period: ChartPeriod): List<MarketOhlcBar> {
-        val instrument = MarketInstrumentCatalog.byId[secid] ?: error("暂不支持该标的走势图")
-        val code = instrument.tencentCode
+        val code = MarketInstrumentCatalog.byId[secid]?.tencentCode
+            ?: synthesizedTencentCode(secid)
+            ?: error("暂不支持该标的走势图")
         val rows = if (period == ChartPeriod.INTRADAY || period == ChartPeriod.FIVE_DAY) {
             val param = encode("$code,m30,,320")
             val raw = request("https://proxy.finance.qq.com/ifzqgtimg/appstock/app/kline/mkline?param=$param", "https://gu.qq.com/")

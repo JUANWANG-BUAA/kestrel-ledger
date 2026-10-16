@@ -15,7 +15,9 @@ object ReadOnlyAgentTools {
     ): AgentToolRegistry = AgentToolRegistry(
         listOf(
             MarketQuoteAgentTool(marketRepository),
-            PortfolioPeriodReportAgentTool(LocalPortfolioReportRepository(ledger, ioDispatcher))
+            PortfolioPeriodReportAgentTool(LocalPortfolioReportRepository(ledger, ioDispatcher)),
+            LocalPortfolioAgentTool(ledger),
+            HttpFetchAgentTool()
         )
     )
 }

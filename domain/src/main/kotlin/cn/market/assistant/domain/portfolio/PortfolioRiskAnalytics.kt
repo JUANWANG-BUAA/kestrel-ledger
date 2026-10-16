@@ -1,5 +1,7 @@
 package cn.market.assistant.domain.portfolio
 
+import cn.market.assistant.domain.market.TradingCalendar
+import cn.market.assistant.domain.market.TradingDaySet
 import java.math.BigDecimal
 import java.math.RoundingMode
 import java.time.LocalDate
@@ -55,6 +57,11 @@ object PortfolioRiskAnalytics {
      * Describes the latest contiguous account return path. Annual rates are fractions (0.02 = 2%);
      * the defaults use a 0% risk-free rate and a 0% minimum acceptable return.
      */
+    /**
+     * @param sessionCalendar optional venue calendar reconstructed from index bars; when supplied and
+     * authoritative it replaces the weekday rule for the account path, so a national holiday is not
+     * reported as a missing snapshot.
+     */
     fun trailingSummary(
         asOf: LocalDate,
         snapshots: List<PortfolioSnapshot>,
@@ -62,7 +69,8 @@ object PortfolioRiskAnalytics {
         trades: List<Trade>,
         cashEvents: List<AccountCashEvent>,
         riskFreeAnnualRate: BigDecimal = BigDecimal.ZERO,
-        minimumAcceptableAnnualReturn: BigDecimal = BigDecimal.ZERO
+        minimumAcceptableAnnualReturn: BigDecimal = BigDecimal.ZERO,
+        sessionCalendar: TradingDaySet? = null
     ): PortfolioRiskSummary {
         require(riskFreeAnnualRate > BigDecimal.ONE.negate()) { "无风险年利率必须大于 -100%" }
         require(minimumAcceptableAnnualReturn > BigDecimal.ONE.negate()) { "目标年收益率必须大于 -100%" }
@@ -71,7 +79,8 @@ object PortfolioRiskAnalytics {
             .filter { it.valid && !it.day.isAfter(asOf) }
             .groupBy { it.day }
             .mapValues { (_, sameDay) -> sameDay.maxBy { it.observedAt } }
-        val lastWeekday = weekdayOnOrBefore(asOf)
+        val lastWeekday = TradingCalendar.previousTradingDay(sessionCalendar, asOf.plusDays(1))
+            ?: weekdayOnOrBefore(asOf)
         val closing = snapshotsByDay[lastWeekday]
             ?: return PortfolioRiskSummary(missingReason = "缺少最近交易日 $lastWeekday 的组合观察快照")
         if (!closing.accountComplete) {
@@ -82,26 +91,27 @@ object PortfolioRiskAnalytics {
         }
 
         val descendingPath = mutableListOf<PortfolioSnapshot>()
-        var cursor = lastWeekday
+        var cursor: LocalDate? = lastWeekday
         var pathBreakReason: String? = null
-        while (descendingPath.size < RISK_WINDOW_RETURNS + 1) {
-            if (isWeekday(cursor)) {
-                val snapshot = snapshotsByDay[cursor]
-                if (snapshot == null) {
-                    pathBreakReason = "缺少 $cursor 的连续交易日快照"
-                    break
-                }
-                if (!snapshot.accountComplete) {
-                    pathBreakReason = "$cursor 的账户现金或持仓估值不完整"
-                    break
-                }
-                if (!snapshot.valuationFresh) {
-                    pathBreakReason = "$cursor 的行情报价过期或不完整"
-                    break
-                }
-                descendingPath += snapshot
+        while (descendingPath.size < RISK_WINDOW_RETURNS + 1 && cursor != null) {
+            val session = cursor
+            val snapshot = snapshotsByDay[session]
+            if (snapshot == null) {
+                pathBreakReason = "缺少 $session 的连续交易日快照"
+                break
             }
-            cursor = cursor.minusDays(1)
+            if (!snapshot.accountComplete) {
+                pathBreakReason = "$session 的账户现金或持仓估值不完整"
+                break
+            }
+            if (!snapshot.valuationFresh) {
+                pathBreakReason = "$session 的行情报价过期或不完整"
+                break
+            }
+            descendingPath += snapshot
+            val previousSession = TradingCalendar.previousTradingDay(sessionCalendar, session)
+                ?: weekdayBefore(session)
+            cursor = previousSession.takeIf { it.isBefore(session) }
         }
         val path = descendingPath.asReversed()
         val returns = mutableListOf<Pair<LocalDate, Double>>()
@@ -371,6 +381,13 @@ object PortfolioRiskAnalytics {
         DayOfWeek.SATURDAY -> day.minusDays(1)
         DayOfWeek.SUNDAY -> day.minusDays(2)
         else -> day
+    }
+
+    private fun weekdayBefore(day: LocalDate): LocalDate = when (day.dayOfWeek) {
+        DayOfWeek.MONDAY -> day.minusDays(3)
+        DayOfWeek.SUNDAY -> day.minusDays(2)
+        DayOfWeek.SATURDAY -> day.minusDays(1)
+        else -> day.minusDays(1)
     }
 
     private fun isWeekday(day: LocalDate): Boolean = day.dayOfWeek.value <= DayOfWeek.FRIDAY.value

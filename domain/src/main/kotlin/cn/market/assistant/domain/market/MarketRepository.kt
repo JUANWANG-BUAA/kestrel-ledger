@@ -38,6 +38,13 @@ interface MarketRepository {
     /** Downloads and atomically caches a complete industry/concept board snapshot. */
     suspend fun refreshMarketBoards(type: MarketBoardType): MarketBoardSnapshot
 
+    /** Reads cached constituents for one board, if present. */
+    suspend fun cachedBoardMembers(boardId: String): MarketBoardMemberSnapshot? = null
+
+    /** Downloads the largest constituents of one board and caches the snapshot. */
+    suspend fun refreshBoardMembers(boardId: String, boardName: String): MarketBoardMemberSnapshot =
+        throw UnsupportedOperationException("Board constituents are not available")
+
     /** Reads one cached OHLC series and the timestamp of its latest cached bar. */
     suspend fun cachedChart(secid: String, period: ChartPeriod): CachedMarketChart
 

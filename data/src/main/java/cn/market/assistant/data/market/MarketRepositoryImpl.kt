@@ -9,6 +9,7 @@ import cn.market.assistant.domain.market.DataFetchStatus
 import cn.market.assistant.domain.market.DataSourceRun
 import cn.market.assistant.domain.market.DailyHistoryCoverage
 import cn.market.assistant.domain.market.DailyHistoryGapBackfillResult
+import cn.market.assistant.domain.market.MarketBoardMemberSnapshot
 import cn.market.assistant.domain.market.MarketBoardSnapshot
 import cn.market.assistant.domain.market.MarketBoardType
 import cn.market.assistant.domain.market.MarketOhlcBar
@@ -355,6 +356,39 @@ class MarketRepositoryImpl(
             throw error
         }
     }
+
+    override suspend fun cachedBoardMembers(boardId: String): MarketBoardMemberSnapshot? = withContext(ioDispatcher) {
+        ledger.marketBoardMemberSnapshot(boardId)
+    }
+
+    override suspend fun refreshBoardMembers(boardId: String, boardName: String): MarketBoardMemberSnapshot =
+        withContext(ioDispatcher) {
+            val requestedAt = System.currentTimeMillis() / 1000
+            try {
+                val snapshot = EastMoneyBoardDataSource.fetchMembers(boardId, boardName)
+                ledger.saveMarketBoardMemberSnapshot(snapshot)
+                ledger.recordDataSourceRun(
+                    source = snapshot.source,
+                    dataset = "board-members",
+                    status = if (snapshot.isTruncated) DataFetchStatus.PARTIAL else DataFetchStatus.SUCCESS,
+                    itemCount = snapshot.members.size,
+                    expectedCount = snapshot.totalCount,
+                    errorCode = if (snapshot.isTruncated) "TruncatedPage" else null,
+                    requestedAt = requestedAt
+                )
+                snapshot
+            } catch (error: Exception) {
+                if (error !is CancellationException) ledger.recordDataSourceRun(
+                    source = "eastmoney-board",
+                    dataset = "board-members",
+                    status = DataFetchStatus.FAILURE,
+                    itemCount = 0,
+                    errorCode = error.javaClass.simpleName,
+                    requestedAt = requestedAt
+                )
+                throw error
+            }
+        }
 
     override suspend fun cachedChart(secid: String, period: ChartPeriod): CachedMarketChart = withContext(ioDispatcher) {
         CachedMarketChart(

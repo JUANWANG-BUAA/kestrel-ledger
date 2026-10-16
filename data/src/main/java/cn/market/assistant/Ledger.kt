@@ -14,6 +14,21 @@ import cn.market.assistant.domain.portfolio.AccountCashEventType
 import cn.market.assistant.domain.portfolio.AccountCashLedger
 import cn.market.assistant.domain.market.MarketBoard
 import cn.market.assistant.domain.market.MarketBoardSnapshot
+import cn.market.assistant.domain.market.MarketBoardMember
+import cn.market.assistant.domain.market.MarketBoardMemberSnapshot
+import cn.market.assistant.domain.assistant.AssistantMemoryStore
+import cn.market.assistant.domain.assistant.AssistantSkill
+import cn.market.assistant.domain.assistant.AssistantSkillStore
+import cn.market.assistant.domain.assistant.AssistantWorkflow
+import cn.market.assistant.domain.assistant.AssistantWorkflowStore
+import cn.market.assistant.domain.assistant.MemoryEvent
+import cn.market.assistant.domain.assistant.MemoryKind
+import cn.market.assistant.domain.assistant.WorkflowCodec
+import cn.market.assistant.domain.assistant.WorkflowStatus
+import cn.market.assistant.domain.alert.AlertEvent
+import cn.market.assistant.domain.alert.AlertRule
+import cn.market.assistant.domain.alert.AlertRuleKind
+import cn.market.assistant.domain.alert.AlertRuleStore
 import cn.market.assistant.domain.market.MarketBoardType
 import cn.market.assistant.domain.portfolio.AccountCashRepository
 import cn.market.assistant.domain.portfolio.PortfolioAnalytics
@@ -42,7 +57,8 @@ import java.time.ZoneId
 
 data class MarketBar(val day: String, val close: Double)
 
-class Ledger(context: Context) : AccountCashRepository {
+class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, AssistantMemoryStore,
+    AssistantWorkflowStore, AlertRuleStore {
     private val appContext = context.applicationContext
     private val helper = LedgerOpenHelper(
         appContext,
@@ -63,7 +79,7 @@ class Ledger(context: Context) : AccountCashRepository {
         LedgerDatabaseEncryption.DATABASE_NAME,
         passphrase,
         null,
-        21,
+        24,
         0,
         LedgerDatabaseEncryption.errorHandler(),
         null,
@@ -146,6 +162,12 @@ class Ledger(context: Context) : AccountCashRepository {
         if (oldVersion < 21 && !hasColumn(db, "market_chart_bars", "source")) {
             db.execSQL("ALTER TABLE market_chart_bars ADD COLUMN source TEXT NOT NULL DEFAULT ''")
         }
+        if (oldVersion < 22) createMarketBoardMemberSchema(db)
+        if (oldVersion < 23) {
+            createAssistantSchema(db)
+            seedAssistantSkills(db)
+        }
+        if (oldVersion < 24) createAlertSchema(db)
     }
 
     private fun createSchema(db: SQLiteDatabase) {
@@ -165,13 +187,17 @@ class Ledger(context: Context) : AccountCashRepository {
         createManualGoldQuoteSchema(db)
         createMarketSchema(db)
         createMarketBoardSchema(db)
+        createMarketBoardMemberSchema(db)
         createMarketChartSchema(db)
         createDataSourceRunSchema(db)
         createFundNavSchema(db)
         createFundNavResidualSchema(db)
         createPortfolioSnapshotSchema(db)
         createAccountCashSchema(db)
+        createAssistantSchema(db)
+        createAlertSchema(db)
         seedWatchlist(db)
+        seedAssistantSkills(db)
     }
 
     private fun createQuoteHistory(db: SQLiteDatabase) {
@@ -217,6 +243,336 @@ class Ledger(context: Context) : AccountCashRepository {
         db.execSQL("""CREATE TABLE IF NOT EXISTS market_board_snapshots (
             board_type TEXT PRIMARY KEY, expected_count INTEGER NOT NULL, fetched_at INTEGER NOT NULL,
             source TEXT NOT NULL)""")
+    }
+
+    private fun createAssistantSchema(db: SQLiteDatabase) {
+        db.execSQL("""CREATE TABLE IF NOT EXISTS assistant_skills (
+            id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT NOT NULL, instructions TEXT NOT NULL,
+            tool_ids TEXT NOT NULL DEFAULT '', trigger_words TEXT NOT NULL DEFAULT '',
+            enabled INTEGER NOT NULL DEFAULT 1, usage_count INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)""")
+        db.execSQL("""CREATE TABLE IF NOT EXISTS assistant_memory_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, key TEXT NOT NULL,
+            at_millis INTEGER NOT NULL, weight REAL NOT NULL DEFAULT 1)""")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_assistant_memory_kind ON assistant_memory_events(kind,at_millis DESC)")
+        db.execSQL("""CREATE TABLE IF NOT EXISTS assistant_workflows (
+            id TEXT PRIMARY KEY, title TEXT NOT NULL, status TEXT NOT NULL, turns TEXT NOT NULL,
+            created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)""")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_assistant_workflows_updated ON assistant_workflows(updated_at DESC)")
+    }
+
+    private fun seedAssistantSkills(db: SQLiteDatabase) {
+        val count = db.rawQuery("SELECT COUNT(*) FROM assistant_skills", null).use { cursor ->
+            if (cursor.moveToFirst()) cursor.getLong(0) else 0L
+        }
+        if (count > 0) return
+        val now = System.currentTimeMillis()
+        val seeds = listOf(
+            AssistantSkill(
+                id = "weekly-review",
+                name = "周报复盘",
+                description = "每周收益、回撤与配置变化",
+                instructions = "1. 先用 portfolio.period_report 取本周事实（盈亏、TWR、最大回撤、贡献）。\n" +
+                    "2. 再对比基准与上周配置变化。\n" +
+                    "3. 最后单列数据缺口与不确定项，不给操作建议。",
+                toolIds = listOf("portfolio.period_report", "market.quote"),
+                triggerWords = listOf("周报", "本周", "复盘", "这周"),
+                createdAtMillis = now,
+                updatedAtMillis = now
+            ),
+            AssistantSkill(
+                id = "valuation-check",
+                name = "估值解读",
+                description = "解读基金盘中估算、误差区间与降级原因",
+                instructions = "解释估值方法与样本外误差，说明何时不给数字；把估算明确标为「估算，非官方净值」，" +
+                    "不预测涨跌。",
+                toolIds = listOf("market.quote", "web.fetch"),
+                triggerWords = listOf("估值", "估算", "盘中"),
+                createdAtMillis = now,
+                updatedAtMillis = now
+            ),
+            AssistantSkill(
+                id = "risk-review",
+                name = "风险体检",
+                description = "持仓集中度、相关性与尾部风险",
+                instructions = "读取本地持仓与快照，列出集中度、前几大持仓与相关性；样本不足时明确说需要多少交易日，" +
+                    "不把风险统计说成预测。",
+                toolIds = listOf("portfolio.positions", "portfolio.period_report"),
+                triggerWords = listOf("风险", "回撤", "集中度", "相关性"),
+                createdAtMillis = now,
+                updatedAtMillis = now
+            ),
+            AssistantSkill(
+                id = "gold-watch",
+                name = "黄金跟踪",
+                description = "国内外金价、溢价与持仓折算",
+                instructions = "用 web.fetch 或 market.quote 取金价，列出币种/单位/来源/时点；" +
+                    "银行报价只能引用用户录入或标定值，不得用国际金价反推。",
+                toolIds = listOf("market.quote", "web.fetch", "portfolio.positions"),
+                triggerWords = listOf("黄金", "金价", "积存金"),
+                createdAtMillis = now,
+                updatedAtMillis = now
+            )
+        )
+        seeds.forEach { skill ->
+            db.insertWithOnConflict("assistant_skills", null, assistantSkillValues(skill), SQLiteDatabase.CONFLICT_IGNORE)
+        }
+    }
+
+    private fun assistantSkillValues(skill: AssistantSkill) = ContentValues().apply {
+        put("id", skill.id)
+        put("name", skill.name)
+        put("description", skill.description)
+        put("instructions", skill.instructions)
+        put("tool_ids", skill.toolIds.joinToString(","))
+        put("trigger_words", skill.triggerWords.joinToString(","))
+        put("enabled", if (skill.enabled) 1 else 0)
+        put("usage_count", skill.usageCount)
+        put("created_at", skill.createdAtMillis)
+        put("updated_at", skill.updatedAtMillis)
+    }
+
+    override suspend fun skills(): List<AssistantSkill> = buildList {
+        readableDatabase.rawQuery(
+            """SELECT id,name,description,instructions,tool_ids,trigger_words,enabled,usage_count,
+                created_at,updated_at FROM assistant_skills ORDER BY updated_at DESC""",
+            null
+        ).use { cursor ->
+            while (cursor.moveToNext()) add(
+                AssistantSkill(
+                    id = cursor.getString(0),
+                    name = cursor.getString(1),
+                    description = cursor.getString(2),
+                    instructions = cursor.getString(3),
+                    toolIds = cursor.getString(4).split(',').map { it.trim() }.filter { it.isNotBlank() },
+                    triggerWords = cursor.getString(5).split(',').map { it.trim() }.filter { it.isNotBlank() },
+                    enabled = cursor.getInt(6) == 1,
+                    usageCount = cursor.getInt(7),
+                    createdAtMillis = cursor.getLong(8),
+                    updatedAtMillis = cursor.getLong(9)
+                )
+            )
+        }
+    }
+
+    override suspend fun upsertSkill(skill: AssistantSkill): AssistantSkill {
+        require(skill.id.isNotBlank() && skill.id.matches(Regex("[a-z][a-z0-9_-]{1,48}"))) { "技能 ID 需为小写字母开头" }
+        require(skill.name.isNotBlank()) { "技能名称不能为空" }
+        val stored = skill.copy(updatedAtMillis = System.currentTimeMillis())
+        writableDatabase.insertWithOnConflict(
+            "assistant_skills", null, assistantSkillValues(stored), SQLiteDatabase.CONFLICT_REPLACE
+        )
+        return stored
+    }
+
+    override suspend fun deleteSkill(id: String) {
+        writableDatabase.delete("assistant_skills", "id=?", arrayOf(id))
+    }
+
+    override suspend fun recordSkillUse(id: String, atMillis: Long) {
+        writableDatabase.execSQL(
+            "UPDATE assistant_skills SET usage_count=usage_count+1, updated_at=? WHERE id=?",
+            arrayOf<Any>(atMillis, id)
+        )
+    }
+
+    override suspend fun recordMemory(event: MemoryEvent) {
+        if (event.key.isBlank()) return
+        writableDatabase.insert("assistant_memory_events", null, ContentValues().apply {
+            put("kind", event.kind.name)
+            put("key", event.key.take(200))
+            put("at_millis", event.atMillis)
+            put("weight", event.weight)
+        })
+    }
+
+    override suspend fun memoryEvents(limit: Int): List<MemoryEvent> = buildList {
+        readableDatabase.rawQuery(
+            "SELECT kind,key,at_millis,weight FROM assistant_memory_events ORDER BY id DESC LIMIT ?",
+            arrayOf(limit.coerceIn(1, 5_000).toString())
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                val kind = runCatching { MemoryKind.valueOf(cursor.getString(0)) }.getOrNull() ?: continue
+                add(MemoryEvent(kind, cursor.getString(1), cursor.getLong(2), cursor.getDouble(3)))
+            }
+        }
+    }
+
+    override suspend fun clearMemory() {
+        writableDatabase.delete("assistant_memory_events", null, null)
+    }
+
+    override suspend fun workflows(limit: Int): List<AssistantWorkflow> = buildList {
+        readableDatabase.rawQuery(
+            "SELECT id,title,status,turns,created_at,updated_at FROM assistant_workflows " +
+                "WHERE status != ? ORDER BY updated_at DESC LIMIT ?",
+            arrayOf(WorkflowStatus.ARCHIVED.name, limit.coerceIn(1, 200).toString())
+        ).use { cursor ->
+            while (cursor.moveToNext()) add(readWorkflow(cursor))
+        }
+    }
+
+    override suspend fun workflow(id: String): AssistantWorkflow? =
+        readableDatabase.rawQuery(
+            "SELECT id,title,status,turns,created_at,updated_at FROM assistant_workflows WHERE id=?",
+            arrayOf(id)
+        ).use { cursor -> if (cursor.moveToFirst()) readWorkflow(cursor) else null }
+
+    override suspend fun upsertWorkflow(workflow: AssistantWorkflow) {
+        require(workflow.id.isNotBlank()) { "工作流 ID 不能为空" }
+        val stored = workflow.copy(
+            title = workflow.title.take(120).ifBlank { "未命名会话" },
+            updatedAtMillis = System.currentTimeMillis()
+        )
+        writableDatabase.insertWithOnConflict("assistant_workflows", null, ContentValues().apply {
+            put("id", stored.id)
+            put("title", stored.title)
+            put("status", stored.status.name)
+            put("turns", WorkflowCodec.encode(stored.turns))
+            put("created_at", stored.createdAtMillis)
+            put("updated_at", stored.updatedAtMillis)
+        }, SQLiteDatabase.CONFLICT_REPLACE)
+    }
+
+    override suspend fun deleteWorkflow(id: String) {
+        writableDatabase.delete("assistant_workflows", "id=?", arrayOf(id))
+    }
+
+    override suspend fun clearWorkflows() {
+        writableDatabase.delete("assistant_workflows", null, null)
+    }
+
+    private fun readWorkflow(cursor: android.database.Cursor): AssistantWorkflow = AssistantWorkflow(
+        id = cursor.getString(0),
+        title = cursor.getString(1),
+        status = runCatching { WorkflowStatus.valueOf(cursor.getString(2)) }.getOrDefault(WorkflowStatus.ACTIVE),
+        turns = WorkflowCodec.decode(cursor.getString(3)),
+        createdAtMillis = cursor.getLong(4),
+        updatedAtMillis = cursor.getLong(5)
+    )
+
+    private fun createAlertSchema(db: SQLiteDatabase) {
+        db.execSQL("""CREATE TABLE IF NOT EXISTS alert_rules (
+            id TEXT PRIMARY KEY, kind TEXT NOT NULL, target_id TEXT, target_label TEXT,
+            threshold REAL NOT NULL, enabled INTEGER NOT NULL DEFAULT 1,
+            required_breaches INTEGER NOT NULL DEFAULT 1, cooldown_minutes INTEGER NOT NULL DEFAULT 60,
+            quiet_start INTEGER, quiet_end INTEGER, last_fired_at INTEGER NOT NULL DEFAULT 0,
+            trigger_count INTEGER NOT NULL DEFAULT 0, consecutive_breaches INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, note TEXT NOT NULL DEFAULT '')""")
+        db.execSQL("""CREATE TABLE IF NOT EXISTS alert_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, rule_id TEXT NOT NULL, rule_kind TEXT NOT NULL,
+            title TEXT NOT NULL, body TEXT NOT NULL, fired_at INTEGER NOT NULL, target_value REAL)""")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_alert_events_time ON alert_events(fired_at DESC)")
+    }
+
+    override suspend fun alertRules(): List<AlertRule> = buildList {
+        readableDatabase.rawQuery(
+            """SELECT id,kind,target_id,target_label,threshold,enabled,required_breaches,cooldown_minutes,
+                quiet_start,quiet_end,last_fired_at,trigger_count,consecutive_breaches,created_at,updated_at,note
+                FROM alert_rules ORDER BY updated_at DESC""",
+            null
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                val kind = runCatching { AlertRuleKind.valueOf(cursor.getString(1)) }.getOrNull() ?: continue
+                add(
+                    AlertRule(
+                        id = cursor.getString(0),
+                        kind = kind,
+                        targetId = cursor.getString(2),
+                        targetLabel = cursor.getString(3),
+                        threshold = cursor.getDouble(4),
+                        enabled = cursor.getInt(5) == 1,
+                        requiredBreaches = cursor.getInt(6),
+                        cooldownMinutes = cursor.getInt(7),
+                        quietStartHour = if (cursor.isNull(8)) null else cursor.getInt(8),
+                        quietEndHour = if (cursor.isNull(9)) null else cursor.getInt(9),
+                        lastFiredAtMillis = cursor.getLong(10),
+                        triggerCount = cursor.getInt(11),
+                        consecutiveBreaches = cursor.getInt(12),
+                        createdAtMillis = cursor.getLong(13),
+                        updatedAtMillis = cursor.getLong(14),
+                        note = cursor.getString(15)
+                    )
+                )
+            }
+        }
+    }
+
+    override suspend fun upsertAlertRule(rule: AlertRule) {
+        require(rule.id.isNotBlank()) { "提醒规则 ID 不能为空" }
+        require(rule.threshold.isFinite()) { "提醒阈值必须是有限数" }
+        writableDatabase.insertWithOnConflict("alert_rules", null, ContentValues().apply {
+            put("id", rule.id)
+            put("kind", rule.kind.name)
+            rule.targetId?.let { put("target_id", it) } ?: putNull("target_id")
+            rule.targetLabel?.let { put("target_label", it) } ?: putNull("target_label")
+            put("threshold", rule.threshold)
+            put("enabled", if (rule.enabled) 1 else 0)
+            put("required_breaches", rule.requiredBreaches.coerceIn(1, 10))
+            put("cooldown_minutes", rule.cooldownMinutes.coerceIn(0, 10_080))
+            rule.quietStartHour?.let { put("quiet_start", it.coerceIn(0, 23)) } ?: putNull("quiet_start")
+            rule.quietEndHour?.let { put("quiet_end", it.coerceIn(0, 23)) } ?: putNull("quiet_end")
+            put("last_fired_at", rule.lastFiredAtMillis)
+            put("trigger_count", rule.triggerCount)
+            put("consecutive_breaches", rule.consecutiveBreaches)
+            put("created_at", rule.createdAtMillis)
+            put("updated_at", System.currentTimeMillis())
+            put("note", rule.note.take(200))
+        }, SQLiteDatabase.CONFLICT_REPLACE)
+    }
+
+    override suspend fun deleteAlertRule(id: String) {
+        writableDatabase.delete("alert_rules", "id=?", arrayOf(id))
+    }
+
+    override suspend fun alertEvents(limit: Int): List<AlertEvent> = buildList {
+        readableDatabase.rawQuery(
+            "SELECT id,rule_id,rule_kind,title,body,fired_at,target_value FROM alert_events " +
+                "ORDER BY fired_at DESC LIMIT ?",
+            arrayOf(limit.coerceIn(1, 500).toString())
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                val kind = runCatching { AlertRuleKind.valueOf(cursor.getString(2)) }.getOrNull() ?: continue
+                add(
+                    AlertEvent(
+                        id = cursor.getLong(0),
+                        ruleId = cursor.getString(1),
+                        ruleKind = kind,
+                        title = cursor.getString(3),
+                        body = cursor.getString(4),
+                        firedAtMillis = cursor.getLong(5),
+                        targetValue = if (cursor.isNull(6)) null else cursor.getDouble(6)
+                    )
+                )
+            }
+        }
+    }
+
+    override suspend fun recordAlertEvent(event: AlertEvent) {
+        writableDatabase.insert("alert_events", null, ContentValues().apply {
+            put("rule_id", event.ruleId)
+            put("rule_kind", event.ruleKind.name)
+            put("title", event.title)
+            put("body", event.body)
+            put("fired_at", event.firedAtMillis)
+            event.targetValue?.let { put("target_value", it) } ?: putNull("target_value")
+        })
+    }
+
+    override suspend fun clearAlertEvents() {
+        writableDatabase.delete("alert_events", null, null)
+    }
+
+    private fun createMarketBoardMemberSchema(db: SQLiteDatabase) {
+        db.execSQL("""CREATE TABLE IF NOT EXISTS market_board_members (
+            board_id TEXT NOT NULL, secid TEXT NOT NULL, code TEXT NOT NULL, name TEXT NOT NULL,
+            price REAL NOT NULL, change_pct REAL NOT NULL, turnover_rate_pct REAL, market_cap REAL,
+            quote_time INTEGER NOT NULL, fetched_at INTEGER NOT NULL, source TEXT NOT NULL,
+            PRIMARY KEY(board_id, secid))""")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_board_members_change ON market_board_members(board_id,change_pct)")
+        db.execSQL("""CREATE TABLE IF NOT EXISTS market_board_member_snapshots (
+            board_id TEXT PRIMARY KEY, board_name TEXT NOT NULL, total_count INTEGER NOT NULL,
+            fetched_at INTEGER NOT NULL, source TEXT NOT NULL)""")
     }
 
     private fun createDataSourceRunSchema(db: SQLiteDatabase) {
@@ -725,6 +1081,80 @@ class Ledger(context: Context) : AccountCashRepository {
             db.insertWithOnConflict("market_board_snapshots", null, ContentValues().apply {
                 put("board_type", snapshot.type.name)
                 put("expected_count", snapshot.expectedCount)
+                put("fetched_at", snapshot.fetchedAt)
+                put("source", snapshot.source)
+            }, SQLiteDatabase.CONFLICT_REPLACE)
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    fun marketBoardMemberSnapshot(boardId: String): MarketBoardMemberSnapshot? {
+        val metadata = readableDatabase.rawQuery(
+            "SELECT board_name,total_count,fetched_at,source FROM market_board_member_snapshots WHERE board_id=?",
+            arrayOf(boardId)
+        ).use { cursor ->
+            if (!cursor.moveToFirst()) return null
+            listOf(cursor.getString(0), cursor.getInt(1), cursor.getLong(2), cursor.getString(3))
+        }
+        val members = buildList {
+            readableDatabase.rawQuery(
+                """SELECT secid,code,name,price,change_pct,turnover_rate_pct,market_cap,quote_time,fetched_at,source
+                    FROM market_board_members WHERE board_id=? ORDER BY market_cap DESC""",
+                arrayOf(boardId)
+            ).use { cursor ->
+                while (cursor.moveToNext()) add(
+                    MarketBoardMember(
+                        secid = cursor.getString(0),
+                        code = cursor.getString(1),
+                        name = cursor.getString(2),
+                        price = cursor.getDouble(3),
+                        changePct = cursor.getDouble(4),
+                        turnoverRatePct = if (cursor.isNull(5)) null else cursor.getDouble(5),
+                        marketCap = if (cursor.isNull(6)) null else cursor.getDouble(6),
+                        quoteTime = cursor.getLong(7),
+                        fetchedAt = cursor.getLong(8),
+                        source = cursor.getString(9)
+                    )
+                )
+            }
+        }
+        return MarketBoardMemberSnapshot(
+            boardId = boardId,
+            boardName = metadata[0] as String,
+            members = members,
+            totalCount = metadata[1] as Int,
+            fetchedAt = metadata[2] as Long,
+            source = metadata[3] as String
+        )
+    }
+
+    fun saveMarketBoardMemberSnapshot(snapshot: MarketBoardMemberSnapshot) {
+        require(snapshot.members.isNotEmpty()) { "空的板块成分不能覆盖本地缓存" }
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            db.delete("market_board_members", "board_id=?", arrayOf(snapshot.boardId))
+            snapshot.members.forEach { member ->
+                db.insertOrThrow("market_board_members", null, ContentValues().apply {
+                    put("board_id", snapshot.boardId)
+                    put("secid", member.secid)
+                    put("code", member.code)
+                    put("name", member.name)
+                    put("price", member.price)
+                    put("change_pct", member.changePct)
+                    member.turnoverRatePct?.let { put("turnover_rate_pct", it) } ?: putNull("turnover_rate_pct")
+                    member.marketCap?.let { put("market_cap", it) } ?: putNull("market_cap")
+                    put("quote_time", member.quoteTime)
+                    put("fetched_at", member.fetchedAt)
+                    put("source", member.source)
+                })
+            }
+            db.insertWithOnConflict("market_board_member_snapshots", null, ContentValues().apply {
+                put("board_id", snapshot.boardId)
+                put("board_name", snapshot.boardName)
+                put("total_count", snapshot.totalCount)
                 put("fetched_at", snapshot.fetchedAt)
                 put("source", snapshot.source)
             }, SQLiteDatabase.CONFLICT_REPLACE)
