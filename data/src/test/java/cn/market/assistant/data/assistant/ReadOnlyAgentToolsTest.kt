@@ -7,6 +7,10 @@ import cn.market.assistant.domain.assistant.FactSensitivity
 import cn.market.assistant.domain.market.CachedMarketChart
 import cn.market.assistant.domain.market.ChartPeriod
 import cn.market.assistant.domain.market.MarketQuote
+import cn.market.assistant.domain.market.DataSourceRun
+import cn.market.assistant.domain.market.DailyHistoryCoverage
+import cn.market.assistant.domain.market.MarketBoardSnapshot
+import cn.market.assistant.domain.market.MarketBoardType
 import cn.market.assistant.domain.market.MarketRepository
 import cn.market.assistant.domain.market.QuoteRefreshResult
 import cn.market.assistant.domain.portfolio.PeriodContribution
@@ -139,9 +143,13 @@ class ReadOnlyAgentToolsTest {
             private set
 
         override suspend fun cachedQuotes() = quotes
+        override suspend fun dataSourceRuns(limit: Int) = emptyList<DataSourceRun>()
+        override suspend fun dailyHistoryCoverage() = emptyList<DailyHistoryCoverage>()
         override suspend fun refreshOverview(): QuoteRefreshResult { refreshCount++; error("refresh not expected") }
         override suspend fun refreshGold(): QuoteRefreshResult { refreshCount++; error("refresh not expected") }
         override suspend fun refreshQuote(secid: String): MarketQuote { refreshCount++; error("refresh not expected") }
+        override suspend fun cachedMarketBoards(type: MarketBoardType): MarketBoardSnapshot? = null
+        override suspend fun refreshMarketBoards(type: MarketBoardType): MarketBoardSnapshot { refreshCount++; error("refresh not expected") }
         override suspend fun cachedChart(secid: String, period: ChartPeriod) = CachedMarketChart(emptyList(), 0L)
         override suspend fun refreshChart(secid: String, period: ChartPeriod) = CachedMarketChart(emptyList(), 0L)
     }

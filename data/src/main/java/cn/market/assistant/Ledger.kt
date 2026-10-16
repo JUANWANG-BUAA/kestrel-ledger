@@ -1,6 +1,10 @@
 package cn.market.assistant
 
+import cn.market.assistant.backup.EncryptedBackup
 import cn.market.assistant.domain.market.MarketQuote
+import cn.market.assistant.domain.market.DataFetchStatus
+import cn.market.assistant.domain.market.DataSourceRun
+import cn.market.assistant.domain.market.DailyHistoryCoverage
 import cn.market.assistant.domain.market.ChartPeriod
 import cn.market.assistant.domain.market.MarketOhlcBar
 import cn.market.assistant.domain.portfolio.AssetInfo
@@ -8,18 +12,26 @@ import cn.market.assistant.domain.portfolio.AssetKind
 import cn.market.assistant.domain.portfolio.AccountCashEvent
 import cn.market.assistant.domain.portfolio.AccountCashEventType
 import cn.market.assistant.domain.portfolio.AccountCashLedger
+import cn.market.assistant.domain.market.MarketBoard
+import cn.market.assistant.domain.market.MarketBoardSnapshot
+import cn.market.assistant.domain.market.MarketBoardType
 import cn.market.assistant.domain.portfolio.AccountCashRepository
 import cn.market.assistant.domain.portfolio.PortfolioAnalytics
+import cn.market.assistant.domain.portfolio.PortfolioQuoteRouter
 import cn.market.assistant.domain.portfolio.PortfolioSnapshot
 import cn.market.assistant.domain.portfolio.Position
+import cn.market.assistant.domain.portfolio.ManualGoldQuote
 import cn.market.assistant.domain.portfolio.PositionSnapshot
 import cn.market.assistant.domain.portfolio.Trade
 import cn.market.assistant.domain.portfolio.TradeSide
+import cn.market.assistant.domain.fund.FundNavHistoryCache
+import cn.market.assistant.domain.fund.FundNavPoint
+import cn.market.assistant.domain.fund.FundNavResidualSample
 
 import android.content.ContentValues
 import android.content.Context
-import android.database.sqlite.SQLiteDatabase
-import android.database.sqlite.SQLiteOpenHelper
+import net.zetetic.database.sqlcipher.SQLiteDatabase
+import net.zetetic.database.sqlcipher.SQLiteOpenHelper
 import org.json.JSONArray
 import org.json.JSONObject
 import java.math.BigDecimal
@@ -30,15 +42,44 @@ import java.time.ZoneId
 
 data class MarketBar(val day: String, val close: Double)
 
-class Ledger(context: Context) : SQLiteOpenHelper(context, "market_ledger.db", null, 11), AccountCashRepository {
+class Ledger(context: Context) : AccountCashRepository {
     private val appContext = context.applicationContext
+    private val helper = LedgerOpenHelper(
+        appContext,
+        LedgerDatabaseEncryption.prepareAndGetPassphrase(appContext)
+    )
+    private val writableDatabase get() = helper.writableDatabase
+    private val readableDatabase get() = helper.readableDatabase
 
-    override fun onCreate(db: SQLiteDatabase) {
-        createSchema(db)
-        seedCatalog(db)
+    init {
+        // Opening and schema upgrades happen on the caller's thread; app entry points use IO.
+        LedgerDatabaseEncryption.withInitializationLock { helper.writableDatabase }
     }
 
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+    fun close() = helper.close()
+
+    private inner class LedgerOpenHelper(context: Context, passphrase: ByteArray) : SQLiteOpenHelper(
+        context,
+        LedgerDatabaseEncryption.DATABASE_NAME,
+        passphrase,
+        null,
+        21,
+        0,
+        LedgerDatabaseEncryption.errorHandler(),
+        null,
+        false
+    ) {
+        override fun onCreate(db: SQLiteDatabase) {
+            createSchema(db)
+            seedCatalog(db)
+        }
+
+        override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+            upgradeSchema(db, oldVersion, newVersion)
+        }
+    }
+
+    private fun upgradeSchema(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         if (oldVersion < 2) {
             db.execSQL("ALTER TABLE trades RENAME TO trades_v1")
             db.execSQL("ALTER TABLE quotes RENAME TO quotes_v1")
@@ -76,22 +117,58 @@ class Ledger(context: Context) : SQLiteOpenHelper(context, "market_ledger.db", n
         if (oldVersion < 9) addAccountValueSnapshotColumns(db)
         if (oldVersion < 10) addTwrBoundaryColumns(db)
         if (oldVersion < 11) addReversalAndSnapshotValidityColumns(db)
+        if (oldVersion < 12) createMarketBoardSchema(db)
+        if (oldVersion < 13 && !hasColumn(db, "transactions", "memo")) {
+            db.execSQL("ALTER TABLE transactions ADD COLUMN memo TEXT NOT NULL DEFAULT ''")
+        }
+        if (oldVersion < 14 && !hasColumn(db, "transactions", "share_factor")) {
+            db.execSQL("ALTER TABLE transactions ADD COLUMN share_factor TEXT")
+        }
+        if (oldVersion < 15) {
+            if (!hasColumn(db, "transactions", "related_asset_id")) {
+                db.execSQL("ALTER TABLE transactions ADD COLUMN related_asset_id TEXT")
+            }
+            if (!hasColumn(db, "transactions", "related_units")) {
+                db.execSQL("ALTER TABLE transactions ADD COLUMN related_units TEXT")
+            }
+        }
+        if (oldVersion < 16) createDataSourceRunSchema(db)
+        if (oldVersion < 17) createFundNavSchema(db)
+        if (oldVersion < 18) createFundNavResidualSchema(db)
+        if (oldVersion < 19) {
+            if (!hasColumn(db, "assets", "market_quote_secid")) {
+                db.execSQL("ALTER TABLE assets ADD COLUMN market_quote_secid TEXT")
+            }
+            db.execSQL("UPDATE assets SET market_quote_secid='GOLD.SGE.AU9999' WHERE id='GOLD.SGE.AU9999' AND kind='GOLD'")
+            db.execSQL("UPDATE assets SET market_quote_secid='1.518880' WHERE id='518880' AND kind='FUND'")
+        }
+        if (oldVersion < 20) createManualGoldQuoteSchema(db)
+        if (oldVersion < 21 && !hasColumn(db, "market_chart_bars", "source")) {
+            db.execSQL("ALTER TABLE market_chart_bars ADD COLUMN source TEXT NOT NULL DEFAULT ''")
+        }
     }
 
     private fun createSchema(db: SQLiteDatabase) {
         db.execSQL("""CREATE TABLE IF NOT EXISTS assets (
-            id TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL, category TEXT NOT NULL)""")
+            id TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL, category TEXT NOT NULL,
+            market_quote_secid TEXT)""")
         db.execSQL("""CREATE TABLE IF NOT EXISTS transactions (
             id INTEGER PRIMARY KEY AUTOINCREMENT, asset_id TEXT NOT NULL, side TEXT NOT NULL,
             day TEXT NOT NULL, amount TEXT NOT NULL, units TEXT, unit_price TEXT, fee TEXT NOT NULL,
-            status TEXT NOT NULL, reversed_at TEXT, reversal_reason TEXT)""")
+            status TEXT NOT NULL, reversed_at TEXT, reversal_reason TEXT, memo TEXT NOT NULL DEFAULT '',
+            share_factor TEXT, related_asset_id TEXT, related_units TEXT)""")
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_transactions_asset_day ON transactions(asset_id,day)")
         db.execSQL("""CREATE TABLE IF NOT EXISTS quotes (
             asset_id TEXT PRIMARY KEY, price TEXT NOT NULL, observed_at TEXT NOT NULL,
             source TEXT NOT NULL DEFAULT 'MANUAL')""")
         createQuoteHistory(db)
+        createManualGoldQuoteSchema(db)
         createMarketSchema(db)
+        createMarketBoardSchema(db)
         createMarketChartSchema(db)
+        createDataSourceRunSchema(db)
+        createFundNavSchema(db)
+        createFundNavResidualSchema(db)
         createPortfolioSnapshotSchema(db)
         createAccountCashSchema(db)
         seedWatchlist(db)
@@ -103,6 +180,18 @@ class Ledger(context: Context) : SQLiteOpenHelper(context, "market_ledger.db", n
             observed_at TEXT NOT NULL, source TEXT NOT NULL DEFAULT 'MANUAL',
             UNIQUE(asset_id, observed_at))""")
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_quote_history_asset_time ON quote_history(asset_id,observed_at)")
+    }
+
+    private fun createManualGoldQuoteSchema(db: SQLiteDatabase) {
+        db.execSQL("""CREATE TABLE IF NOT EXISTS manual_gold_quotes (
+            asset_id TEXT PRIMARY KEY, bank_buyback_price TEXT NOT NULL, bank_sell_price TEXT NOT NULL,
+            observed_at TEXT NOT NULL, valid_until TEXT NOT NULL)""")
+        db.execSQL("""CREATE TABLE IF NOT EXISTS manual_gold_quote_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, asset_id TEXT NOT NULL,
+            bank_buyback_price TEXT NOT NULL, bank_sell_price TEXT NOT NULL,
+            observed_at TEXT NOT NULL, valid_until TEXT NOT NULL,
+            UNIQUE(asset_id,observed_at))""")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_manual_gold_quote_history ON manual_gold_quote_history(asset_id,observed_at)")
     }
 
     private fun createMarketSchema(db: SQLiteDatabase) {
@@ -118,11 +207,47 @@ class Ledger(context: Context) : SQLiteOpenHelper(context, "market_ledger.db", n
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_market_bars_date ON market_daily_bars(secid,trade_date)")
     }
 
+    private fun createMarketBoardSchema(db: SQLiteDatabase) {
+        db.execSQL("""CREATE TABLE IF NOT EXISTS market_boards (
+            id TEXT PRIMARY KEY, board_type TEXT NOT NULL, name TEXT NOT NULL, price REAL NOT NULL,
+            change REAL NOT NULL, change_pct REAL NOT NULL, turnover_amount REAL, turnover_rate_pct REAL,
+            market_cap REAL, advancing_count INTEGER NOT NULL, declining_count INTEGER NOT NULL,
+            quote_time INTEGER NOT NULL, fetched_at INTEGER NOT NULL, source TEXT NOT NULL)""")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_market_boards_type_name ON market_boards(board_type,name)")
+        db.execSQL("""CREATE TABLE IF NOT EXISTS market_board_snapshots (
+            board_type TEXT PRIMARY KEY, expected_count INTEGER NOT NULL, fetched_at INTEGER NOT NULL,
+            source TEXT NOT NULL)""")
+    }
+
+    private fun createDataSourceRunSchema(db: SQLiteDatabase) {
+        db.execSQL("""CREATE TABLE IF NOT EXISTS data_source_runs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, source TEXT NOT NULL, dataset TEXT NOT NULL,
+            status TEXT NOT NULL, requested_at INTEGER NOT NULL, item_count INTEGER NOT NULL,
+            expected_count INTEGER, error_code TEXT)""")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_data_source_runs_time ON data_source_runs(requested_at DESC,id DESC)")
+    }
+
+    private fun createFundNavSchema(db: SQLiteDatabase) {
+        db.execSQL("""CREATE TABLE IF NOT EXISTS fund_nav_points (
+            fund_code TEXT NOT NULL, nav_date TEXT NOT NULL, unit_nav REAL NOT NULL,
+            accumulated_nav REAL, change_pct REAL, cached_at INTEGER NOT NULL,
+            PRIMARY KEY(fund_code,nav_date))""")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_fund_nav_date ON fund_nav_points(fund_code,nav_date)")
+    }
+
+    private fun createFundNavResidualSchema(db: SQLiteDatabase) {
+        db.execSQL("""CREATE TABLE IF NOT EXISTS fund_nav_residuals (
+            fund_code TEXT NOT NULL, route_key TEXT NOT NULL, observation_day TEXT NOT NULL,
+            residual_pct REAL NOT NULL, model_abs_error_pct REAL NOT NULL,
+            baseline_abs_error_pct REAL NOT NULL, stored_at INTEGER NOT NULL,
+            PRIMARY KEY(fund_code,route_key,observation_day))""")
+    }
+
     private fun createMarketChartSchema(db: SQLiteDatabase) {
         db.execSQL("""CREATE TABLE IF NOT EXISTS market_chart_bars (
             secid TEXT NOT NULL, period TEXT NOT NULL, trade_date TEXT NOT NULL,
             open REAL NOT NULL, high REAL NOT NULL, low REAL NOT NULL, close REAL NOT NULL, volume REAL NOT NULL DEFAULT 0,
-            cached_at INTEGER NOT NULL, PRIMARY KEY(secid,period,trade_date))""")
+            cached_at INTEGER NOT NULL, source TEXT NOT NULL DEFAULT '', PRIMARY KEY(secid,period,trade_date))""")
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_market_chart_time ON market_chart_bars(secid,period,trade_date)")
     }
 
@@ -181,30 +306,98 @@ class Ledger(context: Context) : SQLiteOpenHelper(context, "market_ledger.db", n
             false
         }
 
+    private fun canonicalDailyTradeDate(value: String): String = runCatching {
+        val trimmed = value.trim()
+        val date = if (trimmed.length == 8 && trimmed.all(Char::isDigit)) {
+            java.time.LocalDate.parse(trimmed, java.time.format.DateTimeFormatter.BASIC_ISO_DATE)
+        } else {
+            java.time.LocalDate.parse(trimmed.take(10))
+        }
+        date.toString()
+    }.getOrDefault(value)
+
     private fun quotesFreshAt(positions: List<Position>, at: Instant): Boolean = positions.all { position ->
+        if (position.units.signum() == 0) return@all true
+        if (position.quote == null) return false
         val quoteTime = position.quoteTime?.let { runCatching { Instant.parse(it) }.getOrNull() } ?: return false
-        !quoteTime.isAfter(at.plusSeconds(5 * 60)) &&
+        val timestampFresh = !quoteTime.isAfter(at.plusSeconds(5 * 60)) &&
             java.time.Duration.between(quoteTime, at) <= java.time.Duration.ofHours(72)
+        if (!timestampFresh) return false
+        if (position.quoteSource == "MANUAL_BANK_BUYBACK") {
+            val validUntil = position.manualGoldQuote?.validUntil
+                ?.let { runCatching { Instant.parse(it) }.getOrNull() } ?: return false
+            return@all at.isBefore(validUntil)
+        }
+        true
     }
 
     fun chartBars(secid: String, period: ChartPeriod): List<MarketOhlcBar> = buildList {
-        readableDatabase.rawQuery("SELECT trade_date,open,close,high,low,volume FROM market_chart_bars WHERE secid=? AND period=? ORDER BY trade_date",
+        readableDatabase.rawQuery(
+            "SELECT trade_date,open,close,high,low,volume FROM market_chart_bars " +
+                "WHERE secid=? AND period=? ORDER BY " +
+                "CASE WHEN LENGTH(trade_date)=8 THEN " +
+                "SUBSTR(trade_date,1,4)||'-'||SUBSTR(trade_date,5,2)||'-'||SUBSTR(trade_date,7,2) " +
+                "ELSE SUBSTR(trade_date,1,10) END, cached_at DESC",
             arrayOf(secid, period.cacheKey)).use { c ->
-            while (c.moveToNext()) add(MarketOhlcBar(c.getString(0), c.getDouble(1), c.getDouble(2), c.getDouble(3), c.getDouble(4), c.getDouble(5)))
+            while (c.moveToNext()) {
+                val rawDay = c.getString(0)
+                val day = if (period == ChartPeriod.DAY) canonicalDailyTradeDate(rawDay) else rawDay
+                add(MarketOhlcBar(day, c.getDouble(1), c.getDouble(2), c.getDouble(3), c.getDouble(4), c.getDouble(5)))
+            }
         }
-    }
+    }.distinctBy { it.day }.sortedBy { it.day }
 
     fun chartBarsCachedAt(secid: String, period: ChartPeriod): Long = readableDatabase.rawQuery(
         "SELECT MAX(cached_at) FROM market_chart_bars WHERE secid=? AND period=?", arrayOf(secid, period.cacheKey)
     ).use { if (it.moveToFirst()) it.getLong(0) else 0L }
 
-    fun saveChartBars(secid: String, period: ChartPeriod, bars: List<MarketOhlcBar>, cachedAt: Long = System.currentTimeMillis()) {
+    fun chartBarsSource(secid: String, period: ChartPeriod): String? = readableDatabase.rawQuery(
+        "SELECT source FROM market_chart_bars WHERE secid=? AND period=? AND source!='' " +
+            "ORDER BY cached_at DESC,trade_date DESC LIMIT 1",
+        arrayOf(secid, period.cacheKey)
+    ).use { if (it.moveToFirst()) it.getString(0) else null }
+
+    fun dailyHistoryCoverage(): List<DailyHistoryCoverage> = buildList {
+        readableDatabase.rawQuery(
+            "SELECT secid,COUNT(*),MIN(trade_date),MAX(trade_date),MAX(cached_at) " +
+                "FROM market_chart_bars WHERE period=? GROUP BY secid ORDER BY MAX(cached_at) DESC",
+            arrayOf(ChartPeriod.DAY.cacheKey)
+        ).use { cursor ->
+            while (cursor.moveToNext()) add(DailyHistoryCoverage(
+                cursor.getString(0), cursor.getInt(1), cursor.getString(2), cursor.getString(3), cursor.getLong(4)
+            ))
+        }
+    }
+
+    fun dailyChartDaysByInstrument(): Map<String, List<String>> {
+        val daysByInstrument = linkedMapOf<String, MutableList<String>>()
+        readableDatabase.rawQuery(
+            "SELECT secid,trade_date FROM market_chart_bars WHERE period=? ORDER BY secid,trade_date",
+            arrayOf(ChartPeriod.DAY.cacheKey)
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                val secid = cursor.getString(0)
+                val day = cursor.getString(1)
+                daysByInstrument.getOrPut(secid) { mutableListOf() }.add(day)
+            }
+        }
+        return daysByInstrument.mapValues { (_, days) -> days.toList() }
+    }
+
+    fun saveChartBars(
+        secid: String,
+        period: ChartPeriod,
+        bars: List<MarketOhlcBar>,
+        cachedAt: Long = System.currentTimeMillis(),
+        source: String = ""
+    ) {
         val db = writableDatabase
         db.beginTransaction()
         try {
             bars.forEach { bar -> db.insertWithOnConflict("market_chart_bars", null, ContentValues().apply {
-                put("secid", secid); put("period", period.cacheKey); put("trade_date", bar.day)
-                put("open", bar.open); put("high", bar.high); put("low", bar.low); put("close", bar.close); put("volume", bar.volume); put("cached_at", cachedAt)
+                put("secid", secid); put("period", period.cacheKey)
+                put("trade_date", if (period == ChartPeriod.DAY) canonicalDailyTradeDate(bar.day) else bar.day)
+                put("open", bar.open); put("high", bar.high); put("low", bar.low); put("close", bar.close); put("volume", bar.volume); put("cached_at", cachedAt); put("source", source)
             }, SQLiteDatabase.CONFLICT_REPLACE) }
             db.setTransactionSuccessful()
         } finally { db.endTransaction() }
@@ -235,10 +428,224 @@ class Ledger(context: Context) : SQLiteOpenHelper(context, "market_ledger.db", n
         }, SQLiteDatabase.CONFLICT_IGNORE) else writableDatabase.delete("watchlist", "secid=?", arrayOf(secid))
     }
 
+    fun fundWatchlist(): List<AssetInfo> {
+        val watchedCodes = watchlist().toSet()
+        return assets(AssetKind.FUND).filter { it.symbol in watchedCodes && it.symbol.matches(Regex("\\d{6}")) }
+    }
+
+    fun isFundWatched(code: String): Boolean = watchlist().contains(code.trim().uppercase())
+
+    fun setFundWatched(code: String, name: String, watched: Boolean, category: String = "公募基金") {
+        val normalizedCode = code.trim().uppercase()
+        require(normalizedCode.matches(Regex("\\d{6}"))) { "基金代码格式无效" }
+        if (watched) {
+            addFundAsset(normalizedCode, name, category)
+            writableDatabase.insertWithOnConflict("watchlist", null, ContentValues().apply {
+                put("secid", normalizedCode); put("added_at", Instant.now().toString())
+            }, SQLiteDatabase.CONFLICT_IGNORE)
+        } else {
+            writableDatabase.delete("watchlist", "secid=?", arrayOf(normalizedCode))
+        }
+    }
+
+    fun saveFundNavHistory(
+        code: String,
+        points: List<FundNavPoint>,
+        cachedAt: Long = System.currentTimeMillis() / 1000
+    ): Int {
+        val normalizedCode = code.trim().uppercase()
+        require(normalizedCode.matches(Regex("\\d{6}"))) { "基金代码格式无效" }
+        val uniquePoints = points.distinctBy { it.day }
+        require(uniquePoints.all { point ->
+            point.day.matches(Regex("\\d{4}-\\d{2}-\\d{2}")) &&
+                point.unitNav.isFinite() && point.unitNav > 0 &&
+                point.accumulatedNav?.isFinite() != false && point.changePct?.isFinite() != false
+        }) { "基金净值数据无效" }
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            uniquePoints.forEach { point ->
+                db.insertWithOnConflict("fund_nav_points", null, ContentValues().apply {
+                    put("fund_code", normalizedCode)
+                    put("nav_date", point.day)
+                    put("unit_nav", point.unitNav)
+                    put("accumulated_nav", point.accumulatedNav)
+                    put("change_pct", point.changePct)
+                    put("cached_at", cachedAt)
+                }, SQLiteDatabase.CONFLICT_REPLACE)
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+        return uniquePoints.size
+    }
+
+    fun fundNavHistory(code: String, limit: Int? = null): FundNavHistoryCache {
+        val normalizedCode = code.trim().uppercase()
+        require(normalizedCode.matches(Regex("\\d{6}"))) { "基金代码格式无效" }
+        val db = readableDatabase
+        var totalCount = 0
+        var firstDay: String? = null
+        var lastDay: String? = null
+        var cachedAt: Long? = null
+        db.rawQuery(
+            "SELECT COUNT(*),MIN(nav_date),MAX(nav_date),MAX(cached_at) FROM fund_nav_points WHERE fund_code=?",
+            arrayOf(normalizedCode)
+        ).use { cursor ->
+            if (cursor.moveToFirst()) {
+                totalCount = cursor.getInt(0)
+                firstDay = cursor.getString(1)
+                lastDay = cursor.getString(2)
+                if (!cursor.isNull(3)) cachedAt = cursor.getLong(3)
+            }
+        }
+        val points = mutableListOf<FundNavPoint>()
+        val safeLimit = limit?.coerceIn(1, 100_000)
+        val sql = if (safeLimit == null) {
+            "SELECT nav_date,unit_nav,accumulated_nav,change_pct FROM fund_nav_points WHERE fund_code=? ORDER BY nav_date"
+        } else {
+            "SELECT nav_date,unit_nav,accumulated_nav,change_pct FROM fund_nav_points WHERE fund_code=? ORDER BY nav_date DESC LIMIT $safeLimit"
+        }
+        db.rawQuery(sql, arrayOf(normalizedCode)).use { cursor ->
+            while (cursor.moveToNext()) points += FundNavPoint(
+                day = cursor.getString(0),
+                unitNav = cursor.getDouble(1),
+                accumulatedNav = if (cursor.isNull(2)) null else cursor.getDouble(2),
+                changePct = if (cursor.isNull(3)) null else cursor.getDouble(3)
+            )
+        }
+        return FundNavHistoryCache(
+            code = normalizedCode,
+            points = if (safeLimit == null) points else points.asReversed(),
+            totalCount = totalCount,
+            firstDay = firstDay,
+            lastDay = lastDay,
+            cachedAt = cachedAt
+        )
+    }
+
+    fun saveFundNavResidualSamples(samples: List<FundNavResidualSample>): Int {
+        if (samples.isEmpty()) return 0
+        val normalizedSamples = samples.distinctBy { Triple(it.fundCode.trim().uppercase(), it.routeKey, it.observationDay) }
+        require(normalizedSamples.all { sample ->
+            sample.fundCode.trim().uppercase().matches(Regex("\\d{6}")) &&
+                sample.routeKey.matches(Regex("[A-Za-z0-9:._-]{1,128}")) &&
+                runCatching { LocalDate.parse(sample.observationDay) }.isSuccess &&
+                sample.residualPct.isFinite() && sample.modelAbsoluteErrorPct.isFinite() &&
+                sample.modelAbsoluteErrorPct >= 0.0 && sample.zeroBaselineAbsoluteErrorPct.isFinite() &&
+                sample.zeroBaselineAbsoluteErrorPct >= 0.0
+        }) { "基金估值误差样本无效" }
+
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            val storedAt = System.currentTimeMillis() / 1000
+            normalizedSamples.forEach { sample ->
+                db.insertWithOnConflict("fund_nav_residuals", null, ContentValues().apply {
+                    put("fund_code", sample.fundCode.trim().uppercase())
+                    put("route_key", sample.routeKey)
+                    put("observation_day", sample.observationDay)
+                    put("residual_pct", sample.residualPct)
+                    put("model_abs_error_pct", sample.modelAbsoluteErrorPct)
+                    put("baseline_abs_error_pct", sample.zeroBaselineAbsoluteErrorPct)
+                    put("stored_at", storedAt)
+                }, SQLiteDatabase.CONFLICT_REPLACE)
+            }
+            normalizedSamples.map { it.fundCode.trim().uppercase() to it.routeKey }.distinct().forEach { (code, routeKey) ->
+                db.execSQL(
+                    """DELETE FROM fund_nav_residuals WHERE fund_code=? AND route_key=? AND observation_day NOT IN (
+                        SELECT observation_day FROM fund_nav_residuals
+                        WHERE fund_code=? AND route_key=? ORDER BY observation_day DESC LIMIT 500)""",
+                    arrayOf(code, routeKey, code, routeKey)
+                )
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+        return normalizedSamples.size
+    }
+
+    fun fundNavResidualSamples(code: String, routeKey: String, limit: Int = 500): List<FundNavResidualSample> {
+        val normalizedCode = code.trim().uppercase()
+        val normalizedRouteKey = routeKey.trim()
+        require(normalizedCode.matches(Regex("\\d{6}"))) { "基金代码格式无效" }
+        require(normalizedRouteKey.matches(Regex("[A-Za-z0-9:._-]{1,128}"))) { "基金估值路由无效" }
+        val safeLimit = limit.coerceIn(1, 500)
+        return buildList {
+            readableDatabase.rawQuery(
+                """SELECT fund_code,route_key,observation_day,residual_pct,model_abs_error_pct,baseline_abs_error_pct
+                    FROM fund_nav_residuals WHERE fund_code=? AND route_key=?
+                    ORDER BY observation_day DESC LIMIT ?""",
+                arrayOf(normalizedCode, normalizedRouteKey, safeLimit.toString())
+            ).use { cursor ->
+                while (cursor.moveToNext()) add(
+                    FundNavResidualSample(
+                        fundCode = cursor.getString(0),
+                        routeKey = cursor.getString(1),
+                        observationDay = cursor.getString(2),
+                        residualPct = cursor.getDouble(3),
+                        modelAbsoluteErrorPct = cursor.getDouble(4),
+                        zeroBaselineAbsoluteErrorPct = cursor.getDouble(5)
+                    )
+                )
+            }
+        }.asReversed()
+    }
+
     fun marketQuotes(): Map<String, MarketQuote> = buildMap {
         readableDatabase.rawQuery("SELECT secid,name,price,change,change_pct,quote_time,fetched_at,source FROM market_quotes", null).use { c ->
             while (c.moveToNext()) put(c.getString(0), MarketQuote(c.getString(0), c.getString(1), c.getDouble(2),
                 c.getDouble(3), c.getDouble(4), c.getLong(5), c.getLong(6), c.getString(7)))
+        }
+    }
+
+    fun recordDataSourceRun(
+        source: String,
+        dataset: String,
+        status: DataFetchStatus,
+        itemCount: Int,
+        expectedCount: Int? = null,
+        errorCode: String? = null,
+        requestedAt: Long = System.currentTimeMillis() / 1000
+    ) {
+        require(source.isNotBlank() && source.length <= 80) { "数据源名称无效" }
+        require(dataset.isNotBlank() && dataset.length <= 80) { "数据集名称无效" }
+        require(itemCount >= 0 && (expectedCount == null || expectedCount >= 0)) { "数据覆盖数量无效" }
+        val safeErrorCode = errorCode?.filter { it.isLetterOrDigit() || it == '_' }?.take(48)
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            db.insertOrThrow("data_source_runs", null, ContentValues().apply {
+                put("source", source)
+                put("dataset", dataset)
+                put("status", status.name)
+                put("requested_at", requestedAt)
+                put("item_count", itemCount)
+                put("expected_count", expectedCount)
+                put("error_code", safeErrorCode)
+            })
+            db.execSQL("DELETE FROM data_source_runs WHERE id NOT IN (SELECT id FROM data_source_runs ORDER BY id DESC LIMIT 500)")
+            db.setTransactionSuccessful()
+        } finally { db.endTransaction() }
+    }
+
+    fun dataSourceRuns(limit: Int = 40): List<DataSourceRun> {
+        require(limit in 1..200) { "数据源历史条数无效" }
+        return buildList {
+            readableDatabase.rawQuery(
+                "SELECT id,source,dataset,status,requested_at,item_count,expected_count,error_code " +
+                    "FROM data_source_runs ORDER BY requested_at DESC,id DESC LIMIT ?",
+                arrayOf(limit.toString())
+            ).use { cursor ->
+                while (cursor.moveToNext()) add(DataSourceRun(
+                    cursor.getLong(0), cursor.getString(1), cursor.getString(2),
+                    DataFetchStatus.valueOf(cursor.getString(3)), cursor.getLong(4), cursor.getInt(5),
+                    if (cursor.isNull(6)) null else cursor.getInt(6),
+                    cursor.getString(7)
+                ))
+            }
         }
     }
 
@@ -253,6 +660,78 @@ class Ledger(context: Context) : SQLiteOpenHelper(context, "market_ledger.db", n
             }, SQLiteDatabase.CONFLICT_REPLACE) }
             db.setTransactionSuccessful()
         } finally { db.endTransaction() }
+    }
+
+    fun marketBoardSnapshot(type: MarketBoardType): MarketBoardSnapshot? {
+        val metadata = readableDatabase.rawQuery(
+            "SELECT expected_count,fetched_at,source FROM market_board_snapshots WHERE board_type=?",
+            arrayOf(type.name)
+        ).use { cursor ->
+            if (!cursor.moveToFirst()) return null
+            Triple(cursor.getInt(0), cursor.getLong(1), cursor.getString(2))
+        }
+        val boards = buildList {
+            readableDatabase.rawQuery(
+                """SELECT id,name,price,change,change_pct,turnover_amount,turnover_rate_pct,market_cap,
+                    advancing_count,declining_count,quote_time,fetched_at,source
+                    FROM market_boards WHERE board_type=? ORDER BY change_pct DESC""",
+                arrayOf(type.name)
+            ).use { cursor ->
+                while (cursor.moveToNext()) add(MarketBoard(
+                    id = cursor.getString(0),
+                    type = type,
+                    name = cursor.getString(1),
+                    price = cursor.getDouble(2),
+                    change = cursor.getDouble(3),
+                    changePct = cursor.getDouble(4),
+                    turnoverAmount = if (cursor.isNull(5)) null else cursor.getDouble(5),
+                    turnoverRatePct = if (cursor.isNull(6)) null else cursor.getDouble(6),
+                    marketCap = if (cursor.isNull(7)) null else cursor.getDouble(7),
+                    advancingCount = cursor.getInt(8),
+                    decliningCount = cursor.getInt(9),
+                    quoteTime = cursor.getLong(10),
+                    fetchedAt = cursor.getLong(11),
+                    source = cursor.getString(12)
+                ))
+            }
+        }
+        return MarketBoardSnapshot(type, boards, metadata.first, metadata.second, metadata.third)
+    }
+
+    fun saveMarketBoardSnapshot(snapshot: MarketBoardSnapshot) {
+        require(snapshot.isComplete) { "不完整的板块列表不能覆盖本地缓存" }
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            db.delete("market_boards", "board_type=?", arrayOf(snapshot.type.name))
+            snapshot.boards.forEach { board ->
+                db.insertOrThrow("market_boards", null, ContentValues().apply {
+                    put("id", board.id)
+                    put("board_type", board.type.name)
+                    put("name", board.name)
+                    put("price", board.price)
+                    put("change", board.change)
+                    put("change_pct", board.changePct)
+                    board.turnoverAmount?.let { put("turnover_amount", it) } ?: putNull("turnover_amount")
+                    board.turnoverRatePct?.let { put("turnover_rate_pct", it) } ?: putNull("turnover_rate_pct")
+                    board.marketCap?.let { put("market_cap", it) } ?: putNull("market_cap")
+                    put("advancing_count", board.advancingCount)
+                    put("declining_count", board.decliningCount)
+                    put("quote_time", board.quoteTime)
+                    put("fetched_at", board.fetchedAt)
+                    put("source", board.source)
+                })
+            }
+            db.insertWithOnConflict("market_board_snapshots", null, ContentValues().apply {
+                put("board_type", snapshot.type.name)
+                put("expected_count", snapshot.expectedCount)
+                put("fetched_at", snapshot.fetchedAt)
+                put("source", snapshot.source)
+            }, SQLiteDatabase.CONFLICT_REPLACE)
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
     }
 
     fun marketBars(secid: String): List<MarketBar> = buildList {
@@ -351,9 +830,14 @@ class Ledger(context: Context) : SQLiteOpenHelper(context, "market_ledger.db", n
         try {
             for (i in 0 until items.length()) {
                 val item = items.getJSONObject(i)
+                val asset = AssetInfo(
+                    item.getString("symbol"), item.getString("name"),
+                    AssetKind.valueOf(item.getString("kind")), item.getString("category")
+                )
                 val values = ContentValues().apply {
-                    put("id", item.getString("symbol")); put("name", item.getString("name"))
-                    put("kind", item.getString("kind")); put("category", item.getString("category"))
+                    put("id", asset.symbol); put("name", asset.name)
+                    put("kind", asset.kind.name); put("category", asset.category)
+                    put("market_quote_secid", PortfolioQuoteRouter.defaultQuoteSecid(asset))
                 }
                 db.insertWithOnConflict("assets", null, values, SQLiteDatabase.CONFLICT_IGNORE)
             }
@@ -363,10 +847,13 @@ class Ledger(context: Context) : SQLiteOpenHelper(context, "market_ledger.db", n
 
     fun assets(kind: AssetKind? = null): List<AssetInfo> {
         val result = mutableListOf<AssetInfo>()
-        val sql = if (kind == null) "SELECT id,name,kind,category FROM assets ORDER BY kind,name"
-            else "SELECT id,name,kind,category FROM assets WHERE kind=? ORDER BY name"
+        val sql = if (kind == null) "SELECT id,name,kind,category,market_quote_secid FROM assets ORDER BY kind,name"
+            else "SELECT id,name,kind,category,market_quote_secid FROM assets WHERE kind=? ORDER BY name"
         readableDatabase.rawQuery(sql, if (kind == null) null else arrayOf(kind.name)).use { c ->
-            while (c.moveToNext()) result += AssetInfo(c.getString(0), c.getString(1), AssetKind.valueOf(c.getString(2)), c.getString(3))
+            while (c.moveToNext()) result += AssetInfo(
+                c.getString(0), c.getString(1), AssetKind.valueOf(c.getString(2)), c.getString(3),
+                c.getString(4)
+            )
         }
         return result
     }
@@ -374,24 +861,59 @@ class Ledger(context: Context) : SQLiteOpenHelper(context, "market_ledger.db", n
     fun findAsset(id: String): AssetInfo? = assets().firstOrNull { it.symbol == id }
 
     fun addCustomAsset(symbol: String, name: String, kind: AssetKind): AssetInfo {
-        val asset = AssetInfo(symbol.trim().uppercase(), name.trim(), kind, if (kind == AssetKind.FUND) "自定义基金" else "黄金")
+        val base = AssetInfo(symbol.trim().uppercase(), name.trim(), kind, if (kind == AssetKind.FUND) "自定义基金" else "黄金")
+        val asset = base.copy(marketQuoteSecid = PortfolioQuoteRouter.defaultQuoteSecid(base))
         require(asset.symbol.isNotBlank() && asset.name.isNotBlank()) { "请填写名称和代码" }
         writableDatabase.insertOrThrow("assets", null, ContentValues().apply {
             put("id",asset.symbol); put("name",asset.name); put("kind",asset.kind.name); put("category",asset.category)
+            put("market_quote_secid", asset.marketQuoteSecid)
         })
         return asset
+    }
+
+    fun addFundAsset(code: String, name: String, category: String = "公募基金"): AssetInfo {
+        val normalizedCode = code.trim().uppercase()
+        val normalizedName = name.trim()
+        require(normalizedCode.matches(Regex("\\d{6}")) && normalizedName.isNotBlank()) { "基金代码或名称无效" }
+        val normalizedCategory = category.trim().ifBlank { "公募基金" }
+        findAsset(normalizedCode)?.let { existing ->
+            if (existing.category == "公募基金" && normalizedCategory != "公募基金") {
+                writableDatabase.update(
+                    "assets",
+                    ContentValues().apply { put("category", normalizedCategory) },
+                    "id=? AND kind=?",
+                    arrayOf(normalizedCode, AssetKind.FUND.name)
+                )
+                return findAsset(normalizedCode) ?: existing
+            }
+            return existing
+        }
+        val base = AssetInfo(normalizedCode, normalizedName, AssetKind.FUND, normalizedCategory)
+        val asset = base.copy(marketQuoteSecid = PortfolioQuoteRouter.defaultQuoteSecid(base))
+        writableDatabase.insertWithOnConflict("assets", null, ContentValues().apply {
+            put("id", asset.symbol); put("name", asset.name); put("kind", asset.kind.name); put("category", asset.category)
+            put("market_quote_secid", asset.marketQuoteSecid)
+        }, SQLiteDatabase.CONFLICT_IGNORE)
+        return findAsset(normalizedCode) ?: asset
     }
 
     fun trades(): List<Trade> {
         val result = mutableListOf<Trade>()
         readableDatabase.rawQuery("""SELECT t.id,a.id,a.name,a.kind,a.category,t.side,t.day,
-            t.amount,t.units,t.unit_price,t.fee,t.status,t.reversed_at,t.reversal_reason FROM transactions t
-            JOIN assets a ON a.id=t.asset_id ORDER BY t.day DESC,t.id DESC""", null).use { c ->
+            t.amount,t.units,t.unit_price,t.fee,t.status,t.reversed_at,t.reversal_reason,t.memo,t.share_factor,
+            ra.id,ra.name,ra.kind,ra.category,t.related_units,a.market_quote_secid,ra.market_quote_secid FROM transactions t
+            JOIN assets a ON a.id=t.asset_id LEFT JOIN assets ra ON ra.id=t.related_asset_id
+            ORDER BY t.day DESC,t.id DESC""", null).use { c ->
             while (c.moveToNext()) result += Trade(
-                c.getLong(0), AssetInfo(c.getString(1),c.getString(2),AssetKind.valueOf(c.getString(3)),c.getString(4)),
+                c.getLong(0), AssetInfo(c.getString(1),c.getString(2),AssetKind.valueOf(c.getString(3)),c.getString(4),c.getString(21)),
                 TradeSide.valueOf(c.getString(5)),c.getString(6),BigDecimal(c.getString(7)),
                 c.getString(8)?.let(::BigDecimal),c.getString(9)?.let(::BigDecimal),BigDecimal(c.getString(10)),
-                c.getString(11)=="CONFIRMED", c.getString(12), c.getString(13)
+                c.getString(11)=="CONFIRMED", c.getString(12), c.getString(13), c.getString(14),
+                c.getString(15)?.let(::BigDecimal),
+                if (c.isNull(16)) null else AssetInfo(
+                    c.getString(16), c.getString(17), AssetKind.valueOf(c.getString(18)), c.getString(19), c.getString(22)
+                ),
+                c.getString(20)?.let(::BigDecimal)
             )
         }
         return result
@@ -402,7 +924,21 @@ class Ledger(context: Context) : SQLiteOpenHelper(context, "market_ledger.db", n
         readableDatabase.rawQuery("SELECT asset_id,price,observed_at,source FROM quotes", null).use { c ->
             while (c.moveToNext()) quoteMap[c.getString(0)] = Triple(BigDecimal(c.getString(1)), c.getString(2), c.getString(3))
         }
-        return computePositions(trades(), quoteMap)
+        val manualGoldQuotes = mutableMapOf<String, ManualGoldQuote>()
+        readableDatabase.rawQuery(
+            "SELECT asset_id,bank_buyback_price,bank_sell_price,observed_at,valid_until FROM manual_gold_quotes", null
+        ).use { c ->
+            while (c.moveToNext()) manualGoldQuotes[c.getString(0)] = ManualGoldQuote(
+                c.getString(0), BigDecimal(c.getString(1)), BigDecimal(c.getString(2)), c.getString(3), c.getString(4)
+            )
+        }
+        return computePositions(trades(), quoteMap).map { position ->
+            val detail = manualGoldQuotes[position.asset.symbol]?.takeIf {
+                position.quoteSource == "MANUAL_BANK_BUYBACK" && position.quoteTime == it.observedAt &&
+                    position.quote?.compareTo(it.bankBuybackPrice) == 0
+            }
+            position.copy(manualGoldQuote = detail)
+        }
     }
 
     override fun accountCashEvents(): List<AccountCashEvent> = buildList {
@@ -470,7 +1006,7 @@ class Ledger(context: Context) : SQLiteOpenHelper(context, "market_ledger.db", n
 
     private fun recordTradeCashEvent(db: SQLiteDatabase, transactionId: Long, day: String, side: TradeSide,
                                      amount: BigDecimal, fee: BigDecimal) {
-        require(side != TradeSide.OPENING_POSITION) { "期初持仓不改变现金余额" }
+        require(side == TradeSide.BUY || side == TradeSide.SELL) { "该账本事件不属于买卖交易" }
         val type = if (side == TradeSide.BUY) AccountCashEventType.TRADE_BUY else AccountCashEventType.TRADE_SELL
         val balance = AccountCashLedger.balance(accountCashEvents()) ?: return
         val tradeDay = LocalDate.parse(day)
@@ -484,9 +1020,30 @@ class Ledger(context: Context) : SQLiteOpenHelper(context, "market_ledger.db", n
         })
     }
 
+    private fun invalidatePortfolioFactsFrom(db: SQLiteDatabase, day: LocalDate, changedAt: Instant? = null) {
+        db.update("portfolio_snapshots", ContentValues().apply { put("valid", 0) },
+            "day>=?", arrayOf(day.toString()))
+        val selection: String
+        val arguments: Array<String>
+        if (changedAt == null) {
+            selection = "day>=? AND type IN (?,?)"
+            arguments = arrayOf(day.toString(), AccountCashEventType.DEPOSIT.name, AccountCashEventType.WITHDRAWAL.name)
+        } else {
+            selection = "(day>? OR (day=? AND (occurred_at IS NULL OR occurred_at>=?))) AND type IN (?,?)"
+            arguments = arrayOf(
+                day.toString(), day.toString(), changedAt.toString(),
+                AccountCashEventType.DEPOSIT.name, AccountCashEventType.WITHDRAWAL.name
+            )
+        }
+        db.update("account_cash_events", ContentValues().apply {
+            putNull("portfolio_value_before")
+            put("valuation_complete", 0)
+        }, selection, arguments)
+    }
+
     fun addTrade(asset: AssetInfo, side: TradeSide, amount: BigDecimal, units: BigDecimal?,
                  price: BigDecimal?, fee: BigDecimal): Long {
-        require(side != TradeSide.OPENING_POSITION) { "期初持仓请使用专用录入方式" }
+        require(side == TradeSide.BUY || side == TradeSide.SELL) { "该账本事件不能按买卖交易录入" }
         require(fee >= BigDecimal.ZERO)
         require(units == null || units > BigDecimal.ZERO)
         require(price == null || price > BigDecimal.ZERO)
@@ -497,8 +1054,9 @@ class Ledger(context: Context) : SQLiteOpenHelper(context, "market_ledger.db", n
         }
         val sellAmount = if (side == TradeSide.SELL && price != null) requireNotNull(units).multiply(price) else amount
         val confirmed = units != null && price != null
+        val tradeDay = LocalDate.now(ZoneId.of("Asia/Shanghai"))
         val values = ContentValues().apply {
-            put("asset_id", asset.symbol); put("side", side.name); put("day", LocalDate.now().toString())
+            put("asset_id", asset.symbol); put("side", side.name); put("day", tradeDay.toString())
             put("amount", sellAmount.toPlainString()); put("units", units?.toPlainString())
             put("unit_price", price?.toPlainString()); put("fee", fee.toPlainString())
             put("status", if (confirmed) "CONFIRMED" else "PENDING")
@@ -507,11 +1065,186 @@ class Ledger(context: Context) : SQLiteOpenHelper(context, "market_ledger.db", n
         db.beginTransaction()
         return try {
             val transactionId = db.insertOrThrow("transactions", null, values)
-            if (confirmed) recordTradeCashEvent(db, transactionId, LocalDate.now(ZoneId.of("Asia/Shanghai")).toString(), side,
-                if (side == TradeSide.SELL) sellAmount else amount, fee)
+            if (confirmed) recordTradeCashEvent(
+                db, transactionId, tradeDay.toString(), side, if (side == TradeSide.SELL) sellAmount else amount, fee
+            )
+            invalidatePortfolioFactsFrom(db, tradeDay)
             db.setTransactionSuccessful()
             transactionId
         } finally { db.endTransaction() }
+    }
+
+    /** Records a dividend's gross amount, withholding tax and net cash receipt as one atomic event. */
+    fun addCashDividend(
+        asset: AssetInfo,
+        grossAmount: BigDecimal,
+        withholdingTax: BigDecimal = BigDecimal.ZERO,
+        memo: String = ""
+    ): Long {
+        require(grossAmount > BigDecimal.ZERO) { "分红金额必须大于零" }
+        require(withholdingTax >= BigDecimal.ZERO && withholdingTax < grossAmount) { "税费必须为正数或零，且小于分红金额" }
+        val note = memo.trim()
+        require(note.length <= 120) { "备注不能超过 120 个字符" }
+        val day = LocalDate.now(ZoneId.of("Asia/Shanghai"))
+        val occurredAt = Instant.now()
+        val db = writableDatabase
+        db.beginTransaction()
+        return try {
+            val transactionId = db.insertOrThrow("transactions", null, ContentValues().apply {
+                put("asset_id", asset.symbol)
+                put("side", TradeSide.CASH_DIVIDEND.name)
+                put("day", day.toString())
+                put("amount", grossAmount.toPlainString())
+                putNull("units")
+                putNull("unit_price")
+                put("fee", withholdingTax.toPlainString())
+                put("status", "CONFIRMED")
+                put("memo", note)
+            })
+            recordCashDividendEvent(db, transactionId, day, grossAmount - withholdingTax, note, occurredAt)
+            invalidatePortfolioFactsFrom(db, day, occurredAt)
+            db.setTransactionSuccessful()
+            transactionId
+        } finally { db.endTransaction() }
+    }
+
+    /** Records a taxed dividend reinvested into new units without adding a cash-ledger receipt. */
+    fun addDividendReinvestment(
+        asset: AssetInfo,
+        grossAmount: BigDecimal,
+        withholdingTax: BigDecimal,
+        reinvestmentPrice: BigDecimal,
+        memo: String = ""
+    ): Long {
+        require(grossAmount > BigDecimal.ZERO) { "分红金额必须大于零" }
+        require(withholdingTax >= BigDecimal.ZERO && withholdingTax < grossAmount) { "税费必须小于分红金额" }
+        require(reinvestmentPrice > BigDecimal.ZERO) { "再投资净值必须大于零" }
+        val note = memo.trim()
+        require(note.length <= 120) { "备注不能超过 120 个字符" }
+        val netAmount = grossAmount - withholdingTax
+        val units = netAmount.divide(reinvestmentPrice, 8, RoundingMode.DOWN)
+        require(units > BigDecimal.ZERO) { "税后分红不足以换算为最小份额" }
+        val day = LocalDate.now(ZoneId.of("Asia/Shanghai"))
+        val db = writableDatabase
+        db.beginTransaction()
+        return try {
+            val transactionId = db.insertOrThrow("transactions", null, ContentValues().apply {
+                put("asset_id", asset.symbol)
+                put("side", TradeSide.DIVIDEND_REINVESTMENT.name)
+                put("day", day.toString())
+                put("amount", grossAmount.toPlainString())
+                put("units", units.toPlainString())
+                put("unit_price", reinvestmentPrice.toPlainString())
+                put("fee", withholdingTax.toPlainString())
+                put("status", "CONFIRMED")
+                put("memo", note)
+            })
+            positions() // Validate the combined event against the existing position history.
+            invalidatePortfolioFactsFrom(db, day)
+            db.setTransactionSuccessful()
+            transactionId
+        } finally { db.endTransaction() }
+    }
+
+    /** Applies a pure share ratio while preserving total cost and invalidating the old per-unit quote. */
+    fun addShareSplit(asset: AssetInfo, shareFactor: BigDecimal, memo: String = ""): Long {
+        require(shareFactor > BigDecimal.ZERO && shareFactor.compareTo(BigDecimal.ONE) != 0) {
+            "份额换算比例必须大于零且不能为 1"
+        }
+        require(shareFactor.precision() <= 24 && shareFactor.scale() <= 12) { "份额换算比例精度过高" }
+        val note = memo.trim()
+        require(note.length <= 120) { "备注不能超过 120 个字符" }
+        val day = LocalDate.now(ZoneId.of("Asia/Shanghai"))
+        val db = writableDatabase
+        db.beginTransaction()
+        return try {
+            val current = positions().firstOrNull { it.asset.symbol == asset.symbol }
+            require(current != null && current.units > BigDecimal.ZERO) { "该标的没有可拆分的持仓" }
+            val transactionId = db.insertOrThrow("transactions", null, ContentValues().apply {
+                put("asset_id", asset.symbol)
+                put("side", TradeSide.SHARE_SPLIT.name)
+                put("day", day.toString())
+                put("amount", BigDecimal.ZERO.toPlainString())
+                putNull("units")
+                putNull("unit_price")
+                put("fee", BigDecimal.ZERO.toPlainString())
+                put("status", "CONFIRMED")
+                put("memo", note)
+                put("share_factor", shareFactor.toPlainString())
+            })
+            positions() // Recalculate later sales against the adjusted unit count.
+            db.delete("quotes", "asset_id=?", arrayOf(asset.symbol))
+            invalidatePortfolioFactsFrom(db, day)
+            db.setTransactionSuccessful()
+            transactionId
+        } finally { db.endTransaction() }
+    }
+
+    /** Moves units and their weighted-average cost basis between two tracked assets atomically. */
+    fun addAssetTransfer(
+        sourceAsset: AssetInfo,
+        destinationAsset: AssetInfo,
+        sourceUnits: BigDecimal,
+        destinationUnits: BigDecimal,
+        declaredCost: BigDecimal,
+        memo: String = ""
+    ): Long {
+        require(sourceAsset.symbol != destinationAsset.symbol) { "转出和转入标的不能相同" }
+        require(sourceUnits > BigDecimal.ZERO && destinationUnits > BigDecimal.ZERO) { "转入和转出份额必须大于零" }
+        require(declaredCost > BigDecimal.ZERO) { "请输入转移成本以供核对" }
+        val note = memo.trim()
+        require(note.length <= 120) { "备注不能超过 120 个字符" }
+        val day = LocalDate.now(ZoneId.of("Asia/Shanghai"))
+        val db = writableDatabase
+        db.beginTransaction()
+        return try {
+            val source = positions().firstOrNull { it.asset.symbol == sourceAsset.symbol }
+                ?: error("转出标的当前没有持仓")
+            require(source.units >= sourceUnits) { "转出份额超过当前持仓" }
+            val expectedCost = if (source.units == sourceUnits) source.cost else
+                source.cost.multiply(sourceUnits).divide(source.units, 12, RoundingMode.HALF_UP)
+            require(expectedCost > BigDecimal.ZERO) { "转出份额没有可转移成本" }
+            require(declaredCost.setScale(2, RoundingMode.HALF_UP) == expectedCost.setScale(2, RoundingMode.HALF_UP)) {
+                "转移成本与账本加权成本不符，应为 ¥${expectedCost.setScale(2, RoundingMode.HALF_UP).toPlainString()}"
+            }
+            val transactionId = db.insertOrThrow("transactions", null, ContentValues().apply {
+                put("asset_id", sourceAsset.symbol)
+                put("side", TradeSide.ASSET_TRANSFER.name)
+                put("day", day.toString())
+                put("amount", expectedCost.toPlainString())
+                put("units", sourceUnits.toPlainString())
+                putNull("unit_price")
+                put("fee", BigDecimal.ZERO.toPlainString())
+                put("status", "CONFIRMED")
+                put("memo", note)
+                put("related_asset_id", destinationAsset.symbol)
+                put("related_units", destinationUnits.toPlainString())
+            })
+            positions() // Validate source units and destination cost after applying the paired transfer.
+            invalidatePortfolioFactsFrom(db, day)
+            db.setTransactionSuccessful()
+            transactionId
+        } finally { db.endTransaction() }
+    }
+
+    private fun recordCashDividendEvent(
+        db: SQLiteDatabase,
+        transactionId: Long,
+        day: LocalDate,
+        netAmount: BigDecimal,
+        memo: String,
+        occurredAt: Instant
+    ) {
+        val balance = AccountCashLedger.balance(accountCashEvents()) ?: return
+        if (day.isBefore(balance.trackingStart)) return
+        db.insertOrThrow("account_cash_events", null, ContentValues().apply {
+            put("day", day.toString())
+            put("type", AccountCashEventType.DIVIDEND.name)
+            put("amount", netAmount.toPlainString())
+            put("memo", memo.ifBlank { "现金分红到账" })
+            put("transaction_id", transactionId)
+            put("occurred_at", occurredAt.toString())
+        })
     }
 
     /** Records an existing holding at the user's cost basis without inventing a past purchase or cash flow. */
@@ -534,6 +1267,7 @@ class Ledger(context: Context) : SQLiteOpenHelper(context, "market_ledger.db", n
                 put("fee", BigDecimal.ZERO.toPlainString())
                 put("status", "CONFIRMED")
             })
+            invalidatePortfolioFactsFrom(db, LocalDate.parse(day))
             db.setTransactionSuccessful()
             transactionId
         } finally { db.endTransaction() }
@@ -546,10 +1280,18 @@ class Ledger(context: Context) : SQLiteOpenHelper(context, "market_ledger.db", n
         try {
             val trade = trades().singleOrNull { it.id == id } ?: error("找不到这笔流水")
             require(!trade.isReversed) { "已冲正的流水需要保留审计记录" }
+            val cashEventTime = if (trade.side == TradeSide.CASH_DIVIDEND) {
+                accountCashEvents().singleOrNull { it.transactionId == id }?.occurredAt?.let(Instant::parse)
+            } else null
             require(db.delete("transactions", "id=?", arrayOf(id.toString())) == 1) { "找不到这笔流水" }
             db.delete("account_cash_events", "transaction_id=?", arrayOf(id.toString()))
             positions() // Reject an undo that would leave a later sale above the remaining position.
             AccountCashLedger.balance(accountCashEvents()) // Reject an undo that would make cash negative.
+            if (trade.side == TradeSide.CASH_DIVIDEND) {
+                invalidatePortfolioFactsFrom(db, LocalDate.parse(trade.day), cashEventTime)
+            } else {
+                invalidatePortfolioFactsFrom(db, LocalDate.parse(trade.day))
+            }
             db.setTransactionSuccessful()
         } finally { db.endTransaction() }
     }
@@ -575,14 +1317,7 @@ class Ledger(context: Context) : SQLiteOpenHelper(context, "market_ledger.db", n
             // Validate the corrected ledger before committing the audit marker.
             positions()
             AccountCashLedger.balance(accountCashEvents())
-            db.update("portfolio_snapshots", ContentValues().apply { put("valid", 0) },
-                "day>=?", arrayOf(trade.day))
-            db.update("account_cash_events", ContentValues().apply {
-                putNull("portfolio_value_before")
-                put("valuation_complete", 0)
-            }, "day>=? AND type IN (?,?)", arrayOf(
-                trade.day, AccountCashEventType.DEPOSIT.name, AccountCashEventType.WITHDRAWAL.name
-            ))
+            invalidatePortfolioFactsFrom(db, LocalDate.parse(trade.day))
             db.setTransactionSuccessful()
         } finally { db.endTransaction() }
     }
@@ -592,6 +1327,7 @@ class Ledger(context: Context) : SQLiteOpenHelper(context, "market_ledger.db", n
         val trade = trades().firstOrNull { it.id == id } ?: error("找不到这笔流水")
         require(!trade.isReversed) { "已冲正流水不能确认" }
         require(!trade.confirmed) { "这笔流水已经确认" }
+        require(trade.side == TradeSide.BUY || trade.side == TradeSide.SELL) { "这类账本事件不需要补录成交价格" }
         val units = if (trade.side == TradeSide.BUY)
             trade.amount.subtract(trade.fee).divide(price, 8, RoundingMode.DOWN)
         else requireNotNull(trade.units)
@@ -608,32 +1344,196 @@ class Ledger(context: Context) : SQLiteOpenHelper(context, "market_ledger.db", n
                 put("unit_price", price.toPlainString()); put("status", "CONFIRMED")
             }, "id=?", arrayOf(id.toString()))
             recordTradeCashEvent(db, id, trade.day, trade.side, amount, trade.fee)
+            invalidatePortfolioFactsFrom(db, LocalDate.parse(trade.day))
             db.setTransactionSuccessful()
         } finally { db.endTransaction() }
     }
 
     fun setQuote(asset: AssetInfo, price: BigDecimal) {
         require(price > BigDecimal.ZERO)
-        val observedAt = Instant.now().toString()
-        val values = ContentValues().apply {
-            put("asset_id", asset.symbol); put("price", price.toPlainString())
-            put("observed_at", observedAt); put("source", "MANUAL")
-        }
-        writableDatabase.beginTransaction()
+        val db = writableDatabase
+        db.beginTransaction()
         try {
-            writableDatabase.insertWithOnConflict("quotes", null, values, SQLiteDatabase.CONFLICT_REPLACE)
-            writableDatabase.insertWithOnConflict("quote_history", null, values, SQLiteDatabase.CONFLICT_IGNORE)
-            writableDatabase.setTransactionSuccessful()
-        } finally { writableDatabase.endTransaction() }
+            saveAssetQuote(asset, price, Instant.now(), "MANUAL", db)
+            db.delete("manual_gold_quotes", "asset_id=?", arrayOf(asset.symbol))
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
     }
 
-    fun exportBackup(): String {
-        val root = JSONObject().put("format", "market-ledger-backup").put("version", 2)
+    /** Saves both bank sides and uses the bank's buyback price as the holding's realizable mark. */
+    fun setManualBankGoldQuote(
+        asset: AssetInfo,
+        bankBuybackPrice: BigDecimal,
+        bankSellPrice: BigDecimal,
+        validityHours: Int
+    ) {
+        require(asset.kind == AssetKind.GOLD && asset.marketQuoteSecid == null) { "银行双向报价只能用于手动黄金资产" }
+        require(bankBuybackPrice > BigDecimal.ZERO && bankSellPrice >= bankBuybackPrice) {
+            "银行卖出价必须大于或等于银行买入/回购价"
+        }
+        require(validityHours in setOf(12, 24, 48, 72)) { "报价有效期只能选 12、24、48 或 72 小时" }
+        val observedAt = Instant.now()
+        val validUntil = observedAt.plusSeconds(validityHours * 60L * 60L)
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            saveAssetQuote(asset, bankBuybackPrice, observedAt, "MANUAL_BANK_BUYBACK", db)
+            val values = ContentValues().apply {
+                put("asset_id", asset.symbol)
+                put("bank_buyback_price", bankBuybackPrice.toPlainString())
+                put("bank_sell_price", bankSellPrice.toPlainString())
+                put("observed_at", observedAt.toString())
+                put("valid_until", validUntil.toString())
+            }
+            db.insertWithOnConflict("manual_gold_quotes", null, values, SQLiteDatabase.CONFLICT_REPLACE)
+            db.insertWithOnConflict("manual_gold_quote_history", null, values, SQLiteDatabase.CONFLICT_IGNORE)
+            db.delete(
+                "manual_gold_quote_history",
+                "asset_id=? AND id NOT IN (SELECT id FROM manual_gold_quote_history WHERE asset_id=? ORDER BY observed_at DESC,id DESC LIMIT 500)",
+                arrayOf(asset.symbol, asset.symbol)
+            )
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    fun manualGoldQuoteHistory(assetSymbol: String, limit: Int = 5): List<ManualGoldQuote> {
+        val safeLimit = limit.coerceIn(1, 50)
+        return buildList {
+            readableDatabase.rawQuery(
+                "SELECT asset_id,bank_buyback_price,bank_sell_price,observed_at,valid_until " +
+                    "FROM manual_gold_quote_history WHERE asset_id=? ORDER BY observed_at DESC,id DESC LIMIT $safeLimit",
+                arrayOf(assetSymbol)
+            ).use { c ->
+                while (c.moveToNext()) add(ManualGoldQuote(
+                    c.getString(0), BigDecimal(c.getString(1)), BigDecimal(c.getString(2)), c.getString(3), c.getString(4)
+                ))
+            }
+        }
+    }
+
+    /** Changes the asset's quote route and removes the old current mark to prevent unit/source leakage. */
+    fun setAssetMarketQuoteSecid(asset: AssetInfo, secid: String?): Boolean {
+        val normalized = secid?.trim()?.takeIf { it.isNotEmpty() }
+        require(normalized == null || PortfolioQuoteRouter.isRouteAllowed(asset, normalized)) {
+            "报价标的与资产代码或计价单位不匹配"
+        }
+        require(normalized == null || PortfolioQuoteRouter.quoteFor(
+            asset.copy(marketQuoteSecid = normalized), marketQuotes()
+        ) != null) { "当前缓存没有与资产代码和单位匹配的 ETF / 黄金行情" }
+        val db = writableDatabase
+        var changed = false
+        db.beginTransaction()
+        try {
+            val current = db.rawQuery(
+                "SELECT market_quote_secid FROM assets WHERE id=? AND kind=?",
+                arrayOf(asset.symbol, asset.kind.name)
+            ).use { cursor ->
+                if (!cursor.moveToFirst()) error("账本中找不到该资产")
+                cursor.getString(0)
+            }
+            if (current != normalized) {
+                db.update("assets", ContentValues().apply {
+                    if (normalized == null) putNull("market_quote_secid") else put("market_quote_secid", normalized)
+                }, "id=? AND kind=?", arrayOf(asset.symbol, asset.kind.name))
+                db.delete("quotes", "asset_id=?", arrayOf(asset.symbol))
+                db.delete("manual_gold_quotes", "asset_id=?", arrayOf(asset.symbol))
+                changed = true
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+        return changed
+    }
+
+    /** Copies fresh quotes only for portfolio assets with an explicit, unit-safe market route. */
+    fun syncLinkedMarketQuotes(quotes: Map<String, MarketQuote>): Int {
+        val now = Instant.now()
+        val updates = positions().asSequence().filter { it.units > BigDecimal.ZERO }.mapNotNull { position ->
+            val asset = position.asset
+            val quote = PortfolioQuoteRouter.quoteFor(asset, quotes) ?: return@mapNotNull null
+            if (!quote.price.isFinite() || quote.price <= 0.0 || quote.quoteTime <= 0 || quote.source.isBlank()) {
+                return@mapNotNull null
+            }
+            val observedAt = Instant.ofEpochSecond(quote.quoteTime)
+            if (observedAt.isAfter(now.plusSeconds(5 * 60)) ||
+                java.time.Duration.between(observedAt, now) > java.time.Duration.ofHours(72)
+            ) return@mapNotNull null
+            asset to quote
+        }.toList()
+        if (updates.isEmpty()) return 0
+
+        val db = writableDatabase
+        var changed = 0
+        db.beginTransaction()
+        try {
+            val latest = mutableMapOf<String, Pair<Instant, BigDecimal>>()
+            db.rawQuery("SELECT asset_id,price,observed_at FROM quotes", null).use { cursor ->
+                while (cursor.moveToNext()) {
+                    val observedAt = runCatching { Instant.parse(cursor.getString(2)) }.getOrNull() ?: continue
+                    latest[cursor.getString(0)] = observedAt to BigDecimal(cursor.getString(1))
+                }
+            }
+            updates.forEach { (asset, quote) ->
+                val observedAt = Instant.ofEpochSecond(quote.quoteTime)
+                val previous = latest[asset.symbol]
+                if (previous != null && !observedAt.isAfter(previous.first)) return@forEach
+                val price = BigDecimal.valueOf(quote.price)
+                saveAssetQuote(asset, price, observedAt, quote.source, db)
+                changed++
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+        return changed
+    }
+
+    private fun saveAssetQuote(
+        asset: AssetInfo,
+        price: BigDecimal,
+        observedAt: Instant,
+        source: String,
+        db: SQLiteDatabase = writableDatabase
+    ) {
+        val timestamp = observedAt.toString()
+        val values = ContentValues().apply {
+            put("asset_id", asset.symbol); put("price", price.toPlainString())
+            put("observed_at", timestamp); put("source", source)
+        }
+        val ownsTransaction = !db.inTransaction()
+        if (ownsTransaction) db.beginTransaction()
+        try {
+            db.insertWithOnConflict("quotes", null, values, SQLiteDatabase.CONFLICT_REPLACE)
+            db.insertWithOnConflict("quote_history", null, values, SQLiteDatabase.CONFLICT_IGNORE)
+            if (ownsTransaction) db.setTransactionSuccessful()
+        } finally {
+            if (ownsTransaction) db.endTransaction()
+        }
+    }
+
+    fun exportEncryptedBackup(password: CharArray): String = try {
+        EncryptedBackup.encrypt(exportBackup(), password)
+    } finally {
+        password.fill('\u0000')
+    }
+
+    fun isEncryptedBackup(payload: String): Boolean = EncryptedBackup.isEncrypted(payload)
+
+    fun decryptBackup(payload: String, password: CharArray): String = EncryptedBackup.decrypt(payload, password)
+
+    private fun exportBackup(): String {
+        val root = JSONObject().put("format", "market-ledger-backup").put("version", 7)
             .put("exported_at", Instant.now().toString())
         val assetArray = JSONArray()
         assets().forEach { asset ->
             assetArray.put(JSONObject().put("id", asset.symbol).put("name", asset.name)
-                .put("kind", asset.kind.name).put("category", asset.category))
+                .put("kind", asset.kind.name).put("category", asset.category)
+                .put("market_quote_secid", asset.marketQuoteSecid ?: JSONObject.NULL))
         }
         root.put("assets", assetArray)
         root.put("watchlist", JSONArray().apply { watchlist().forEach(::put) })
@@ -644,7 +1544,11 @@ class Ledger(context: Context) : SQLiteOpenHelper(context, "market_ledger.db", n
                 .put("units", trade.units?.toPlainString()).put("unit_price", trade.price?.toPlainString())
                 .put("fee", trade.fee.toPlainString()).put("status", if (trade.confirmed) "CONFIRMED" else "PENDING")
                 .put("reversed_at", trade.reversedAt ?: JSONObject.NULL)
-                .put("reversal_reason", trade.reversalReason ?: JSONObject.NULL))
+                .put("reversal_reason", trade.reversalReason ?: JSONObject.NULL)
+                .put("memo", trade.memo)
+                .put("share_factor", trade.shareFactor?.toPlainString() ?: JSONObject.NULL)
+                .put("related_asset_id", trade.relatedAsset?.symbol ?: JSONObject.NULL)
+                .put("related_units", trade.relatedUnits?.toPlainString() ?: JSONObject.NULL))
         }
         root.put("transactions", transactionArray)
         root.put("account_cash_events", JSONArray().apply {
@@ -667,6 +1571,33 @@ class Ledger(context: Context) : SQLiteOpenHelper(context, "market_ledger.db", n
                 .put("price", c.getString(1)).put("observed_at", c.getString(2)).put("source", c.getString(3)))
         }
         root.put("quote_history", historyArray)
+        val manualBankQuotes = JSONArray()
+        readableDatabase.rawQuery(
+            "SELECT asset_id,bank_buyback_price,bank_sell_price,observed_at,valid_until FROM manual_gold_quotes ORDER BY asset_id",
+            null
+        ).use { c ->
+            while (c.moveToNext()) manualBankQuotes.put(JSONObject()
+                .put("asset_id", c.getString(0))
+                .put("bank_buyback_price", c.getString(1))
+                .put("bank_sell_price", c.getString(2))
+                .put("observed_at", c.getString(3))
+                .put("valid_until", c.getString(4)))
+        }
+        root.put("manual_gold_quotes", manualBankQuotes)
+        val manualBankQuoteHistory = JSONArray()
+        readableDatabase.rawQuery(
+            "SELECT asset_id,bank_buyback_price,bank_sell_price,observed_at,valid_until " +
+                "FROM manual_gold_quote_history ORDER BY asset_id,observed_at,id",
+            null
+        ).use { c ->
+            while (c.moveToNext()) manualBankQuoteHistory.put(JSONObject()
+                .put("asset_id", c.getString(0))
+                .put("bank_buyback_price", c.getString(1))
+                .put("bank_sell_price", c.getString(2))
+                .put("observed_at", c.getString(3))
+                .put("valid_until", c.getString(4)))
+        }
+        root.put("manual_gold_quote_history", manualBankQuoteHistory)
         val snapshots = JSONArray()
         portfolioSnapshots().forEach { snapshot ->
             snapshots.put(JSONObject().put("day", snapshot.day.toString()).put("observed_at", snapshot.observedAt)
@@ -696,21 +1627,34 @@ class Ledger(context: Context) : SQLiteOpenHelper(context, "market_ledger.db", n
     fun restoreBackup(json: String) {
         val root = JSONObject(json)
         val backupVersion = root.optInt("version")
-        require(root.optString("format") == "market-ledger-backup" && backupVersion in 1..2) { "备份格式不受支持" }
+        require(root.optString("format") == "market-ledger-backup" && backupVersion in 1..7) { "备份格式不受支持" }
         val restoredAssets = linkedMapOf<String, AssetInfo>()
         val assetArray = root.getJSONArray("assets")
         for (i in 0 until assetArray.length()) {
             val item = assetArray.getJSONObject(i)
-            val asset = AssetInfo(item.getString("id").trim().uppercase(), item.getString("name").trim(),
+            val baseAsset = AssetInfo(item.getString("id").trim().uppercase(), item.getString("name").trim(),
                 AssetKind.valueOf(item.getString("kind")), item.getString("category").trim())
+            val marketQuoteSecid = if (backupVersion < 6) {
+                PortfolioQuoteRouter.defaultQuoteSecid(baseAsset)
+            } else {
+                item.optString("market_quote_secid").takeIf { it.isNotBlank() && it != "null" }
+            }
+            val asset = baseAsset.copy(marketQuoteSecid = marketQuoteSecid)
             require(asset.symbol.isNotBlank() && asset.name.isNotBlank() && asset.category.isNotBlank()) { "备份中存在不完整标的" }
+            val boundSecid = asset.marketQuoteSecid
+            require(boundSecid == null || PortfolioQuoteRouter.isRouteAllowed(asset, boundSecid)) {
+                "备份中的行情绑定与标的单位不匹配"
+            }
             require(restoredAssets.put(asset.symbol, asset) == null) { "备份中存在重复标的" }
         }
         val watchRows = root.optJSONArray("watchlist")
         val restoredWatchlist = if (watchRows == null) listOf("1.000001", "0.399001", "100.NDX", "100.SPX", "100.N225", "100.HSI")
             else (0 until watchRows.length()).map { watchRows.getString(it) }
         require(restoredWatchlist.distinct().size == restoredWatchlist.size &&
-            restoredWatchlist.all(MarketInstrumentCatalog.byId::containsKey)) { "备份中的自选列表无效" }
+            restoredWatchlist.all { id ->
+                MarketInstrumentCatalog.byId.containsKey(id) ||
+                    restoredAssets[id]?.let { it.kind == AssetKind.FUND && id.matches(Regex("\\d{6}")) } == true
+            }) { "备份中的自选列表无效" }
 
         val restoredTrades = mutableListOf<Trade>()
         val transactionArray = root.getJSONArray("transactions")
@@ -727,12 +1671,45 @@ class Ledger(context: Context) : SQLiteOpenHelper(context, "market_ledger.db", n
             val price = item.optString("unit_price").takeIf { it.isNotBlank() && it != "null" }?.let(::BigDecimal)
             val fee = BigDecimal(item.getString("fee"))
             val status = item.getString("status")
+            val memo = item.optString("memo").trim()
+            val shareFactor = item.optString("share_factor")
+                .takeIf { it.isNotBlank() && it != "null" }?.let(::BigDecimal)
+            val relatedAssetId = item.optString("related_asset_id")
+                .takeIf { it.isNotBlank() && it != "null" }
+            val relatedAsset = relatedAssetId?.let { restoredAssets[it] ?: error("转移流水引用了不存在的标的") }
+            val relatedUnits = item.optString("related_units")
+                .takeIf { it.isNotBlank() && it != "null" }?.let(::BigDecimal)
             require(status == "CONFIRMED" || status == "PENDING") { "备份中存在未知流水状态" }
             val confirmed = status == "CONFIRMED"
             require(id > 0 && transactionIds.add(id) && amount >= BigDecimal.ZERO && fee >= BigDecimal.ZERO) { "备份中存在无效流水" }
+            require(memo.length <= 120) { "流水备注不能超过 120 个字符" }
             require(units == null || units > BigDecimal.ZERO)
             require(price == null || price > BigDecimal.ZERO)
-            require(if (confirmed) units != null && price != null && amount > BigDecimal.ZERO else price == null) { "流水状态与价格数据不匹配" }
+            when (side) {
+                TradeSide.CASH_DIVIDEND -> require(
+                    confirmed && units == null && price == null && amount > fee
+                ) { "现金分红状态或金额无效" }
+                TradeSide.DIVIDEND_REINVESTMENT -> require(
+                    confirmed && units != null && price != null && amount > fee
+                ) { "红利再投状态或金额无效" }
+                TradeSide.SHARE_SPLIT -> require(
+                    confirmed && units == null && price == null && amount.signum() == 0 && fee.signum() == 0 &&
+                        shareFactor != null && shareFactor > BigDecimal.ZERO && shareFactor.compareTo(BigDecimal.ONE) != 0 &&
+                        shareFactor.precision() <= 24 && shareFactor.scale() <= 12
+                ) { "份额拆分状态或比例无效" }
+                TradeSide.ASSET_TRANSFER -> require(
+                    confirmed && units != null && price == null && amount > BigDecimal.ZERO && fee.signum() == 0 &&
+                        relatedAsset != null && relatedAsset.symbol != asset.symbol && relatedUnits != null &&
+                        relatedUnits > BigDecimal.ZERO
+                ) { "资产转移状态、标的或份额无效" }
+                else -> require(
+                    if (confirmed) units != null && price != null && amount > BigDecimal.ZERO else price == null
+                ) { "流水状态与价格数据不匹配" }
+            }
+            require(side == TradeSide.SHARE_SPLIT || shareFactor == null) { "非份额拆分流水包含拆分比例" }
+            require(side == TradeSide.ASSET_TRANSFER || (relatedAsset == null && relatedUnits == null)) {
+                "非资产转移流水包含关联标的或份额"
+            }
             if (side == TradeSide.BUY) require(amount > fee) { "买入金额必须大于手续费" }
             if (side == TradeSide.OPENING_POSITION) {
                 require(confirmed && fee.compareTo(BigDecimal.ZERO) == 0) { "期初持仓必须已确认且不含交易手续费" }
@@ -747,11 +1724,15 @@ class Ledger(context: Context) : SQLiteOpenHelper(context, "market_ledger.db", n
                 require(reason.length <= 200 && reason.isNotBlank()) { "冲正原因无效" }
                 require(!LocalDate.parse(day).isAfter(reversalDay)) { "冲正时间早于原交易日期" }
             }
-            restoredTrades += Trade(id, asset, side, day, amount, units, price, fee, confirmed, reversedAt, reversalReason)
+            restoredTrades += Trade(
+                id, asset, side, day, amount, units, price, fee, confirmed, reversedAt, reversalReason, memo,
+                shareFactor, relatedAsset, relatedUnits
+            )
         }
         restoredTrades.sortWith(compareByDescending<Trade> { it.day }.thenByDescending { it.id })
 
         val restoredCashEvents = mutableListOf<AccountCashEvent>()
+        val linkedTransactionIds = mutableSetOf<Long>()
         val cashRows = root.optJSONArray("account_cash_events") ?: JSONArray()
         for (i in 0 until cashRows.length()) {
             val item = cashRows.getJSONObject(i)
@@ -769,13 +1750,29 @@ class Ledger(context: Context) : SQLiteOpenHelper(context, "market_ledger.db", n
                     "现金流水日期与发生时间不一致"
                 }
             }
-            if (event.transactionId != null) {
-                val trade = restoredTrades.singleOrNull { it.id == event.transactionId && it.confirmed }
+            val linkedTransactionId = event.transactionId
+            if (linkedTransactionId != null) {
+                require(linkedTransactionIds.add(linkedTransactionId)) { "一笔交易不能关联多条现金流水" }
+                val trade = restoredTrades.singleOrNull { it.id == linkedTransactionId && it.confirmed }
                     ?: error("现金流水引用了不存在或未确认的交易")
                 require(!trade.isReversed) { "已冲正的交易不能保留关联现金流水" }
-                require(trade.side != TradeSide.OPENING_POSITION) { "期初持仓不能关联交易现金流水" }
-                val expectedType = if (trade.side == TradeSide.BUY) AccountCashEventType.TRADE_BUY else AccountCashEventType.TRADE_SELL
-                val expectedAmount = if (trade.side == TradeSide.BUY) trade.amount else trade.amount - trade.fee
+                val expectedType = when (trade.side) {
+                    TradeSide.BUY -> AccountCashEventType.TRADE_BUY
+                    TradeSide.SELL -> AccountCashEventType.TRADE_SELL
+                    TradeSide.CASH_DIVIDEND -> AccountCashEventType.DIVIDEND
+                    TradeSide.DIVIDEND_REINVESTMENT -> error("红利再投不产生账户现金流水")
+                    TradeSide.SHARE_SPLIT -> error("份额拆分不产生账户现金流水")
+                    TradeSide.ASSET_TRANSFER -> error("资产转移不产生账户现金流水")
+                    TradeSide.OPENING_POSITION -> error("期初持仓不能关联交易现金流水")
+                }
+                val expectedAmount = when (trade.side) {
+                    TradeSide.BUY -> trade.amount
+                    TradeSide.SELL, TradeSide.CASH_DIVIDEND -> trade.amount - trade.fee
+                    TradeSide.DIVIDEND_REINVESTMENT -> error("红利再投不产生账户现金流水")
+                    TradeSide.SHARE_SPLIT -> error("份额拆分不产生账户现金流水")
+                    TradeSide.ASSET_TRANSFER -> error("资产转移不产生账户现金流水")
+                    TradeSide.OPENING_POSITION -> error("期初持仓不能关联交易现金流水")
+                }
                 require(event.type == expectedType && event.day.toString() == trade.day && event.amount.compareTo(expectedAmount) == 0) {
                     "交易现金流水与原交易不一致"
                 }
@@ -807,6 +1804,41 @@ class Ledger(context: Context) : SQLiteOpenHelper(context, "market_ledger.db", n
             require(item.getString("source").isNotBlank())
             require(historyKeys.add(assetId to observedAt)) { "备份中存在重复历史报价" }
             history += item
+        }
+        val manualBankQuoteHistory = mutableListOf<ManualGoldQuote>()
+        val manualBankHistoryKeys = mutableSetOf<Pair<String, String>>()
+        val manualHistoryRows = if (backupVersion >= 7) {
+            require(root.has("manual_gold_quote_history")) { "备份缺少银行黄金报价历史" }
+            root.getJSONArray("manual_gold_quote_history")
+        } else JSONArray()
+        for (i in 0 until manualHistoryRows.length()) {
+            val quote = manualGoldQuoteFromBackup(manualHistoryRows.getJSONObject(i))
+            val asset = restoredAssets[quote.assetSymbol] ?: error("银行黄金报价历史引用了不存在的标的")
+            require(asset.kind == AssetKind.GOLD) { "银行黄金报价历史标的不是黄金资产" }
+            validateManualGoldQuote(quote)
+            require(manualBankHistoryKeys.add(quote.assetSymbol to quote.observedAt)) { "备份中存在重复银行黄金报价历史" }
+            manualBankQuoteHistory += quote
+        }
+        val manualBankQuotes = linkedMapOf<String, ManualGoldQuote>()
+        val manualLatestRows = if (backupVersion >= 7) {
+            require(root.has("manual_gold_quotes")) { "备份缺少当前银行黄金报价" }
+            root.getJSONArray("manual_gold_quotes")
+        } else JSONArray()
+        for (i in 0 until manualLatestRows.length()) {
+            val quote = manualGoldQuoteFromBackup(manualLatestRows.getJSONObject(i))
+            val asset = restoredAssets[quote.assetSymbol] ?: error("银行黄金报价引用了不存在的标的")
+            require(asset.kind == AssetKind.GOLD && asset.marketQuoteSecid == null) { "银行黄金报价标的不是手动黄金资产" }
+            validateManualGoldQuote(quote)
+            require(manualBankQuotes.put(quote.assetSymbol, quote) == null) { "备份中存在重复当前银行黄金报价" }
+            val latest = restoredQuotes[quote.assetSymbol]
+            require(latest?.third == "MANUAL_BANK_BUYBACK" && latest.second == quote.observedAt &&
+                latest.first.compareTo(quote.bankBuybackPrice) == 0) { "银行黄金报价与当前账本报价不一致" }
+            require(manualBankQuoteHistory.any { it == quote }) { "当前银行黄金报价缺少对应历史记录" }
+        }
+        restoredQuotes.forEach { (assetId, quote) ->
+            if (quote.third == "MANUAL_BANK_BUYBACK") {
+                require(manualBankQuotes.containsKey(assetId)) { "当前银行黄金报价缺少双向价格和有效期" }
+            }
         }
         computePositions(restoredTrades, restoredQuotes)
 
@@ -854,6 +1886,8 @@ class Ledger(context: Context) : SQLiteOpenHelper(context, "market_ledger.db", n
             db.delete("account_cash_events", null, null)
             db.delete("quotes", null, null)
             db.delete("quote_history", null, null)
+            db.delete("manual_gold_quotes", null, null)
+            db.delete("manual_gold_quote_history", null, null)
             db.delete("portfolio_snapshots", null, null)
             db.delete("position_snapshots", null, null)
             db.delete("watchlist", null, null)
@@ -865,6 +1899,7 @@ class Ledger(context: Context) : SQLiteOpenHelper(context, "market_ledger.db", n
             restoredAssets.values.forEach { asset ->
                 db.insertWithOnConflict("assets", null, ContentValues().apply {
                     put("id", asset.symbol); put("name", asset.name); put("kind", asset.kind.name); put("category", asset.category)
+                    put("market_quote_secid", asset.marketQuoteSecid)
                 }, SQLiteDatabase.CONFLICT_REPLACE)
             }
             restoredTrades.forEach { trade ->
@@ -874,6 +1909,10 @@ class Ledger(context: Context) : SQLiteOpenHelper(context, "market_ledger.db", n
                     put("unit_price", trade.price?.toPlainString()); put("fee", trade.fee.toPlainString())
                     put("status", if (trade.confirmed) "CONFIRMED" else "PENDING")
                     put("reversed_at", trade.reversedAt); put("reversal_reason", trade.reversalReason)
+                    put("memo", trade.memo)
+                    put("share_factor", trade.shareFactor?.toPlainString())
+                    put("related_asset_id", trade.relatedAsset?.symbol)
+                    put("related_units", trade.relatedUnits?.toPlainString())
                 })
             }
             restoredCashEvents.forEach { event -> db.insertOrThrow("account_cash_events", null, ContentValues().apply {
@@ -887,6 +1926,12 @@ class Ledger(context: Context) : SQLiteOpenHelper(context, "market_ledger.db", n
                 db.insertOrThrow("quotes", null, quoteValues(row))
             }
             history.forEach { row -> db.insertOrThrow("quote_history", null, quoteValues(row)) }
+            manualBankQuotes.values.forEach { quote ->
+                db.insertOrThrow("manual_gold_quotes", null, manualGoldQuoteValues(quote))
+            }
+            manualBankQuoteHistory.forEach { quote ->
+                db.insertOrThrow("manual_gold_quote_history", null, manualGoldQuoteValues(quote))
+            }
             restoredPortfolioSnapshots.forEach { snapshot -> db.insertOrThrow("portfolio_snapshots", null, ContentValues().apply {
                 put("day", snapshot.day.toString()); put("observed_at", snapshot.observedAt)
                 put("position_count", snapshot.positionCount); put("priced_position_count", snapshot.pricedPositionCount)
@@ -918,6 +1963,33 @@ class Ledger(context: Context) : SQLiteOpenHelper(context, "market_ledger.db", n
         put("asset_id", row.getString("asset_id")); put("price", row.getString("price"))
         put("observed_at", row.getString("observed_at")); put("source", row.getString("source"))
     }
+
+    private fun manualGoldQuoteFromBackup(row: JSONObject) = ManualGoldQuote(
+        assetSymbol = row.getString("asset_id").trim().uppercase(),
+        bankBuybackPrice = BigDecimal(row.getString("bank_buyback_price")),
+        bankSellPrice = BigDecimal(row.getString("bank_sell_price")),
+        observedAt = row.getString("observed_at").also(Instant::parse),
+        validUntil = row.getString("valid_until").also(Instant::parse)
+    )
+
+    private fun validateManualGoldQuote(quote: ManualGoldQuote) {
+        require(quote.assetSymbol.isNotBlank() && quote.bankBuybackPrice > BigDecimal.ZERO &&
+            quote.bankSellPrice >= quote.bankBuybackPrice) { "备份中的银行黄金双向报价无效" }
+        val observedAt = Instant.parse(quote.observedAt)
+        val validUntil = Instant.parse(quote.validUntil)
+        val validity = java.time.Duration.between(observedAt, validUntil)
+        require(validity.nano == 0 && validity.seconds in setOf(12L, 24L, 48L, 72L).map { it * 60 * 60 }) {
+            "备份中的银行黄金报价有效期无效"
+        }
+    }
+
+    private fun manualGoldQuoteValues(quote: ManualGoldQuote) = ContentValues().apply {
+        put("asset_id", quote.assetSymbol)
+        put("bank_buyback_price", quote.bankBuybackPrice.toPlainString())
+        put("bank_sell_price", quote.bankSellPrice.toPlainString())
+        put("observed_at", quote.observedAt)
+        put("valid_until", quote.validUntil)
+    }
 }
 
 private fun JSONObject.nullableDecimal(key: String): BigDecimal? =
@@ -934,19 +2006,64 @@ private fun computePositions(
     for (trade in trades.asReversed()) {
         if (!trade.confirmed || trade.isReversed) continue
         val p = states.getOrPut(trade.asset.symbol) { State(trade.asset) }
-        val units = requireNotNull(trade.units)
-        val price = requireNotNull(trade.price)
-        if (trade.side == TradeSide.BUY || trade.side == TradeSide.OPENING_POSITION) {
-            p.units = p.units.add(units)
-            p.cost = p.cost.add(trade.amount)
-        } else {
-            require(p.units >= units) { "流水记录存在超额卖出" }
-            val costOut = if (p.units == units) p.cost else p.cost.multiply(units).divide(p.units, 12, RoundingMode.HALF_UP)
-            p.units = p.units.subtract(units)
-            p.cost = p.cost.subtract(costOut)
-            p.realized = p.realized.add(trade.amount).subtract(trade.fee).subtract(costOut)
+        when (trade.side) {
+            TradeSide.BUY, TradeSide.OPENING_POSITION -> {
+                val units = requireNotNull(trade.units)
+                val price = requireNotNull(trade.price)
+                p.units = p.units.add(units)
+                p.cost = p.cost.add(trade.amount)
+                check(price > BigDecimal.ZERO)
+            }
+            TradeSide.SELL -> {
+                val units = requireNotNull(trade.units)
+                val price = requireNotNull(trade.price)
+                require(p.units >= units) { "流水记录存在超额卖出" }
+                val costOut = if (p.units == units) p.cost else p.cost.multiply(units).divide(p.units, 12, RoundingMode.HALF_UP)
+                p.units = p.units.subtract(units)
+                p.cost = p.cost.subtract(costOut)
+                p.realized = p.realized.add(trade.amount).subtract(trade.fee).subtract(costOut)
+                check(price > BigDecimal.ZERO)
+            }
+            TradeSide.CASH_DIVIDEND -> {
+                require(trade.units == null && trade.price == null) { "现金分红不能包含成交份额或净值" }
+                require(trade.amount > trade.fee) { "分红税费必须小于税前分红金额" }
+                p.realized = p.realized.add(trade.amount - trade.fee)
+            }
+            TradeSide.DIVIDEND_REINVESTMENT -> {
+                val units = requireNotNull(trade.units)
+                val price = requireNotNull(trade.price)
+                require(units > BigDecimal.ZERO && price > BigDecimal.ZERO && trade.amount > trade.fee) {
+                    "红利再投份额或金额无效"
+                }
+                val reinvestedAmount = units.multiply(price)
+                require(reinvestedAmount <= trade.amount - trade.fee) { "红利再投份额超过税后分红金额" }
+                p.units = p.units.add(units)
+                p.cost = p.cost.add(reinvestedAmount)
+                p.realized = p.realized.add(trade.amount - trade.fee)
+            }
+            TradeSide.SHARE_SPLIT -> {
+                val factor = requireNotNull(trade.shareFactor)
+                require(factor > BigDecimal.ZERO && factor.compareTo(BigDecimal.ONE) != 0 && p.units > BigDecimal.ZERO) {
+                    "份额拆分比例或持仓无效"
+                }
+                p.units = p.units.multiply(factor)
+            }
+            TradeSide.ASSET_TRANSFER -> {
+                val sourceUnits = requireNotNull(trade.units)
+                val targetAsset = requireNotNull(trade.relatedAsset)
+                val targetUnits = requireNotNull(trade.relatedUnits)
+                require(targetAsset.symbol != trade.asset.symbol && sourceUnits > BigDecimal.ZERO &&
+                    targetUnits > BigDecimal.ZERO && p.units >= sourceUnits) { "资产转移份额或标的无效" }
+                val costOut = if (p.units == sourceUnits) p.cost else
+                    p.cost.multiply(sourceUnits).divide(p.units, 12, RoundingMode.HALF_UP)
+                require(costOut.compareTo(trade.amount) == 0) { "资产转移成本与转出份额不匹配" }
+                p.units = p.units.subtract(sourceUnits)
+                p.cost = p.cost.subtract(costOut)
+                val target = states.getOrPut(targetAsset.symbol) { State(targetAsset) }
+                target.units = target.units.add(targetUnits)
+                target.cost = target.cost.add(costOut)
+            }
         }
-        check(price > BigDecimal.ZERO)
     }
     return states.values.map { p ->
         val quote = quotes[p.asset.symbol]

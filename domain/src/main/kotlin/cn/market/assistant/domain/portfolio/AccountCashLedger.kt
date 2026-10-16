@@ -8,7 +8,8 @@ enum class AccountCashEventType {
     DEPOSIT,
     WITHDRAWAL,
     TRADE_BUY,
-    TRADE_SELL
+    TRADE_SELL,
+    DIVIDEND
 }
 
 /** A single cash journal entry. Amounts are always stored as positive values. */
@@ -26,7 +27,9 @@ data class AccountCashEvent(
     init {
         require(amount >= BigDecimal.ZERO) { "现金流水金额不能为负" }
         require(type == AccountCashEventType.OPENING_BALANCE || amount > BigDecimal.ZERO) { "现金流水金额必须大于零" }
-        require((type == AccountCashEventType.TRADE_BUY || type == AccountCashEventType.TRADE_SELL) == (transactionId != null)) {
+        val transactionLinked = type == AccountCashEventType.TRADE_BUY ||
+            type == AccountCashEventType.TRADE_SELL || type == AccountCashEventType.DIVIDEND
+        require(transactionLinked == (transactionId != null)) {
             "交易现金流水必须关联一笔交易"
         }
         require(portfolioValueBefore?.let { it >= BigDecimal.ZERO } != false) { "资金流前估值不能小于零" }
@@ -35,7 +38,8 @@ data class AccountCashEvent(
 
     /** Change to the account's cash balance. */
     val balanceDelta: BigDecimal get() = when (type) {
-        AccountCashEventType.OPENING_BALANCE, AccountCashEventType.DEPOSIT, AccountCashEventType.TRADE_SELL -> amount
+        AccountCashEventType.OPENING_BALANCE, AccountCashEventType.DEPOSIT,
+        AccountCashEventType.TRADE_SELL, AccountCashEventType.DIVIDEND -> amount
         AccountCashEventType.WITHDRAWAL, AccountCashEventType.TRADE_BUY -> amount.negate()
     }
 
@@ -43,7 +47,7 @@ data class AccountCashEvent(
     val investorCashFlow: BigDecimal? get() = when (type) {
         AccountCashEventType.OPENING_BALANCE, AccountCashEventType.DEPOSIT -> amount.negate()
         AccountCashEventType.WITHDRAWAL -> amount
-        AccountCashEventType.TRADE_BUY, AccountCashEventType.TRADE_SELL -> null
+        AccountCashEventType.TRADE_BUY, AccountCashEventType.TRADE_SELL, AccountCashEventType.DIVIDEND -> null
     }
 }
 

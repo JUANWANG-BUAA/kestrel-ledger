@@ -20,8 +20,13 @@ class DailyPortfolioSnapshotWorker(
     override suspend fun doWork(): Result = try {
         withContext(Dispatchers.IO) {
             val today = LocalDate.now(SHANGHAI_ZONE)
-            val snapshot = LocalPortfolioSnapshotRepository(Ledger(applicationContext)).capture(today)
-            Log.i(TAG, "Captured daily portfolio snapshot for $today (${snapshot.positionCount} positions, fresh=${snapshot.valuationFresh})")
+            val ledger = Ledger(applicationContext)
+            try {
+                val snapshot = LocalPortfolioSnapshotRepository(ledger).capture(today)
+                Log.i(TAG, "Captured daily portfolio snapshot for $today (${snapshot.positionCount} positions, fresh=${snapshot.valuationFresh})")
+            } finally {
+                ledger.close()
+            }
         }
         Result.success()
     } catch (cancelled: CancellationException) {

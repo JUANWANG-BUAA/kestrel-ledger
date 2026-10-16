@@ -1,6 +1,7 @@
 package cn.market.assistant
 
 import cn.market.assistant.domain.market.MarketQuote
+import cn.market.assistant.domain.market.DataFetchStatus
 import cn.market.assistant.domain.market.ChartPeriod
 import cn.market.assistant.domain.market.MarketOhlcBar
 
@@ -48,15 +49,28 @@ object MarketInstrumentCatalog {
     val byId = items.associateBy { it.secid }
     val indices = items.take(11)
     val overview = listOf("1.000001", "0.399001", "0.399006", "1.000688", "100.NDX", "100.DJIA", "100.SPX", "100.N225", "100.KS11", "100.HSI").mapNotNull(byId::get)
-    val sectors = listOf(
-        MarketSector("semiconductor", "半导体", "芯片硬件", "1.512480", "半导体 ETF 代表，不等同行业指数"),
-        MarketSector("gaming", "游戏", "数字内容", "0.159869", "游戏 ETF 代表，不等同行业指数"),
-        MarketSector("ai", "人工智能", "AI 算力", "0.159819", "人工智能 ETF 代表，不等同行业指数"),
-        MarketSector("communications", "通信设备", "通信网络", "1.515880", "通信 ETF 代表，不等同行业指数")
+    /** ETF stand-ins retained for quote fallback; the full sector universe comes from the board feed. */
+    val sectorEtfProxies = listOf(
+        SectorEtfProxy("semiconductor", "半导体", "芯片硬件", "1.512480", "半导体 ETF 代表，不等同行业指数"),
+        SectorEtfProxy("gaming", "游戏", "数字内容", "0.159869", "游戏 ETF 代表，不等同行业指数"),
+        SectorEtfProxy("ai", "人工智能", "AI 算力", "0.159819", "人工智能 ETF 代表，不等同行业指数"),
+        SectorEtfProxy("communications", "通信设备", "通信网络", "1.515880", "通信 ETF 代表，不等同行业指数")
     )
 }
 
-data class MarketSector(val id: String, val name: String, val category: String, val instrumentId: String, val description: String)
+data class SectorEtfProxy(val id: String, val name: String, val category: String, val instrumentId: String, val description: String)
+
+data class ChartBarsResponse(val source: String, val bars: List<MarketOhlcBar>)
+
+data class MarketProviderFetch(
+    val source: String,
+    val status: DataFetchStatus,
+    val itemCount: Int,
+    val expectedCount: Int?,
+    val errorCode: String? = null
+)
+
+data class MarketQuoteFetchResult(val quotes: List<MarketQuote>, val providerFetches: List<MarketProviderFetch>)
 
 object MarketApi {
     private const val USER_AGENT = "Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36 Chrome/140.0 Mobile Safari/537.36"
@@ -64,19 +78,110 @@ object MarketApi {
     const val GOLD_CNY_GRAM_ID = "GOLD.XAU.CNY.GRAM"
     private const val TROY_OUNCE_GRAMS = 31.1034768
 
-    fun fetchQuotes(): List<MarketQuote> {
-        val primary = (runCatching { fetchEastMoneyQuotes() }.getOrNull().orEmpty() +
-            runCatching { fetchTencentQuotes() }.getOrNull().orEmpty())
-            .associateBy { it.secid }.toMutableMap()
+    fun fetchQuotes(): List<MarketQuote> = fetchQuotesWithDiagnostics().quotes
+
+    fun fetchQuotesWithDiagnostics(): MarketQuoteFetchResult {
+        val providerFetches = mutableListOf<MarketProviderFetch>()
+        fun recordProvider(
+            source: String,
+            expectedCount: Int?,
+            itemCount: Int,
+            errorCount: Int = 0,
+            errorCode: String? = null
+        ) {
+            val status = when {
+                itemCount == 0 && errorCode != null -> DataFetchStatus.FAILURE
+                itemCount == 0 -> DataFetchStatus.FAILURE
+                errorCount > 0 || expectedCount != null && itemCount < expectedCount -> DataFetchStatus.PARTIAL
+                else -> DataFetchStatus.SUCCESS
+            }
+            providerFetches += MarketProviderFetch(
+                source = source,
+                status = status,
+                itemCount = itemCount,
+                expectedCount = expectedCount,
+                errorCode = errorCode
+            )
+        }
+
+        val eastMoneyResult = runCatching { fetchEastMoneyQuotes() }
+        val eastMoneyQuotes = eastMoneyResult.getOrDefault(emptyList())
+        recordProvider(
+            source = "eastmoney",
+            expectedCount = MarketInstrumentCatalog.items.size,
+            itemCount = eastMoneyQuotes.size,
+            errorCode = eastMoneyResult.exceptionOrNull()?.javaClass?.simpleName
+        )
+        val tencentResult = runCatching { fetchTencentQuotes() }
+        val tencentRows = tencentResult.getOrDefault(emptyList())
+        val tencentQuotes = tencentRows.filter { it.source == "tencent" }
+        val dailyCloseQuotes = tencentRows.filter { it.source == "daily-close" }
+        recordProvider(
+            source = "tencent",
+            expectedCount = MarketInstrumentCatalog.items.size,
+            itemCount = tencentQuotes.size,
+            errorCode = tencentResult.exceptionOrNull()?.javaClass?.simpleName
+        )
+        if (dailyCloseQuotes.isNotEmpty()) {
+            recordProvider("daily-close", expectedCount = null, itemCount = dailyCloseQuotes.size)
+        }
+        val primary = (eastMoneyQuotes + tencentRows).associateBy { it.secid }.toMutableMap()
         val missingYahoo = MarketInstrumentCatalog.items.filter { it.yahooSymbol != null && it.secid !in primary }
-        missingYahoo.forEach { instrument -> runCatching { fetchYahooQuote(instrument) }.getOrNull()?.let { primary[it.secid] = it } }
-        MarketInstrumentCatalog.sectors.mapNotNull { MarketInstrumentCatalog.byId[it.instrumentId] }
+        if (missingYahoo.isNotEmpty()) {
+            var yahooFailures = 0
+            missingYahoo.forEach { instrument ->
+                val result = runCatching { fetchYahooQuote(instrument) }
+                val quote = result.getOrNull()
+                if (quote == null) yahooFailures++ else primary[quote.secid] = quote
+            }
+            recordProvider(
+                source = "yahoo",
+                expectedCount = missingYahoo.size,
+                itemCount = missingYahoo.size - yahooFailures,
+                errorCount = yahooFailures,
+                errorCode = if (yahooFailures > 0) "SourceFailures" else null
+            )
+        }
+        val proxyFallbacks = MarketInstrumentCatalog.sectorEtfProxies.mapNotNull { MarketInstrumentCatalog.byId[it.instrumentId] }
             .filter { it.secid !in primary }
-            .forEach { instrument -> runCatching { fetchQuote(instrument.secid) }.getOrNull()?.let { primary[it.secid] = it } }
-        runCatching { fetchGoldSpot() }.getOrNull()?.let { primary[it.secid] = it }
-        runCatching { fetchGoldCnyPerGram() }.getOrNull()?.let { primary[it.secid] = it }
-        runCatching { fetchSgeAu9999Quote() }.getOrNull()?.let { primary[it.secid] = it }
-        return primary.values.toList()
+        if (proxyFallbacks.isNotEmpty()) {
+            var fallbackFailures = 0
+            val fallbackQuotes = mutableListOf<MarketQuote>()
+            proxyFallbacks.forEach { instrument ->
+                val result = runCatching { fetchQuote(instrument.secid) }
+                val quote = result.getOrNull()
+                if (quote == null) fallbackFailures++ else {
+                    fallbackQuotes += quote
+                    primary[quote.secid] = quote
+                }
+            }
+            fallbackQuotes.groupBy { it.source }.forEach { (source, quotes) ->
+                recordProvider(source, expectedCount = null, itemCount = quotes.size)
+            }
+            recordProvider(
+                source = "quote-fallback",
+                expectedCount = proxyFallbacks.size,
+                itemCount = fallbackQuotes.size,
+                errorCount = fallbackFailures,
+                errorCode = if (fallbackFailures > 0) "SourceFailures" else null
+            )
+        }
+
+        listOf(
+            "gold-api-xau-usd" to ::fetchGoldSpot,
+            "gold-api-xau-cny" to ::fetchGoldCnyPerGram,
+            "sge-au9999" to ::fetchSgeAu9999Quote
+        ).forEach { (source, fetch) ->
+            val result = runCatching(fetch)
+            val quote = result.getOrNull()
+            if (quote == null) {
+                recordProvider(source, expectedCount = 1, itemCount = 0, errorCode = result.exceptionOrNull()?.javaClass?.simpleName)
+            } else {
+                primary[quote.secid] = quote
+                recordProvider(source, expectedCount = 1, itemCount = 1)
+            }
+        }
+        return MarketQuoteFetchResult(primary.values.toList(), providerFetches)
     }
 
     /** International XAU/USD spot, quoted in US dollars per troy ounce. */
@@ -135,7 +240,7 @@ object MarketApi {
     }
 
     fun fetchQuote(secid: String): MarketQuote {
-        val instrument = MarketInstrumentCatalog.byId[secid] ?: error("暂不支持此标的")
+        val instrument = MarketInstrumentCatalog.byId[secid] ?: return fetchListedFundQuote(secid)
         if (instrument.yahooSymbol != null) runCatching { fetchYahooQuote(instrument) }.getOrNull()?.let { return it }
         val raw = request("https://qt.gtimg.cn/q=${encode(instrument.tencentCode)}", "https://gu.qq.com/")
         val matcher = Pattern.compile("v_([^=]+)=\\\"(.*?)\\\";", Pattern.DOTALL).matcher(raw)
@@ -146,6 +251,46 @@ object MarketApi {
         val changePct = fields.getOrNull(32)?.toDoubleOrNull() ?: 0.0
         val fetchedAt = System.currentTimeMillis() / 1000
         return MarketQuote(secid, instrument.name, price, change, changePct, fetchedAt, fetchedAt, "tencent")
+    }
+
+    fun fetchListedFundQuote(secid: String): MarketQuote {
+        val parts = secid.split('.')
+        require(parts.size == 2 && parts[0] in setOf("0", "1") && parts[1].matches(Regex("\\d{6}"))) {
+            "暂不支持此标的"
+        }
+        val query = listOf(
+            "fltt=2",
+            "fields=f2,f3,f4,f12,f13,f14,f124",
+            "secids=${encode(secid)}"
+        ).joinToString("&")
+        val raw = request(
+            "https://push2.eastmoney.com/api/qt/ulist.np/get?$query",
+            "https://quote.eastmoney.com/"
+        )
+        val root = JSONObject(raw)
+        require(root.optInt("rc", -1) == 0) { "东方财富暂未返回场内行情" }
+        val rows = root.optJSONObject("data")?.optJSONArray("diff") ?: error("东方财富暂未返回场内行情")
+        val row = (0 until rows.length()).asSequence()
+            .mapNotNull(rows::optJSONObject)
+            .firstOrNull { it.optString("f12") == parts[1] && it.optString("f13") == parts[0] }
+            ?: error("没有找到对应的场内基金行情")
+        val price = row.optDouble("f2", Double.NaN)
+        val changePct = row.optDouble("f3", Double.NaN)
+        val quoteTime = row.optLong("f124", 0L)
+        require(price.isFinite() && price > 0 && changePct.isFinite() && quoteTime > 0) {
+            "场内行情字段无效"
+        }
+        val fetchedAt = System.currentTimeMillis() / 1000
+        return MarketQuote(
+            secid = secid,
+            name = row.optString("f14").ifBlank { secid },
+            price = price,
+            change = row.optDouble("f4", 0.0).takeIf(Double::isFinite) ?: 0.0,
+            changePct = changePct,
+            quoteTime = quoteTime,
+            fetchedAt = fetchedAt,
+            source = "eastmoney"
+        )
     }
 
     private fun fetchEastMoneyQuotes(): List<MarketQuote> {
@@ -229,16 +374,73 @@ object MarketApi {
         }.distinctBy { it.day }.sortedBy { it.day }
     }
 
-    fun fetchChartBars(secid: String, period: ChartPeriod): List<MarketOhlcBar> {
+    fun fetchChartBars(secid: String, period: ChartPeriod): List<MarketOhlcBar> =
+        fetchChartBarsWithSource(secid, period).bars
+
+    fun fetchChartBarsWithSource(secid: String, period: ChartPeriod): ChartBarsResponse {
         val instrument = MarketInstrumentCatalog.byId[secid]
         if (instrument?.yahooSymbol != null) {
             runCatching { fetchYahooChartBars(instrument, period) }
-                .getOrNull()?.takeIf { it.isNotEmpty() }?.let { return it }
+                .getOrNull()?.takeIf { it.isNotEmpty() }?.let { return ChartBarsResponse("yahoo", it) }
         }
-        if (period == ChartPeriod.INTRADAY || period == ChartPeriod.FIVE_DAY) return fetchTencentChartBars(secid, period)
-        return runCatching { fetchEastMoneyChartBars(secid, period) }
-            .recoverCatching { fetchTencentChartBars(secid, period) }
+        if (period == ChartPeriod.INTRADAY || period == ChartPeriod.FIVE_DAY) {
+            return ChartBarsResponse("tencent", fetchTencentChartBars(secid, period))
+        }
+        return runCatching { ChartBarsResponse("eastmoney", fetchEastMoneyChartBars(secid, period)) }
+            .recoverCatching { ChartBarsResponse("tencent", fetchTencentChartBars(secid, period)) }
             .getOrThrow()
+    }
+
+    /** Corporate-action-adjusted Tencent A-share history for fund-holding return regression. */
+    fun fetchAdjustedStockDailyBars(secid: String): List<MarketOhlcBar> {
+        require(secid.matches(Regex("[01]\\.\\d{6}"))) { "股票代码格式无效" }
+        val exchangeCode = secid.split('.', limit = 2).let { (market, code) ->
+            (if (market == "1") "sh" else "sz") + code
+        }
+        val param = encode("$exchangeCode,day,,,180,qfq")
+        val raw = request(
+            "https://proxy.finance.qq.com/ifzqgtimg/appstock/app/fqkline/get?param=$param",
+            "https://gu.qq.com/"
+        )
+        val root = JSONObject(raw)
+        require(root.optInt("code", -1) == 0) { root.optString("msg").ifBlank { "腾讯没有返回复权日线" } }
+        val rows = root.optJSONObject("data")?.optJSONObject(exchangeCode)?.optJSONArray("qfqday")
+            ?: error("腾讯没有返回复权日线")
+        return buildList {
+            for (index in 0 until rows.length()) {
+                val row = rows.optJSONArray(index) ?: continue
+                if (row.length() < 6) continue
+                val day = row.optString(0)
+                val open = row.optString(1).toDoubleOrNull() ?: continue
+                val close = row.optString(2).toDoubleOrNull() ?: continue
+                val high = row.optString(3).toDoubleOrNull() ?: continue
+                val low = row.optString(4).toDoubleOrNull() ?: continue
+                val volume = row.optString(5).toDoubleOrNull() ?: 0.0
+                if (listOf(open, close, high, low).all { it.isFinite() && it > 0.0 }) {
+                    add(MarketOhlcBar(day, open, close, high, low, volume))
+                }
+            }
+        }.distinctBy { it.day }.sortedBy { it.day }
+    }
+
+    /** Fetches only the requested daily-session range; unrelated bars are discarded before persistence. */
+    fun fetchChartBarsForDates(secid: String, requestedDays: List<String>): ChartBarsResponse {
+        require(requestedDays.isNotEmpty()) { "没有需要回填的交易日" }
+        val expectedDays = requestedDays.mapNotNull(::normalizeMarketDay).toSet()
+        require(expectedDays.isNotEmpty()) { "回填日期格式无效" }
+        val startDay = expectedDays.minOrNull() ?: error("回填日期无效")
+        val endDay = expectedDays.maxOrNull() ?: error("回填日期无效")
+        val instrument = MarketInstrumentCatalog.byId[secid] ?: error("暂不支持该标的日线回填")
+        val eastMoney = runCatching {
+            fetchEastMoneyChartBars(secid, ChartPeriod.DAY, startDay, endDay)
+        }.getOrNull()?.let { bars -> ChartBarsResponse("eastmoney", bars) }
+        val response = eastMoney?.takeIf { it.bars.isNotEmpty() }
+            ?: (if (instrument.yahooSymbol != null) runCatching {
+                ChartBarsResponse("yahoo", fetchYahooChartBars(instrument, ChartPeriod.DAY, startDay to endDay))
+            }.getOrNull()?.takeIf { it.bars.isNotEmpty() } else null)
+            ?: eastMoney
+            ?: error("日线区间请求失败，暂时没有可用数据源")
+        return response.copy(bars = response.bars.filter { normalizeMarketDay(it.day) in expectedDays })
     }
 
     private fun fetchYahooQuote(instrument: MarketInstrument): MarketQuote {
@@ -257,7 +459,11 @@ object MarketApi {
             quoteTime, fetchedAt, "yahoo")
     }
 
-    private fun fetchYahooChartBars(instrument: MarketInstrument, period: ChartPeriod): List<MarketOhlcBar> {
+    private fun fetchYahooChartBars(
+        instrument: MarketInstrument,
+        period: ChartPeriod,
+        dateRange: Pair<String, String>? = null
+    ): List<MarketOhlcBar> {
         val symbol = instrument.yahooSymbol ?: error("没有 Yahoo 行情代码")
         val (range, interval) = when (period) {
             ChartPeriod.INTRADAY -> "1d" to "5m"
@@ -266,7 +472,9 @@ object MarketApi {
             ChartPeriod.WEEK -> "5y" to "1wk"
             ChartPeriod.MONTH -> "max" to "1mo"
         }
-        val root = JSONObject(request(yahooUrl(symbol, range, interval), "https://finance.yahoo.com/"))
+        val requestUrl = dateRange?.let { yahooDateRangeUrl(symbol, it.first, it.second, interval) }
+            ?: yahooUrl(symbol, range, interval)
+        val root = JSONObject(request(requestUrl, "https://finance.yahoo.com/"))
         val result = root.optJSONObject("chart")?.optJSONArray("result")?.optJSONObject(0)
             ?: error(root.optJSONObject("chart")?.optJSONObject("error")?.optString("description") ?: "Yahoo 没有返回 K 线")
         val timestamps = result.optJSONArray("timestamp") ?: error("Yahoo 没有返回 K 线时间")
@@ -297,6 +505,14 @@ object MarketApi {
 
     private fun yahooUrl(symbol: String, range: String, interval: String): String =
         "https://query1.finance.yahoo.com/v8/finance/chart/${encode(symbol)}?range=$range&interval=$interval&events=history"
+
+    private fun yahooDateRangeUrl(symbol: String, startDay: String, endDay: String, interval: String): String {
+        val zone = java.time.ZoneOffset.UTC
+        val period1 = java.time.LocalDate.parse(startDay).minusDays(1).atStartOfDay(zone).toEpochSecond()
+        val period2 = java.time.LocalDate.parse(endDay).plusDays(2).atStartOfDay(zone).toEpochSecond()
+        return "https://query1.finance.yahoo.com/v8/finance/chart/${encode(symbol)}?" +
+            "period1=$period1&period2=$period2&interval=$interval&events=history"
+    }
 
     private fun fetchTencentChartBars(secid: String, period: ChartPeriod): List<MarketOhlcBar> {
         val instrument = MarketInstrumentCatalog.byId[secid] ?: error("暂不支持该标的走势图")
@@ -341,13 +557,24 @@ object MarketApi {
         return bars
     }
 
-    private fun fetchEastMoneyChartBars(secid: String, period: ChartPeriod): List<MarketOhlcBar> {
+    private fun fetchEastMoneyChartBars(
+        secid: String,
+        period: ChartPeriod,
+        startDay: String? = null,
+        endDay: String? = null
+    ): List<MarketOhlcBar> {
         require(period == ChartPeriod.DAY || period == ChartPeriod.WEEK || period == ChartPeriod.MONTH)
+        require((startDay == null) == (endDay == null)) { "区间日线请求缺少边界日期" }
         val klt = when (period) { ChartPeriod.DAY -> 101; ChartPeriod.WEEK -> 102; else -> 103 }
+        val rangeQuery = if (startDay != null && endDay != null) {
+            val begin = startDay.replace("-", "")
+            val end = endDay.replace("-", "")
+            "beg=$begin&end=$end&lmt=180"
+        } else "end=20500101&lmt=180"
         val query = listOf(
             "secid=${encode(secid)}", "fields1=f1,f2,f3,f4,f5,f6",
             "fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61",
-            "klt=$klt", "fqt=0", "end=20500101", "lmt=180",
+            "klt=$klt", "fqt=0", rangeQuery,
             "ut=fa5fd1943c7b386f172d6893dbfba10b"
         ).joinToString("&")
         val raw = request("https://push2his.eastmoney.com/api/qt/stock/kline/get?$query", "https://quote.eastmoney.com/")
@@ -406,6 +633,16 @@ object MarketApi {
 
     private fun encode(value: String): String = URLEncoder.encode(value, StandardCharsets.UTF_8.name())
 }
+
+private fun normalizeMarketDay(value: String): String? = runCatching {
+    val trimmed = value.trim()
+    val date = if (trimmed.length == 8 && trimmed.all(Char::isDigit)) {
+        java.time.LocalDate.parse(trimmed, java.time.format.DateTimeFormatter.BASIC_ISO_DATE)
+    } else {
+        java.time.LocalDate.parse(trimmed.take(10))
+    }
+    date.toString()
+}.getOrNull()
 
 fun MarketQuote.displayTime(): String = runCatching {
     java.time.format.DateTimeFormatter.ofPattern("MM-dd HH:mm")

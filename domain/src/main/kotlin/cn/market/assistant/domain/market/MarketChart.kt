@@ -18,4 +18,9 @@ enum class ChartPeriod(val label: String, val cacheKey: String) {
     MONTH("月K", "month")
 }
 
-data class CachedMarketChart(val bars: List<MarketOhlcBar>, val cachedAt: Long, val refreshed: Boolean = false)
+data class CachedMarketChart(
+    val bars: List<MarketOhlcBar>,
+    val cachedAt: Long,
+    val refreshed: Boolean = false,
+    val source: String? = null
+)

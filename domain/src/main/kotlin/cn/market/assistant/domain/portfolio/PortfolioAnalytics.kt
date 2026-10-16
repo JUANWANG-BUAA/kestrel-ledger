@@ -46,7 +46,11 @@ data class PortfolioSnapshot(
 
 enum class ReportPeriod(val title: String) { DAY("今日"), WEEK("本周"), MONTH("本月") }
 
-data class PeriodContribution(val assetName: String, val amount: BigDecimal)
+data class PeriodContribution(
+    val assetName: String,
+    val amount: BigDecimal,
+    val shareOfNetProfitPct: BigDecimal? = null
+)
 
 enum class AllocationKind { FUND, GOLD, CASH }
 
@@ -100,7 +104,9 @@ data class PeriodFacts(
     val benchmarkStartDay: LocalDate? = null,
     val benchmarkEndDay: LocalDate? = null,
     val accountExcessReturnPct: BigDecimal? = null,
-    val benchmarkMissingReason: String? = null
+    val benchmarkMissingReason: String? = null,
+    val transactionFeeAmount: BigDecimal = BigDecimal.ZERO,
+    val dividendWithholdingTax: BigDecimal = BigDecimal.ZERO
 )
 
 /** Deterministic portfolio analytics shared by the daily, weekly and monthly report UI. */
@@ -158,6 +164,19 @@ object PortfolioAnalytics {
             ReportPeriod.WEEK -> asOf.minusDays((asOf.dayOfWeek.value - 1).toLong())
             ReportPeriod.MONTH -> asOf.withDayOfMonth(1)
         }
+        val periodTradesInCalendarRange = activeTrades.asSequence()
+            .filter { it.confirmed }
+            .filter { trade ->
+                runCatching { LocalDate.parse(trade.day) }.getOrNull()
+                    ?.let { !it.isBefore(start) && !it.isAfter(asOf) } == true
+            }
+            .toList()
+        val periodFeeAmount = periodTradesInCalendarRange.asSequence()
+            .filter { it.side == TradeSide.BUY || it.side == TradeSide.SELL }
+            .fold(BigDecimal.ZERO) { sum, trade -> sum + trade.fee }
+        val periodWithholdingTax = periodTradesInCalendarRange.asSequence()
+            .filter { it.side == TradeSide.CASH_DIVIDEND || it.side == TradeSide.DIVIDEND_REINVESTMENT }
+            .fold(BigDecimal.ZERO) { sum, trade -> sum + trade.fee }
         val opening = validSnapshots.filter { it.day.isBefore(start) }.maxByOrNull { it.day }
         val closing = validSnapshots.filter { !it.day.isBefore(start) && !it.day.isAfter(asOf) }.maxByOrNull { it.day }
         val cutoff = closing?.day ?: asOf
@@ -214,8 +233,12 @@ object PortfolioAnalytics {
                 val old = before[assetId]?.totalProfit ?: BigDecimal.ZERO
                 val new = after[assetId]?.totalProfit ?: BigDecimal.ZERO
                 val name = after[assetId]?.asset?.name ?: before[assetId]?.asset?.name ?: assetId
-                PeriodContribution(name, new - old)
-            }.sortedByDescending { it.amount }
+                val amount = new - old
+                val share = profit?.takeIf { it.signum() != 0 }?.let { total ->
+                    amount.multiply(BigDecimal("100")).divide(total, 2, RoundingMode.HALF_UP)
+                }
+                PeriodContribution(name, amount, share)
+            }.sortedByDescending { it.amount.abs() }
         } else emptyList()
         return PeriodFacts(period, start, asOf, opening, closing, profit, dietz, activityTrades.size, buys, sells, reason, contributions,
             accountPerformance.first, accountPerformance.second, accountPerformance.third, accountXirr,
@@ -223,7 +246,8 @@ object PortfolioAnalytics {
             maxDrawdown.observationCount, maxDrawdown.missingDays, maxDrawdown.missingReason,
             allocation.closing, allocation.changes, allocation.hhi, allocation.effectiveAssetCount, allocation.missingReason,
             benchmark.benchmarkReturnPct, benchmark.benchmarkName, benchmark.benchmarkSource,
-            benchmark.startBarDay, benchmark.endBarDay, benchmark.accountExcessReturnPct, benchmark.missingReason)
+            benchmark.startBarDay, benchmark.endBarDay, benchmark.accountExcessReturnPct, benchmark.missingReason,
+            periodFeeAmount, periodWithholdingTax)
     }
 
     /** Links subperiod returns at captured external-flow valuation boundaries. */
@@ -357,7 +381,7 @@ object PortfolioAnalytics {
         val days = ChronoUnit.DAYS.between(opening.day, closing.day).coerceAtLeast(1)
         var weightedFlows = BigDecimal.ZERO
         trades.forEach { trade ->
-            if (trade.side == TradeSide.OPENING_POSITION) return@forEach
+            if (trade.side != TradeSide.BUY && trade.side != TradeSide.SELL) return@forEach
             val tradeDay = runCatching { LocalDate.parse(trade.day) }.getOrNull() ?: return@forEach
             val netAmount = if (trade.side == TradeSide.BUY) trade.amount else trade.amount - trade.fee
             val signed = if (trade.side == TradeSide.BUY) netAmount else netAmount.negate()

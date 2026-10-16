@@ -17,6 +17,8 @@ Use JDK 21 and Android SDK 35 as described in `README.md`; open the repository r
 
 Follow nearby Kotlin style with four-space indentation. Use `UpperCamelCase` for types and `lowerCamelCase` for functions and properties; name unit test classes with a `Test` suffix. The engineering plan sets a 120-column Kotlin target, though no formatter task is currently configured. For Python, follow the surrounding module style. Do not name scripts after Python standard-library modules; see `tools/README.md` for examples and the full list.
 
+When a nullable public property comes from another Gradle module, copy it to a local `val` before checking and using it; Kotlin cannot smart-cast such properties across module boundaries.
+
 ## Testing Guidelines
 
 Tests use JUnit 4 and live under each module's `src/test/` tree, mirroring production package paths. Add focused tests for changed calculations, data mappings, and edge cases; keep numerical test inputs deterministic. No repository-wide coverage threshold or Python test command is currently configured.
