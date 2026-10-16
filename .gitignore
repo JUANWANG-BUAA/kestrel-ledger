@@ -1,0 +1,18 @@
+.gradle/
+.idea/
+.kotlin/
+build/
+app/build/
+local.properties
+*.iml
+
+# Local market research databases and downloaded HTTP response cache
+*.db
+*.db-*
+data/cache/
+data/backtest_detail.json
+
+# Local agent notes and generated Python bytecode
+.learnings/
+**/__pycache__/
+*.py[cod]

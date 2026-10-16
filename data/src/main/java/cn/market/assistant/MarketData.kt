@@ -1,0 +1,413 @@
+package cn.market.assistant
+
+import cn.market.assistant.domain.market.MarketQuote
+import cn.market.assistant.domain.market.ChartPeriod
+import cn.market.assistant.domain.market.MarketOhlcBar
+
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
+import java.time.Instant
+import java.util.regex.Pattern
+
+data class MarketInstrument(
+    val secid: String,
+    val name: String,
+    val market: String,
+    val tencentCode: String,
+    val yahooSymbol: String? = null
+)
+
+object MarketInstrumentCatalog {
+    val items = listOf(
+        MarketInstrument("1.000001", "上证指数", "A股", "sh000001"),
+        MarketInstrument("0.399001", "深证成指", "A股", "sz399001"),
+        MarketInstrument("1.000300", "沪深300", "A股", "sh000300"),
+        MarketInstrument("0.399006", "创业板指", "A股", "sz399006"),
+        MarketInstrument("1.000688", "科创50", "A股", "sh000688"),
+        MarketInstrument("100.NDX", "纳斯达克", "美股", "usNDX"),
+        MarketInstrument("100.DJIA", "道琼斯", "美股", "usDJI"),
+        MarketInstrument("100.SPX", "标普500", "美股", "usINX"),
+        MarketInstrument("100.N225", "日经225", "日股", "usN225", "^N225"),
+        MarketInstrument("100.HSI", "恒生指数", "港股", "hkHSI"),
+        MarketInstrument("1.518880", "华安黄金 ETF", "黄金", "sh518880"),
+        MarketInstrument("100.KS11", "韩国综合指数", "韩股", "usKS11", "^KS11"),
+        MarketInstrument("105.AAPL", "苹果", "美股", "usAAPL"),
+        MarketInstrument("105.NVDA", "英伟达", "美股", "usNVDA"),
+        MarketInstrument("105.MSFT", "微软", "美股", "usMSFT"),
+        MarketInstrument("176.6758", "索尼", "日股", "jp6758", "6758.T"),
+        MarketInstrument("177.005930", "三星电子", "韩股", "kr005930", "005930.KS"),
+        MarketInstrument("177.000660", "SK 海力士", "韩股", "kr000660", "000660.KS"),
+        MarketInstrument("1.512480", "半导体 ETF", "A股", "sh512480"),
+        MarketInstrument("0.159869", "游戏 ETF", "A股", "sz159869"),
+        MarketInstrument("0.159819", "人工智能 ETF", "A股", "sz159819"),
+        MarketInstrument("1.515880", "通信 ETF", "A股", "sh515880")
+    )
+    val byId = items.associateBy { it.secid }
+    val indices = items.take(11)
+    val overview = listOf("1.000001", "0.399001", "0.399006", "1.000688", "100.NDX", "100.DJIA", "100.SPX", "100.N225", "100.KS11", "100.HSI").mapNotNull(byId::get)
+    val sectors = listOf(
+        MarketSector("semiconductor", "半导体", "芯片硬件", "1.512480", "半导体 ETF 代表，不等同行业指数"),
+        MarketSector("gaming", "游戏", "数字内容", "0.159869", "游戏 ETF 代表，不等同行业指数"),
+        MarketSector("ai", "人工智能", "AI 算力", "0.159819", "人工智能 ETF 代表，不等同行业指数"),
+        MarketSector("communications", "通信设备", "通信网络", "1.515880", "通信 ETF 代表，不等同行业指数")
+    )
+}
+
+data class MarketSector(val id: String, val name: String, val category: String, val instrumentId: String, val description: String)
+
+object MarketApi {
+    private const val USER_AGENT = "Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36 Chrome/140.0 Mobile Safari/537.36"
+    const val GOLD_SPOT_ID = "GOLD.XAU.USD.OZ"
+    const val GOLD_CNY_GRAM_ID = "GOLD.XAU.CNY.GRAM"
+    private const val TROY_OUNCE_GRAMS = 31.1034768
+
+    fun fetchQuotes(): List<MarketQuote> {
+        val primary = (runCatching { fetchEastMoneyQuotes() }.getOrNull().orEmpty() +
+            runCatching { fetchTencentQuotes() }.getOrNull().orEmpty())
+            .associateBy { it.secid }.toMutableMap()
+        val missingYahoo = MarketInstrumentCatalog.items.filter { it.yahooSymbol != null && it.secid !in primary }
+        missingYahoo.forEach { instrument -> runCatching { fetchYahooQuote(instrument) }.getOrNull()?.let { primary[it.secid] = it } }
+        MarketInstrumentCatalog.sectors.mapNotNull { MarketInstrumentCatalog.byId[it.instrumentId] }
+            .filter { it.secid !in primary }
+            .forEach { instrument -> runCatching { fetchQuote(instrument.secid) }.getOrNull()?.let { primary[it.secid] = it } }
+        runCatching { fetchGoldSpot() }.getOrNull()?.let { primary[it.secid] = it }
+        runCatching { fetchGoldCnyPerGram() }.getOrNull()?.let { primary[it.secid] = it }
+        runCatching { fetchSgeAu9999Quote() }.getOrNull()?.let { primary[it.secid] = it }
+        return primary.values.toList()
+    }
+
+    /** International XAU/USD spot, quoted in US dollars per troy ounce. */
+    fun fetchGoldSpot(): MarketQuote {
+        val json = JSONObject(request("https://api.gold-api.com/price/XAU/USD", "https://gold-api.com/"))
+        require(json.optString("symbol") == "XAU" && json.optString("currency") == "USD") { "黄金行情返回了意外的计价单位" }
+        val usdPerOunce = json.optDouble("price", Double.NaN)
+        require(usdPerOunce.isFinite() && usdPerOunce > 0) { "黄金行情暂无有效价格" }
+        val fetchedAt = System.currentTimeMillis() / 1000
+        val quoteTime = runCatching { Instant.parse(json.optString("updatedAt")).epochSecond }.getOrDefault(fetchedAt)
+        return MarketQuote(GOLD_SPOT_ID, "国际黄金 XAU/USD", usdPerOunce, 0.0, 0.0,
+            quoteTime, fetchedAt, "gold-api-xau-usd")
+    }
+
+    /** Comparable international reference in CNY per gram for domestic premium calculations. */
+    fun fetchGoldCnyPerGram(): MarketQuote {
+        val json = JSONObject(request("https://api.gold-api.com/price/XAU/CNY", "https://gold-api.com/"))
+        require(json.optString("symbol") == "XAU" && json.optString("currency") == "CNY") { "黄金行情返回了意外的计价单位" }
+        val cnyPerOunce = json.optDouble("price", Double.NaN)
+        require(cnyPerOunce.isFinite() && cnyPerOunce > 0) { "人民币黄金折算暂无有效价格" }
+        val fetchedAt = System.currentTimeMillis() / 1000
+        val quoteTime = runCatching { Instant.parse(json.optString("updatedAt")).epochSecond }.getOrDefault(fetchedAt)
+        return MarketQuote(GOLD_CNY_GRAM_ID, "国际黄金人民币折算", cnyPerOunce / TROY_OUNCE_GRAMS, 0.0, 0.0,
+            quoteTime, fetchedAt, "gold-api-xau-cny")
+    }
+
+    /** Shanghai Gold Exchange Au99.99 spot quote. */
+    fun fetchSgeAu9999Quote(): MarketQuote {
+        val referer = "https://www.sge.com.cn/sjzx/mrhq"
+        val intraday = JSONObject(requestPost("https://www.sge.com.cn/graph/quotations", "instid=Au99.99", referer))
+        val values = intraday.optJSONArray("data") ?: error("上金所没有返回 Au99.99 行情")
+        val price = (0 until values.length()).mapNotNull { values.optString(it).toDoubleOrNull() }
+            .lastOrNull { it.isFinite() && it > 0 } ?: error("上金所 Au99.99 暂无有效报价")
+        val fetchedAt = System.currentTimeMillis() / 1000
+        val timeText = intraday.optString("delaystr")
+        val parsedSourceTime = runCatching {
+            java.time.LocalDateTime.parse(timeText, java.time.format.DateTimeFormatter.ofPattern("yyyy年M月d日 HH:mm:ss"))
+                .atZone(java.time.ZoneId.of("Asia/Shanghai")).toEpochSecond()
+        }.getOrDefault(fetchedAt)
+        // Some cached SGE responses carry a future trading date; never show a future quote timestamp.
+        val sourceTime = if (parsedSourceTime > fetchedAt + 5 * 60) fetchedAt else parsedSourceTime
+        val quoteDate = runCatching {
+            java.time.LocalDateTime.ofEpochSecond(sourceTime, 0, java.time.ZoneOffset.ofHours(8)).toLocalDate().toString()
+        }.getOrDefault("")
+        val history = JSONObject(request("https://www.sge.com.cn/graph/Dailyhq?instid=Au99.99", referer))
+            .optJSONArray("time")
+        val previousClose = (0 until (history?.length() ?: 0)).mapNotNull { index ->
+            val row = history?.optJSONArray(index) ?: return@mapNotNull null
+            if (row.length() < 3 || row.optString(0) >= quoteDate) return@mapNotNull null
+            row.optString(2).toDoubleOrNull()?.takeIf { it > 0 }
+        }.lastOrNull()?.takeIf { it > 0 }
+        val change = previousClose?.let { price - it } ?: 0.0
+        return MarketQuote("GOLD.SGE.AU9999", "上金所 Au99.99", price, change,
+            previousClose?.let { change / it * 100.0 } ?: 0.0, sourceTime,
+            fetchedAt, "sge-au9999")
+    }
+
+    fun fetchQuote(secid: String): MarketQuote {
+        val instrument = MarketInstrumentCatalog.byId[secid] ?: error("暂不支持此标的")
+        if (instrument.yahooSymbol != null) runCatching { fetchYahooQuote(instrument) }.getOrNull()?.let { return it }
+        val raw = request("https://qt.gtimg.cn/q=${encode(instrument.tencentCode)}", "https://gu.qq.com/")
+        val matcher = Pattern.compile("v_([^=]+)=\\\"(.*?)\\\";", Pattern.DOTALL).matcher(raw)
+        require(matcher.find()) { "腾讯行情暂不可用" }
+        val fields = (matcher.group(2) ?: "").split('~')
+        val price = fields.getOrNull(3)?.toDoubleOrNull()?.takeIf { it > 0 } ?: error("实时价格暂不可用")
+        val change = fields.getOrNull(31)?.toDoubleOrNull() ?: 0.0
+        val changePct = fields.getOrNull(32)?.toDoubleOrNull() ?: 0.0
+        val fetchedAt = System.currentTimeMillis() / 1000
+        return MarketQuote(secid, instrument.name, price, change, changePct, fetchedAt, fetchedAt, "tencent")
+    }
+
+    private fun fetchEastMoneyQuotes(): List<MarketQuote> {
+        val query = listOf(
+            "fltt=2", "ut=fa5fd1943c7b386f172d6893dbfba10b",
+            "fields=f2,f3,f4,f12,f13,f14,f124",
+            "secids=${encode(MarketInstrumentCatalog.items.joinToString(",") { it.secid })}"
+        ).joinToString("&")
+        val raw = request("https://push2delay.eastmoney.com/api/qt/ulist.np/get?$query", "https://quote.eastmoney.com/")
+        val root = JSONObject(raw)
+        require(root.optInt("rc", -1) == 0) { "行情源暂时不可用" }
+        val diff = root.optJSONObject("data")?.optJSONArray("diff") ?: error("行情源没有返回指数")
+        val fetchedAt = System.currentTimeMillis() / 1000
+        return buildList {
+            for (i in 0 until diff.length()) {
+                val row = diff.getJSONObject(i)
+                val secid = "${row.optInt("f13")}.${row.optString("f12")}"
+                val instrument = MarketInstrumentCatalog.byId[secid] ?: continue
+                val price = row.optDouble("f2", Double.NaN)
+                val pct = row.optDouble("f3", Double.NaN)
+                if (!price.isFinite() || price <= 0 || !pct.isFinite()) continue
+                add(MarketQuote(secid, instrument.name, price, row.optDouble("f4", 0.0), pct,
+                    row.optLong("f124", fetchedAt), fetchedAt))
+            }
+        }
+    }
+
+    private fun fetchTencentQuotes(): List<MarketQuote> {
+        val instruments = MarketInstrumentCatalog.items.filter {
+            it.tencentCode.startsWith("sh") || it.tencentCode.startsWith("sz") || it.tencentCode.startsWith("kr") || it.tencentCode.startsWith("jp") ||
+                it.tencentCode in setOf("usNDX", "usDJI", "usINX", "hkHSI")
+        }
+        val codes = instruments.joinToString(",") { it.tencentCode }
+        val raw = request("https://qt.gtimg.cn/q=$codes", "https://gu.qq.com/")
+        val byCode = instruments.associateBy { it.tencentCode }
+        val matcher = Pattern.compile("v_([^=]+)=\\\"(.*?)\\\";", Pattern.DOTALL).matcher(raw)
+        val fetchedAt = System.currentTimeMillis() / 1000
+        val live = buildList {
+            while (matcher.find()) {
+                val code = matcher.group(1) ?: continue
+                val row = matcher.group(2) ?: continue
+                val instrument = byCode[code] ?: continue
+                val fields = row.split('~')
+                val price = fields.getOrNull(3)?.toDoubleOrNull() ?: continue
+                val change = fields.getOrNull(31)?.toDoubleOrNull() ?: continue
+                val pct = fields.getOrNull(32)?.toDoubleOrNull() ?: continue
+                if (price <= 0) continue
+                add(MarketQuote(instrument.secid, instrument.name, price, change, pct, fetchedAt, fetchedAt, "tencent"))
+            }
+        }
+        val byId = live.associateBy { it.secid }.toMutableMap()
+        MarketInstrumentCatalog.overview.forEach { instrument ->
+            if (instrument.secid in byId || instrument.yahooSymbol != null) return@forEach
+            runCatching { fetchDailyBars(instrument.secid, 2) }.getOrNull()?.takeIf { it.size >= 2 }?.let { bars ->
+                val previous = bars[bars.lastIndex - 1]
+                val latest = bars.last()
+                val pct = (latest.close - previous.close) / previous.close * 100.0
+                val dayEpoch = runCatching { java.time.LocalDate.parse(latest.day).atStartOfDay(java.time.ZoneId.of("Asia/Shanghai")).toEpochSecond() }.getOrDefault(fetchedAt)
+                byId[instrument.secid] = MarketQuote(instrument.secid, instrument.name, latest.close,
+                    latest.close - previous.close, pct, dayEpoch, fetchedAt, "daily-close")
+            }
+        }
+        return byId.values.toList()
+    }
+
+    fun fetchDailyBars(secid: String, limit: Int = 180): List<MarketBar> {
+        val instrument = MarketInstrumentCatalog.byId[secid] ?: error("暂不支持该标的走势图")
+        val param = encode("${instrument.tencentCode},day,,,$limit,qfq")
+        val raw = request("https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=$param", "https://gu.qq.com/")
+        val root = JSONObject(raw)
+        val node = root.optJSONObject("data")?.optJSONObject(instrument.tencentCode) ?: error("暂时没有日线数据")
+        val rows = node.optJSONArray("qfqday") ?: node.optJSONArray("day") ?: error("暂时没有日线数据")
+        return buildList {
+            for (i in 0 until rows.length()) {
+                val row = rows.optJSONArray(i) ?: continue
+                if (row.length() < 3) continue
+                val date = row.optString(0)
+                val close = row.optString(2).toDoubleOrNull() ?: continue
+                if (close > 0) add(MarketBar(date, close))
+            }
+        }.distinctBy { it.day }.sortedBy { it.day }
+    }
+
+    fun fetchChartBars(secid: String, period: ChartPeriod): List<MarketOhlcBar> {
+        val instrument = MarketInstrumentCatalog.byId[secid]
+        if (instrument?.yahooSymbol != null) {
+            runCatching { fetchYahooChartBars(instrument, period) }
+                .getOrNull()?.takeIf { it.isNotEmpty() }?.let { return it }
+        }
+        if (period == ChartPeriod.INTRADAY || period == ChartPeriod.FIVE_DAY) return fetchTencentChartBars(secid, period)
+        return runCatching { fetchEastMoneyChartBars(secid, period) }
+            .recoverCatching { fetchTencentChartBars(secid, period) }
+            .getOrThrow()
+    }
+
+    private fun fetchYahooQuote(instrument: MarketInstrument): MarketQuote {
+        val symbol = instrument.yahooSymbol ?: error("没有 Yahoo 行情代码")
+        val root = JSONObject(request(yahooUrl(symbol, "5d", "1d"), "https://finance.yahoo.com/"))
+        val result = root.optJSONObject("chart")?.optJSONArray("result")?.optJSONObject(0)
+            ?: error(root.optJSONObject("chart")?.optJSONObject("error")?.optString("description") ?: "Yahoo 没有返回报价")
+        val meta = result.optJSONObject("meta") ?: error("Yahoo 报价缺少市场信息")
+        val price = meta.optDouble("regularMarketPrice", Double.NaN)
+        val previous = meta.optDouble("chartPreviousClose", meta.optDouble("previousClose", Double.NaN))
+        require(price.isFinite() && price > 0 && previous.isFinite() && previous > 0) { "Yahoo 报价不完整" }
+        val fetchedAt = System.currentTimeMillis() / 1000
+        val quoteTime = meta.optLong("regularMarketTime", fetchedAt)
+        val change = price - previous
+        return MarketQuote(instrument.secid, instrument.name, price, change, change / previous * 100.0,
+            quoteTime, fetchedAt, "yahoo")
+    }
+
+    private fun fetchYahooChartBars(instrument: MarketInstrument, period: ChartPeriod): List<MarketOhlcBar> {
+        val symbol = instrument.yahooSymbol ?: error("没有 Yahoo 行情代码")
+        val (range, interval) = when (period) {
+            ChartPeriod.INTRADAY -> "1d" to "5m"
+            ChartPeriod.FIVE_DAY -> "5d" to "30m"
+            ChartPeriod.DAY -> "1y" to "1d"
+            ChartPeriod.WEEK -> "5y" to "1wk"
+            ChartPeriod.MONTH -> "max" to "1mo"
+        }
+        val root = JSONObject(request(yahooUrl(symbol, range, interval), "https://finance.yahoo.com/"))
+        val result = root.optJSONObject("chart")?.optJSONArray("result")?.optJSONObject(0)
+            ?: error(root.optJSONObject("chart")?.optJSONObject("error")?.optString("description") ?: "Yahoo 没有返回 K 线")
+        val timestamps = result.optJSONArray("timestamp") ?: error("Yahoo 没有返回 K 线时间")
+        val quote = result.optJSONObject("indicators")?.optJSONArray("quote")?.optJSONObject(0)
+            ?: error("Yahoo 没有返回 OHLC 数据")
+        val opens = quote.optJSONArray("open") ?: error("Yahoo 缺少开盘价")
+        val highs = quote.optJSONArray("high") ?: error("Yahoo 缺少最高价")
+        val lows = quote.optJSONArray("low") ?: error("Yahoo 缺少最低价")
+        val closes = quote.optJSONArray("close") ?: error("Yahoo 缺少收盘价")
+        val volumes = quote.optJSONArray("volume")
+        val timezone = result.optJSONObject("meta")?.optString("exchangeTimezoneName")?.takeIf { it.isNotBlank() }
+            ?: "Asia/Shanghai"
+        val zone = java.time.ZoneId.of(timezone)
+        val dateFormat = if (period == ChartPeriod.INTRADAY || period == ChartPeriod.FIVE_DAY)
+            java.time.format.DateTimeFormatter.ofPattern("yyyyMMddHHmm") else java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd")
+        return buildList {
+            for (i in 0 until timestamps.length()) {
+                val open = opens.optDouble(i, Double.NaN)
+                val high = highs.optDouble(i, Double.NaN)
+                val low = lows.optDouble(i, Double.NaN)
+                val close = closes.optDouble(i, Double.NaN)
+                if (!listOf(open, high, low, close).all { it.isFinite() && it > 0 }) continue
+                val day = Instant.ofEpochSecond(timestamps.optLong(i)).atZone(zone).format(dateFormat)
+                add(MarketOhlcBar(day, open, close, high, low, volumes?.optDouble(i, 0.0) ?: 0.0))
+            }
+        }.distinctBy { it.day }.sortedBy { it.day }
+    }
+
+    private fun yahooUrl(symbol: String, range: String, interval: String): String =
+        "https://query1.finance.yahoo.com/v8/finance/chart/${encode(symbol)}?range=$range&interval=$interval&events=history"
+
+    private fun fetchTencentChartBars(secid: String, period: ChartPeriod): List<MarketOhlcBar> {
+        val instrument = MarketInstrumentCatalog.byId[secid] ?: error("暂不支持该标的走势图")
+        val code = instrument.tencentCode
+        val rows = if (period == ChartPeriod.INTRADAY || period == ChartPeriod.FIVE_DAY) {
+            val param = encode("$code,m30,,320")
+            val raw = request("https://proxy.finance.qq.com/ifzqgtimg/appstock/app/kline/mkline?param=$param", "https://gu.qq.com/")
+            val root = JSONObject(raw)
+            root.optJSONObject("data")?.optJSONObject(code)?.optJSONArray("m30") ?: error("当前市场暂无分时数据")
+        } else {
+            val param = encode("$code,${period.cacheKey},,,180,qfq")
+            val raw = request("https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=$param", "https://gu.qq.com/")
+            val node = JSONObject(raw).optJSONObject("data")?.optJSONObject(code) ?: error("当前市场暂无 K 线数据")
+            node.optJSONArray("qfq${period.cacheKey}") ?: node.optJSONArray(period.cacheKey) ?: error("当前市场暂无 K 线数据")
+        }
+        val bars = buildList {
+            for (i in 0 until rows.length()) {
+                val row = rows.optJSONArray(i) ?: continue
+                if (row.length() < 5) continue
+                val date = row.optString(0)
+                val open: Double
+                val close: Double
+                val high: Double
+                val low: Double
+                val volume: Double
+                if (period == ChartPeriod.INTRADAY || period == ChartPeriod.FIVE_DAY) {
+                    open = row.optString(1).toDoubleOrNull() ?: continue
+                    close = row.optString(2).toDoubleOrNull() ?: continue
+                    high = row.optString(3).toDoubleOrNull() ?: continue
+                    low = row.optString(4).toDoubleOrNull() ?: continue
+                    volume = row.optString(5).toDoubleOrNull() ?: 0.0
+                } else {
+                    open = row.optString(1).toDoubleOrNull() ?: continue
+                    close = row.optString(2).toDoubleOrNull() ?: continue
+                    high = row.optString(3).toDoubleOrNull() ?: continue
+                    low = row.optString(4).toDoubleOrNull() ?: continue
+                    volume = row.optString(5).toDoubleOrNull() ?: 0.0
+                }
+                if (listOf(open, close, high, low).all { it.isFinite() && it > 0 }) add(MarketOhlcBar(date, open, close, high, low, volume))
+            }
+        }.distinctBy { it.day }.sortedBy { it.day }
+        return bars
+    }
+
+    private fun fetchEastMoneyChartBars(secid: String, period: ChartPeriod): List<MarketOhlcBar> {
+        require(period == ChartPeriod.DAY || period == ChartPeriod.WEEK || period == ChartPeriod.MONTH)
+        val klt = when (period) { ChartPeriod.DAY -> 101; ChartPeriod.WEEK -> 102; else -> 103 }
+        val query = listOf(
+            "secid=${encode(secid)}", "fields1=f1,f2,f3,f4,f5,f6",
+            "fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61",
+            "klt=$klt", "fqt=0", "end=20500101", "lmt=180",
+            "ut=fa5fd1943c7b386f172d6893dbfba10b"
+        ).joinToString("&")
+        val raw = request("https://push2his.eastmoney.com/api/qt/stock/kline/get?$query", "https://quote.eastmoney.com/")
+        val root = JSONObject(raw)
+        require(root.optInt("rc", 0) == 0) { "东方财富没有返回 K 线" }
+        val rows = root.optJSONObject("data")?.optJSONArray("klines") ?: error("东方财富没有返回 K 线")
+        return buildList {
+            for (index in 0 until rows.length()) {
+                val fields = rows.optString(index).split(',')
+                if (fields.size < 6) continue
+                val open = fields[1].toDoubleOrNull() ?: continue
+                val close = fields[2].toDoubleOrNull() ?: continue
+                val high = fields[3].toDoubleOrNull() ?: continue
+                val low = fields[4].toDoubleOrNull() ?: continue
+                val volume = fields[5].toDoubleOrNull() ?: 0.0
+                if (listOf(open, close, high, low).all { it.isFinite() && it > 0 }) add(MarketOhlcBar(fields[0], open, close, high, low, volume))
+            }
+        }.distinctBy { it.day }.sortedBy { it.day }
+    }
+
+    private fun request(url: String, referer: String): String {
+        val connection = URL(url).openConnection() as HttpURLConnection
+        connection.connectTimeout = 8_000
+        connection.readTimeout = 10_000
+        connection.setRequestProperty("User-Agent", USER_AGENT)
+        connection.setRequestProperty("Referer", referer)
+        connection.setRequestProperty("Accept", "application/json,text/plain,*/*")
+        return try {
+            val code = connection.responseCode
+            val stream = if (code in 200..299) connection.inputStream else connection.errorStream
+            val body = stream.bufferedReader(StandardCharsets.UTF_8).use { it.readText() }
+            check(code in 200..299) { "行情请求失败（HTTP $code）" }
+            body
+        } finally { connection.disconnect() }
+    }
+
+    private fun requestPost(url: String, form: String, referer: String): String {
+        val connection = URL(url).openConnection() as HttpURLConnection
+        connection.connectTimeout = 8_000
+        connection.readTimeout = 10_000
+        connection.requestMethod = "POST"
+        connection.doOutput = true
+        connection.setRequestProperty("User-Agent", USER_AGENT)
+        connection.setRequestProperty("Referer", referer)
+        connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+        connection.setRequestProperty("Accept", "application/json,text/plain,*/*")
+        return try {
+            connection.outputStream.use { it.write(form.toByteArray(StandardCharsets.UTF_8)) }
+            val code = connection.responseCode
+            val stream = if (code in 200..299) connection.inputStream else connection.errorStream
+            val body = stream.bufferedReader(StandardCharsets.UTF_8).use { it.readText() }
+            check(code in 200..299) { "行情请求失败（HTTP $code）" }
+            body
+        } finally { connection.disconnect() }
+    }
+
+    private fun encode(value: String): String = URLEncoder.encode(value, StandardCharsets.UTF_8.name())
+}
+
+fun MarketQuote.displayTime(): String = runCatching {
+    java.time.format.DateTimeFormatter.ofPattern("MM-dd HH:mm")
+        .withZone(java.time.ZoneId.of("Asia/Shanghai")).format(Instant.ofEpochSecond(quoteTime))
+}.getOrDefault("—")
