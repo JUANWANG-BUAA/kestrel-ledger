@@ -2,6 +2,8 @@ package cn.market.assistant
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -328,6 +330,40 @@ internal fun MarketIndexTile(
             Spacer(Modifier.weight(1f))
             Text(fallbackLabel, color = palette.muted, style = MarketType.caption, maxLines = 1)
         }
+    }
+}
+
+/**
+ * Filter/sort chip on the shared scale: 36dp tall, accent-soft when selected, hairline when not, so
+ * filter rows stop looking like a different app from the rest of the screen.
+ */
+@Composable
+internal fun MarketChoiceChip(
+    label: String,
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    val palette = MarketTheme.colors
+    val geometry = MarketTheme.geometry
+    val shape = RoundedCornerShape(geometry.chip)
+    Box(
+        modifier
+            .heightIn(min = 36.dp)
+            .clip(shape)
+            .background(if (selected) palette.accentSoft else palette.surface)
+            .then(if (selected) Modifier else Modifier.border(1.dp, palette.line.copy(alpha = 0.9f), shape))
+            .marketPressable(scaleDown = 0.95f, onClick = onClick)
+            .padding(horizontal = geometry.lg),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            label,
+            color = if (selected) palette.accent else palette.inkSoft,
+            style = MarketType.label,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            maxLines = 1
+        )
     }
 }
 

@@ -57,6 +57,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -200,12 +201,12 @@ internal fun MarketBoardTicker(
 private fun BoardTickerCard(board: MarketBoard) {
     val tickerPalette = MarketTheme.colors
     Card(
-        modifier = Modifier.width(124.dp).height(62.dp),
+        modifier = Modifier.width(140.dp).height(76.dp),
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = tickerPalette.surfaceAlt),
         border = BorderStroke(1.dp, tickerPalette.line.copy(alpha = 0.85f))
     ) {
-        Column(Modifier.fillMaxSize().padding(horizontal = 9.dp, vertical = 7.dp),
+        Column(Modifier.fillMaxSize().padding(horizontal = 11.dp, vertical = 9.dp),
             verticalArrangement = Arrangement.SpaceBetween) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(board.name, Modifier.weight(1f), color = tickerPalette.ink, style = MarketType.label,
@@ -213,9 +214,9 @@ private fun BoardTickerCard(board: MarketBoard) {
                 Text(board.type.label, color = tickerPalette.muted, style = MarketType.caption)
             }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(String.format("%.2f", board.price), Modifier.weight(1f), color = tickerPalette.ink, style = MarketType.numberSmall)
-                Text(board.changePct.signedPct(), color = board.changePct.marketColor(), style = MarketType.numberSmall,
-                    fontWeight = FontWeight.Medium)
+                Text(String.format("%.2f", board.price), Modifier.weight(1f), color = tickerPalette.ink, style = MarketType.number)
+                Text(board.changePct.signedPct(), color = board.changePct.marketColor(), style = MarketType.label,
+                    fontWeight = FontWeight.SemiBold)
             }
         }
     }
@@ -270,9 +271,7 @@ internal fun MarketBoardExplorerScreen(
         item(key = "board-controls") {
             Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(onClick = onBack, contentPadding = PaddingValues(horizontal = 0.dp)) {
-                        Text("‹ 总览", color = BoardAccent)
-                    }
+                    MarketBackButton(label = "总览", onClick = onBack)
                     Spacer(Modifier.weight(1f))
                     TextButton(onClick = { onRefresh(type) }, enabled = !isLoading) {
                         Text(if (isLoading) "同步中" else "刷新 ${type.label}")
@@ -281,25 +280,25 @@ internal fun MarketBoardExplorerScreen(
 
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text("全市场板块", color = BoardInk, fontSize = 26.sp, fontWeight = FontWeight.SemiBold)
-                        Text("行业指数 + 主题概念 · 真实市场宽度与成交数据", color = BoardMuted, fontSize = 11.sp)
+                        Text("全市场板块", color = BoardInk, fontSize = 26.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.8).sp)
+                        Text("行业指数 + 主题概念 · 真实市场宽度与成交数据", color = BoardMuted, style = MarketType.caption)
                     }
-                    Surface(shape = RoundedCornerShape(12.dp), color = Color(0xFFF0E8DC)) {
-                        Text("A 股", Modifier.padding(horizontal = 11.dp, vertical = 7.dp), color = BoardAccent,
-                            fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                    Box(
+                        Modifier.clip(RoundedCornerShape(MarketTheme.geometry.chip))
+                            .background(BoardAccent.copy(alpha = 0.12f))
+                            .padding(horizontal = 11.dp, vertical = 6.dp)
+                    ) {
+                        Text("A 股", color = BoardAccent, style = MarketType.label, fontWeight = FontWeight.SemiBold)
                     }
                 }
 
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     MarketBoardType.entries.forEach { option ->
-                        FilterChip(
+                        val count = snapshots[option]?.boards?.size
+                        MarketChoiceChip(
+                            label = if (count == null) option.label else "${option.label} $count",
                             selected = type == option,
-                            onClick = { type = option },
-                            label = {
-                                val count = snapshots[option]?.boards?.size
-                                Text(if (count == null) option.label else "${option.label} $count")
-                            },
-                            colors = filterColors
+                            onClick = { type = option }
                         )
                     }
                 }
@@ -310,7 +309,7 @@ internal fun MarketBoardExplorerScreen(
                     value = query,
                     onValueChange = { query = it },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("搜索板块名称或代码", fontSize = 12.sp) },
+                    label = { Text("搜索板块名称或代码", style = MarketType.label) },
                     singleLine = true,
                     shape = RoundedCornerShape(14.dp),
                     colors = OutlinedTextFieldDefaults.colors(
@@ -321,28 +320,27 @@ internal fun MarketBoardExplorerScreen(
                     )
                 )
 
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     BoardSort.entries.forEach { option ->
-                        FilterChip(
+                        MarketChoiceChip(
+                            label = option.label,
                             selected = sort == option,
-                            onClick = { sort = option },
-                            label = { Text(option.label, fontSize = 10.sp) },
-                            colors = filterColors
+                            onClick = { sort = option }
                         )
                     }
                 }
 
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text("${filteredBoards.size} / ${snapshot?.expectedCount ?: 0} 个板块", Modifier.weight(1f),
-                        color = BoardInk, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        color = BoardInk, style = MarketType.numberSmall, fontWeight = FontWeight.SemiBold)
                     Text(
                         snapshot?.fetchedAt?.let { "${snapshot.source.boardSourceLabel()} · ${it.boardTime()}" }
                             ?: if (isLoading) "正在下载完整列表" else "暂无本地快照",
                         color = BoardMuted,
-                        fontSize = 9.sp
+                        style = MarketType.caption
                     )
                 }
-                if (message.isNotBlank()) Text(message, color = BoardMuted, fontSize = 10.sp, lineHeight = 14.sp)
+                if (message.isNotBlank()) Text(message, color = BoardMuted, style = MarketType.caption)
             }
         }
 
@@ -351,9 +349,9 @@ internal fun MarketBoardExplorerScreen(
                 Box(Modifier.fillMaxWidth().height(220.dp), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(if (snapshot == null) "正在准备全市场数据" else "没有匹配板块",
-                            color = BoardInk, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                            color = BoardInk, style = MarketType.title)
                         Text(if (snapshot == null) "首次同步完成后会缓存数百个行业与概念板块。" else "更换关键词，或刷新当前板块集合。",
-                            color = BoardMuted, fontSize = 11.sp)
+                            color = BoardMuted, style = MarketType.body, textAlign = TextAlign.Center)
                     }
                 }
             }
@@ -396,14 +394,14 @@ private fun BoardBreadthCard(
         Column(Modifier.padding(horizontal = 13.dp, vertical = 11.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("市场宽度", color = BoardInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                    Text("按 ${snapshot?.type?.label ?: "当前板块"}指数涨跌统计，不重复汇总成分股", color = BoardMuted, fontSize = 9.sp)
+                    Text("市场宽度", color = BoardInk, style = MarketType.section)
+                    Text("按 ${snapshot?.type?.label ?: "当前板块"}指数涨跌统计，不重复汇总成分股", color = BoardMuted, style = MarketType.caption)
                 }
                 Text(
                     if (snapshot == null) if (isLoading) "同步中" else "等待数据"
                     else "${breadth.total} 个指数",
                     color = BoardAccent,
-                    fontSize = 10.sp,
+                    style = MarketType.label,
                     fontWeight = FontWeight.Medium
                 )
             }
@@ -416,18 +414,18 @@ private fun BoardBreadthCard(
                     snapshot?.let { breadth.medianChangePct.marketColor() } ?: BoardMuted, Modifier.weight(1f))
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("板块宽度指数", color = BoardMuted, fontSize = 9.sp)
+                Text("板块宽度指数", color = BoardMuted, style = MarketType.caption)
                 Spacer(Modifier.weight(1f))
                 Text(
                     snapshot?.let { "${if (breadth.breadthIndex > 0) "+" else ""}${String.format("%.1f", breadth.breadthIndex)}" } ?: "—",
                     color = if (snapshot == null) BoardMuted else breadth.breadthIndex.marketColor(),
-                    fontSize = 10.sp,
+                    style = MarketType.numberSmall,
                     fontWeight = FontWeight.SemiBold
                 )
                 Text(
-                    snapshot?.let { "  · 均值 ${breadth.averageChangePct.signedPct()}  · 平盘 ${breadth.unchanged}" } ?: "",
+                    snapshot?.let { " · 均值 ${breadth.averageChangePct.signedPct()} · 平盘 ${breadth.unchanged}" } ?: "",
                     color = BoardMuted,
-                    fontSize = 9.sp
+                    style = MarketType.caption
                 )
             }
         }
@@ -436,9 +434,9 @@ private fun BoardBreadthCard(
 
 @Composable
 private fun BoardMetric(label: String, value: String, color: Color, modifier: Modifier = Modifier) {
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(3.dp)) {
-        Text(label, color = BoardMuted, fontSize = 9.sp, maxLines = 1)
-        Text(value, color = color, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(label, color = BoardMuted, style = MarketType.caption, maxLines = 1)
+        Text(value, color = color, style = MarketType.numberLarge, maxLines = 1)
     }
 }
 
@@ -452,22 +450,36 @@ private fun MarketBoardRow(rank: Int, board: MarketBoard, onClick: () -> Unit) {
         border = BorderStroke(1.dp, BoardLine),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp, pressedElevation = 4.dp)
     ) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        val geometry = MarketTheme.geometry
+        Column(
+            Modifier.fillMaxWidth().padding(horizontal = geometry.lg, vertical = geometry.md),
+            verticalArrangement = Arrangement.spacedBy(geometry.md)
+        ) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(rank.toString().padStart(2, '0'), Modifier.width(27.dp), color = BoardAccent,
-                    fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    rank.toString().padStart(2, '0'),
+                    Modifier.width(30.dp),
+                    color = if (rank <= 3) BoardAccent else BoardMuted,
+                    style = MarketType.numberSmall
+                )
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(board.name, color = BoardInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                    Text(board.name, color = BoardInk, style = MarketType.number,
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text("${board.type.label} · ${board.id.substringAfter('.')}", color = BoardMuted, fontSize = 9.sp)
+                    Text("${board.type.label} · ${board.id.substringAfter('.')}", color = BoardMuted, style = MarketType.caption)
                 }
-                Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(String.format("%.2f", board.price), color = BoardInk, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                    Text(board.changePct.signedPct(), color = board.changePct.marketColor(), fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold)
+                Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(String.format("%.2f", board.price), color = BoardInk, style = MarketType.numberLarge)
+                    val changeColor = board.changePct.marketColor()
+                    Box(
+                        Modifier.clip(RoundedCornerShape(geometry.chip))
+                            .background(changeColor.copy(alpha = 0.10f))
+                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                    ) {
+                        Text(board.changePct.signedPct(), color = changeColor, style = MarketType.numberSmall)
+                    }
                 }
             }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(geometry.md)) {
                 BoardDetailValue("涨 / 跌家", "${board.advancingCount} / ${board.decliningCount}", Modifier.weight(1f))
                 BoardDetailValue("成交额", board.turnoverAmount?.let(::formatYuan) ?: "—", Modifier.weight(1f))
                 BoardDetailValue("换手率", board.turnoverRatePct?.let { "${String.format("%.2f", it)}%" } ?: "—", Modifier.weight(1f))
@@ -479,9 +491,9 @@ private fun MarketBoardRow(rank: Int, board: MarketBoard, onClick: () -> Unit) {
 
 @Composable
 private fun BoardDetailValue(label: String, value: String, modifier: Modifier = Modifier) {
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Text(label, color = BoardMuted, fontSize = 8.sp, maxLines = 1)
-        Text(value, color = BoardInk, fontSize = 9.sp, fontWeight = FontWeight.Medium, maxLines = 1,
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Text(label, color = BoardMuted, style = MarketType.caption, maxLines = 1)
+        Text(value, color = BoardInk, style = MarketType.numberSmall, maxLines = 1,
             overflow = TextOverflow.Ellipsis)
     }
 }
@@ -661,7 +673,7 @@ private fun MarketBoardDetailSheet(
                     }
                     val visibleMembers = members?.let { BoardMemberAnalytics.sortMembers(it.members, memberSort) }.orEmpty()
                     if (visibleMembers.isEmpty()) {
-                        Text(membersMessage.ifBlank { "暂无成分股缓存，点击刷新成分" }, color = BoardMuted, fontSize = 10.sp)
+                        Text(membersMessage.ifBlank { "暂无成分股缓存，点击刷新成分" }, color = BoardMuted, style = MarketType.caption)
                     } else {
                         Column(
                             Modifier.fillMaxWidth().heightIn(max = 320.dp).verticalScroll(rememberScrollState()),
@@ -674,33 +686,33 @@ private fun MarketBoardDetailSheet(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                        Text(member.name, color = BoardInk, fontSize = 12.sp)
+                                        Text(member.name, color = BoardInk, style = MarketType.numberSmall)
                                         Text(
                                             "${member.code} · ${member.marketCap?.let(::formatYuan) ?: "市值—"}",
-                                            color = BoardMuted, fontSize = 9.sp
+                                            color = BoardMuted, style = MarketType.caption
                                         )
                                     }
                                     Text(
                                         String.format("%.2f", member.price),
-                                        color = BoardInk, fontSize = 12.sp
+                                        color = BoardInk, style = MarketType.number
                                     )
                                     Spacer(Modifier.width(10.dp))
                                     Text(
                                         member.changePct.signedPct(),
                                         color = member.changePct.marketColor(),
-                                        fontSize = 12.sp,
+                                        style = MarketType.numberSmall,
                                         fontWeight = FontWeight.SemiBold
                                     )
                                 }
                             }
                         }
                         if (membersMessage.isNotBlank()) {
-                            Text(membersMessage, color = BoardMuted, fontSize = 9.sp, lineHeight = 13.sp)
+                            Text(membersMessage, color = BoardMuted, style = MarketType.caption)
                         }
                         Text(
                             "成分股为板块公开页面按市值排序的前若干只，不等同完整成分；行情来源 " +
                                 "${members?.source ?: "—"} · 时点 ${members?.fetchedAt?.boardTime() ?: "—"}",
-                            color = BoardMuted, fontSize = 9.sp, lineHeight = 13.sp
+                            color = BoardMuted, style = MarketType.caption
                         )
                     }
                 }
@@ -708,8 +720,7 @@ private fun MarketBoardDetailSheet(
             Text(
                 "行情来源：${board.source.boardSourceLabel()} · 报价时点 ${board.quoteTime.boardTime()} · 列表快照 ${board.fetchedAt.boardTime()}",
                 color = BoardMuted,
-                fontSize = 9.sp,
-                lineHeight = 13.sp
+                style = MarketType.caption
             )
         }
     }

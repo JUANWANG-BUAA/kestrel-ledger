@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -113,6 +114,32 @@ internal val LocalMarketBackdrop = staticCompositionLocalOf<androidx.compose.ui.
 
 /** Radius of the backdrop blur; ignored below API 31 where RenderEffect does not exist. */
 private val MarketGlassBlur = 20.dp
+
+/**
+ * Back affordance for sub-pages, in the same slot and with the same footprint as [MarketMenuButton]
+ * so the top-left corner always means "go up one level".
+ */
+@Composable
+internal fun MarketBackButton(label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    val palette = MarketTheme.colors
+    val shape = RoundedCornerShape(13.dp)
+    Row(
+        modifier
+            .height(40.dp)
+            .marketShadow(shape, MarketElevation.card)
+            .clip(shape)
+            .background(palette.surface)
+            .border(1.dp, palette.line, shape)
+            .marketPressable(scaleDown = 0.9f, onClick = onClick)
+            .semantics { contentDescription = "返回$label" }
+            .padding(start = 8.dp, end = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        MarketIcon("back", size = 17.dp, tint = palette.accent)
+        Text(label, color = palette.accent, style = MarketType.label, maxLines = 1)
+    }
+}
 
 /** One destination in the floating nav bar. */
 internal data class MarketNavItem(val label: String, val icon: String)

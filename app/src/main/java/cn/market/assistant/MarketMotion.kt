@@ -7,6 +7,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -93,44 +95,45 @@ internal fun MarketLargeTitle(
     val titleSize = 27f - 8f * collapsed
     val subtitleAlpha = (1f - collapsed * 2.2f).coerceIn(0f, 1f)
 
-    Column(
+    // Trigger and title share one row, the way a phone user expects: root navigation on the left,
+    // the page name beside it, page actions on the right. Nothing floats alone in dead space.
+    Row(
         Modifier
             .fillMaxWidth()
             .padding(
                 start = geometry.xs,
                 end = geometry.xs,
-                top = (28f - 14f * collapsed).dp,
+                top = (22f - 12f * collapsed).dp,
                 bottom = (10f - 4f * collapsed).dp
             ),
-        verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(1.dp)
+        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
     ) {
-        if (leading != null || trailing != null) {
-            androidx.compose.foundation.layout.Row(
-                Modifier.fillMaxWidth().padding(bottom = (8f - 5f * collapsed).dp),
-                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
-            ) {
-                leading?.invoke()
-                Spacer(Modifier.weight(1f))
-                trailing?.invoke()
-            }
-        }
-        androidx.compose.foundation.layout.Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+        leading?.invoke()
+        if (leading != null) Spacer(Modifier.width(geometry.md))
+        Column(
+            Modifier.weight(1f),
+            verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(1.dp)
+        ) {
             Text(
                 title,
                 color = palette.ink,
                 fontSize = titleSize.sp,
                 fontWeight = FontWeight.Bold,
-                letterSpacing = (-0.8 + 0.4 * collapsed).sp
+                letterSpacing = (-0.8 + 0.4 * collapsed).sp,
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
             )
+            if (subtitle != null && subtitleAlpha > 0.01f) {
+                Text(
+                    subtitle,
+                    color = palette.muted,
+                    style = MarketType.caption,
+                    modifier = Modifier.alpha(subtitleAlpha),
+                    maxLines = 1
+                )
+            }
         }
-        if (subtitle != null && subtitleAlpha > 0.01f) {
-            Text(
-                subtitle,
-                color = palette.muted,
-                fontSize = 11.sp,
-                modifier = Modifier.alpha(subtitleAlpha)
-            )
-        }
+        trailing?.invoke()
     }
 }
 

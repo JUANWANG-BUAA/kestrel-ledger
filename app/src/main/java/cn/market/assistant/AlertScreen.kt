@@ -69,7 +69,7 @@ internal fun AlertScreen(
 
     Column(modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onBack, contentPadding = PaddingValues(horizontal = 0.dp)) { Text("‹ 总览", color = Blue) }
+            MarketBackButton(label = "总览", onClick = onBack)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text("提醒", color = Ink, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
                 Text("阈值规则 · 只陈述事实与来源时点 · 不提供买卖建议", color = Muted, fontSize = 10.sp)

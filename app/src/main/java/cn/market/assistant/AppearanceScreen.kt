@@ -49,7 +49,7 @@ internal fun AppearanceScreen(onBack: () -> Unit, modifier: Modifier = Modifier)
         verticalArrangement = Arrangement.spacedBy(geometry.md)
     ) {
         Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onBack, contentPadding = PaddingValues(horizontal = 0.dp)) { Text("‹ 总览", color = colors.accent) }
+            MarketBackButton(label = "总览", onClick = onBack)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text("外观", color = colors.ink, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
                 Text("配色、密度、字号与圆角 · 只影响本机显示", color = colors.muted, fontSize = 10.sp)

@@ -164,7 +164,7 @@ internal fun MarketDetailScreen(
     val summaryClose = summaryBars.lastOrNull()?.close ?: displayedQuote?.price
     ScreenColumn(modifier) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onBack, contentPadding = PaddingValues(horizontal = 0.dp)) { Text("‹ 自选", color = MarketDetailAccent) }
+            MarketBackButton(label = "自选", onClick = onBack)
             Spacer(Modifier.weight(1f))
             TextButton(onClick = { onToggle(!isWatched) }) { Text(if (isWatched) "★ 已自选" else "☆ 加自选", color = MarketDetailAccent) }
         }

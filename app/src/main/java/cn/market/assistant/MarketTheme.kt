@@ -115,6 +115,7 @@ internal object MarketType {
     val numberLarge = TextStyle(fontSize = 19.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.3).sp, fontFeatureSettings = "tnum")
     val number = TextStyle(fontSize = 15.sp, fontWeight = FontWeight.SemiBold, fontFeatureSettings = "tnum")
     val numberSmall = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.Medium, fontFeatureSettings = "tnum")
+    val nav = TextStyle(fontSize = 14.5.sp, fontWeight = FontWeight.Medium)
     val body = TextStyle(fontSize = 13.sp, lineHeight = 19.sp)
     val label = TextStyle(fontSize = 11.5.sp, fontWeight = FontWeight.Medium)
     val caption = TextStyle(fontSize = 10.sp, lineHeight = 14.sp)
