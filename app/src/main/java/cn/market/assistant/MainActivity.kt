@@ -19,13 +19,17 @@ import cn.market.assistant.domain.portfolio.PortfolioAnalytics
 import cn.market.assistant.domain.portfolio.PortfolioSnapshot
 import cn.market.assistant.domain.portfolio.Position
 import cn.market.assistant.domain.portfolio.ReportPeriod
+import cn.market.assistant.data.assistant.ReadOnlyAgentTools
+import cn.market.assistant.alert.AlertEvaluationScheduler
 import cn.market.assistant.domain.portfolio.Trade
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.border
 import androidx.compose.foundation.background
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.BorderStroke
@@ -50,6 +54,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.CutCornerShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -58,6 +63,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
@@ -103,6 +109,8 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -111,6 +119,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -121,6 +131,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
@@ -130,29 +141,50 @@ import java.io.InputStream
 import java.time.Instant
 import java.time.LocalDate
 import kotlinx.coroutines.Dispatchers
+import kotlin.math.roundToInt
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-private val Paper = Color(0xFFF2F1ED)
-internal val Ink = Color(0xFF20272A)
-internal val Muted = Color(0xFF747D80)
-internal val Blue = Color(0xFF9E6B39)
-internal val SoftBlue = Color(0xFFF0E8DC)
-internal val Gold = Color(0xFFB89561)
-internal val White = Color(0xFFFCFBF7)
-internal val ErrorColor = Color(0xFFB8424B)
-internal val MarketUp = Color(0xFFC3444D)
-internal val MarketDown = Color(0xFF168568)
-private val HeroUp = Color(0xFFFF8D92)
-private val HeroDown = Color(0xFF72D5AA)
-private val HeroInk = Color(0xFF243332)
-internal val TacticalPanel = RoundedCornerShape(20.dp)
+private val Paper: Color
+    @Composable @ReadOnlyComposable get() = MarketTheme.colors.paper
+internal val Gold: Color
+    @Composable @ReadOnlyComposable get() = MarketTheme.colors.warn
+internal val ErrorColor: Color
+    @Composable @ReadOnlyComposable get() = MarketTheme.colors.up
+internal val MarketUp: Color
+    @Composable @ReadOnlyComposable get() = MarketTheme.colors.up
+internal val MarketDown: Color
+    @Composable @ReadOnlyComposable get() = MarketTheme.colors.down
+private val HeroUp: Color
+    @Composable @ReadOnlyComposable get() = MarketTheme.colors.up
+private val HeroDown: Color
+    @Composable @ReadOnlyComposable get() = MarketTheme.colors.down
+private val HeroInk: Color
+    @Composable @ReadOnlyComposable get() = MarketTheme.colors.ink
+
+// Design tokens are read from the active theme so one setting reskins every screen.
+internal val Ink: Color
+    @Composable @ReadOnlyComposable get() = MarketTheme.colors.ink
+internal val Muted: Color
+    @Composable @ReadOnlyComposable get() = MarketTheme.colors.muted
+internal val Blue: Color
+    @Composable @ReadOnlyComposable get() = MarketTheme.colors.accent
+internal val SoftBlue: Color
+    @Composable @ReadOnlyComposable get() = MarketTheme.colors.accentSoft
+internal val White: Color
+    @Composable @ReadOnlyComposable get() = MarketTheme.colors.surface
+internal val TacticalPanel: RoundedCornerShape
+    @Composable @ReadOnlyComposable get() =
+        RoundedCornerShape(MarketTheme.geometry.panel, MarketTheme.geometry.card)
 internal val LocalOpenDrawer = staticCompositionLocalOf<() -> Unit> { {} }
 private const val GOLD_ROUTE = "__gold_dashboard__"
 private const val HEALTH_ROUTE = "__data_health__"
+private const val ASSISTANT_ROUTE = "__assistant__"
+private const val ALERT_ROUTE = "__alerts__"
+private const val APPEARANCE_ROUTE = "__appearance__"
 
 private fun readBackupText(inputStream: InputStream): String = inputStream.use { input ->
     val output = ByteArrayOutputStream()
@@ -180,24 +212,43 @@ private enum class Tab(val label: String, val icon: String) {
     HOME("总览", "home"), WATCHLIST("自选", "star"), RECORD("记账", "plus"), ASSETS("持仓", "assets"), ANALYSIS("分析", "chart")
 }
 
+/** One drawer destination: label, glyph, tab and the optional sub-route it opens. */
+private data class DrawerEntry(
+    val label: String,
+    val icon: String,
+    val tab: Tab,
+    val route: String? = null,
+    val sectors: Boolean = false
+)
+
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         DailyPortfolioSnapshotScheduler.ensureScheduled(applicationContext)
+        AlertNotifier.ensureChannel(applicationContext)
+        AlertEvaluationScheduler.ensureScheduled(applicationContext)
         @Suppress("DEPRECATION")
         window.decorView.systemUiVisibility = android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
         window.statusBarColor = android.graphics.Color.rgb(242, 241, 237)
         window.navigationBarColor = android.graphics.Color.rgb(28, 34, 37)
         setContent {
-            MaterialTheme(colorScheme = lightColorScheme(
-                primary = Blue, onPrimary = Color.White, secondary = Gold,
-                background = Paper, surface = White, onSurface = Ink,
-                onBackground = Ink, error = ErrorColor,
-                secondaryContainer = SoftBlue, onSecondaryContainer = Ink,
-                surfaceVariant = Color(0xFFECEBE6), outline = Color(0xFFD6D5CF)
-            )) {
-                LedgerStartup { ledger -> MarketApp(ledger) }
+            val themeStore = rememberMarketThemeStore(LocalContext.current)
+            val themeState = remember(themeStore) { themeStore.load() }
+            LaunchedEffect(themeState.accent, themeState.mode, themeState.density, themeState.fontScale, themeState.corner) {
+                themeStore.save(themeState)
+            }
+            MarketThemeProvider(themeState) {
+                val colors = MarketTheme.colors
+                MaterialTheme(colorScheme = lightColorScheme(
+                    primary = colors.accent, onPrimary = Color.White, secondary = Gold,
+                    background = colors.paper, surface = colors.surface, onSurface = colors.ink,
+                    onBackground = colors.ink, error = ErrorColor,
+                    secondaryContainer = colors.accentSoft, onSecondaryContainer = colors.ink,
+                    surfaceVariant = colors.surfaceAlt, outline = colors.line
+                )) {
+                    LedgerStartup { ledger -> MarketApp(ledger) }
+                }
             }
         }
     }
@@ -255,6 +306,8 @@ private fun LedgerStartupScreen(errorMessage: String?, onRetry: () -> Unit) {
     }
 }
 
+@Composable
+@ReadOnlyComposable
 internal fun plColor(value: BigDecimal) = when (value.signum()) {
     1 -> MarketUp
     -1 -> MarketDown
@@ -435,97 +488,163 @@ private fun MarketApp(ledger: Ledger) {
     val todayFacts = remember(snapshotRevision, revision, today) {
         PortfolioAnalytics.facts(ReportPeriod.DAY, today, portfolioSnapshots, positionSnapshots, trades, cashEvents)
     }
+    val weekFacts = remember(snapshotRevision, revision, today) {
+        PortfolioAnalytics.facts(ReportPeriod.WEEK, today, portfolioSnapshots, positionSnapshots, trades, cashEvents)
+    }
+    val monthFacts = remember(snapshotRevision, revision, today) {
+        PortfolioAnalytics.facts(ReportPeriod.MONTH, today, portfolioSnapshots, positionSnapshots, trades, cashEvents)
+    }
+    val assistantFacts = remember(revision, snapshotRevision, marketQuotes, positions, cashBalance) {
+        AssistantFacts.build(
+            reports = listOf(todayFacts, weekFacts, monthFacts),
+            quotes = marketQuotes,
+            positions = positions,
+            cashBalance = cashBalance
+        )
+    }
+    val assistantFactsState = rememberUpdatedState(assistantFacts)
+    val assistantRegistry = remember(ledger, marketRepository) {
+        ReadOnlyAgentTools.createRegistry(ledger, marketRepository, Dispatchers.IO)
+    }
+    val assistantState = rememberAssistantFeatureState(
+        ledger = ledger,
+        registry = assistantRegistry,
+        scope = scope,
+        ioDispatcher = Dispatchers.IO,
+        offlineFacts = { assistantFactsState.value }
+    )
+    val appContext = LocalContext.current.applicationContext
+    val alertState = remember(ledger) {
+        AlertFeatureState(ledger, scope) { event -> AlertNotifier.post(appContext, event) }
+            .also { it.refresh() }
+    }
+    LaunchedEffect(marketQuotes, positions) {
+        if (marketQuotes.isNotEmpty() || positions.isNotEmpty()) {
+            alertState.checkNow(marketQuotes, positions)
+        }
+    }
+    val ledgerDraft = remember { LedgerDraft() }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val snackbarHostState = remember { SnackbarHostState() }
+    val drawerSections = remember {
+        listOf(
+            "行情" to listOf(
+                DrawerEntry("总览", "home", Tab.HOME),
+                DrawerEntry("黄金行情", "coin", Tab.HOME, route = GOLD_ROUTE),
+                DrawerEntry("行业板块", "grid", Tab.HOME, sectors = true),
+                DrawerEntry("自选市场", "star", Tab.WATCHLIST)
+            ),
+            "我的" to listOf(
+                DrawerEntry("交易记录", "plus", Tab.RECORD),
+                DrawerEntry("资产持仓", "assets", Tab.ASSETS),
+                DrawerEntry("量化分析", "chart", Tab.ANALYSIS)
+            ),
+            "工具" to listOf(
+                DrawerEntry("数据健康", "pulse", Tab.HOME, route = HEALTH_ROUTE),
+                DrawerEntry("提醒", "bell", Tab.HOME, route = ALERT_ROUTE),
+                DrawerEntry("AI 助手", "spark", Tab.HOME, route = ASSISTANT_ROUTE),
+                DrawerEntry("外观", "sliders", Tab.HOME, route = APPEARANCE_ROUTE)
+            )
+        )
+    }
+    // System back walks up the hierarchy — drawer, then sub-page, then tab — before leaving the app.
+    BackHandler(enabled = drawerState.isOpen || selectedMarket != null || showSectors || tab != Tab.HOME) {
+        when {
+            drawerState.isOpen -> scope.launch { drawerState.close() }
+            selectedMarket != null -> selectedMarket = null
+            showSectors -> showSectors = false
+            else -> tab = Tab.HOME
+        }
+    }
     ModalNavigationDrawer(
         drawerState = drawerState,
         gesturesEnabled = true,
-        scrimColor = Ink.copy(alpha = 0.46f),
+        scrimColor = MarketTheme.colors.scrim.copy(alpha = 0.42f),
         drawerContent = {
+            val palette = MarketTheme.colors
+            val geometry = MarketTheme.geometry
             ModalDrawerSheet(
-                drawerShape = CutCornerShape(topStart = 0.dp, topEnd = 24.dp, bottomEnd = 24.dp, bottomStart = 0.dp),
-                drawerContainerColor = White
+                drawerShape = RoundedCornerShape(topEnd = geometry.panel, bottomEnd = geometry.panel),
+                drawerContainerColor = palette.surface
             ) {
                 Column(
-                    Modifier.fillMaxHeight().padding(horizontal = 22.dp, vertical = 27.dp),
-                    verticalArrangement = Arrangement.spacedBy(7.dp)
+                    Modifier.fillMaxHeight().verticalScroll(rememberScrollState())
+                        .padding(horizontal = 18.dp, vertical = 24.dp),
+                    verticalArrangement = Arrangement.spacedBy(geometry.xs)
                 ) {
-                    Text("MARKET FIELDNOTES", color = Blue, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
-                    Text("市场观察台", color = Ink, fontSize = 25.sp, fontWeight = FontWeight.SemiBold)
-                    Text("行情、板块与个人账本", color = Muted, fontSize = 12.sp)
-                    Spacer(Modifier.height(20.dp))
-                    val drawerItems = listOf(
-                        Triple("总览", Tab.HOME, false),
-                        Triple("黄金行情", Tab.HOME, false),
-                        Triple("行业板块", Tab.HOME, true),
-                        Triple("自选市场", Tab.WATCHLIST, false),
-                        Triple("交易记录", Tab.RECORD, false),
-                        Triple("资产持仓", Tab.ASSETS, false),
-                        Triple("量化分析", Tab.ANALYSIS, false),
-                        Triple("数据健康", Tab.HOME, false)
-                    )
-                    drawerItems.forEachIndexed { index, (label, destination, sectorsRoute) ->
-                        val isGold = label == "黄金行情"
-                        val isHealth = label == "数据健康"
-                        val routeSelected = when {
-                            isGold -> selectedMarket == GOLD_ROUTE
-                            isHealth -> selectedMarket == HEALTH_ROUTE
-                            sectorsRoute -> showSectors && selectedMarket == null
-                            else -> !showSectors && selectedMarket == null
-                        }
-                        val selected = tab == destination && routeSelected
-                        NavigationDrawerItem(
-                            label = { Text(label, fontSize = 14.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal) },
-                            selected = selected,
-                            onClick = {
-                                tab = destination
-                                showSectors = sectorsRoute
-                                selectedMarket = when {
-                                    isGold -> GOLD_ROUTE
-                                    isHealth -> HEALTH_ROUTE
-                                    else -> null
-                                }
-                                scope.launch { drawerState.close() }
-                            },
-                            icon = { NavigationGlyph(listOf("home", "chart", "chart", "star", "plus", "assets", "analysis", "analysis")[index], selected) },
-                            shape = CutCornerShape(topStart = 2.dp, topEnd = 12.dp, bottomEnd = 2.dp, bottomStart = 12.dp),
-                            colors = androidx.compose.material3.NavigationDrawerItemDefaults.colors(
-                                selectedContainerColor = SoftBlue,
-                                selectedIconColor = Ink,
-                                selectedTextColor = Ink,
-                                unselectedIconColor = Muted,
-                                unselectedTextColor = Ink
-                            )
+                    Text("MARKET FIELDNOTES", color = palette.accent, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
+                    Text("市场观察台", color = palette.ink, fontSize = 24.sp, fontWeight = FontWeight.SemiBold)
+                    Text("行情、板块与个人账本", color = palette.muted, fontSize = 12.sp)
+                    drawerSections.forEach { (section, entries) ->
+                        Text(
+                            section, color = palette.muted, fontSize = 10.sp, letterSpacing = 1.5.sp,
+                            modifier = Modifier.padding(top = geometry.md, bottom = geometry.xs)
                         )
+                        entries.forEach { entry ->
+                            val selected = tab == entry.tab && when {
+                                entry.route != null -> selectedMarket == entry.route
+                                entry.sectors -> showSectors && selectedMarket == null
+                                else -> !showSectors && selectedMarket == null
+                            }
+                            Row(
+                                Modifier.fillMaxWidth()
+                                    .clip(RoundedCornerShape(geometry.chip))
+                                    .background(if (selected) palette.accentSoft else Color.Transparent)
+                                    .marketPressable {
+                                        tab = entry.tab
+                                        showSectors = entry.sectors
+                                        selectedMarket = entry.route
+                                        scope.launch { drawerState.close() }
+                                    }
+                                    .padding(horizontal = 12.dp, vertical = geometry.sm),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                NavigationGlyph(entry.icon, selected, tint = if (selected) palette.accent else palette.muted)
+                                Spacer(Modifier.width(12.dp))
+                                Text(
+                                    entry.label,
+                                    color = if (selected) palette.ink else palette.inkSoft,
+                                    fontSize = 14.sp,
+                                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Text(
+                                    if (selected) "当前" else "›",
+                                    color = if (selected) palette.accent else palette.line,
+                                    fontSize = if (selected) 10.sp else 14.sp
+                                )
+                            }
+                        }
                     }
-                    Spacer(Modifier.weight(1f))
-                    Text("行情可能存在延迟，仅供研究参考", color = Muted, fontSize = 10.sp)
+                    Spacer(Modifier.height(geometry.lg))
+                    Box(Modifier.fillMaxWidth().height(1.dp).background(palette.line.copy(alpha = 0.7f)))
+                    Text("从屏幕左边缘右滑，或点任意页面左上角的按钮，都可以打开这里", color = palette.muted, fontSize = 10.sp, lineHeight = 15.sp)
+                    Text("行情可能存在延迟，仅供研究参考", color = palette.muted, fontSize = 10.sp)
                 }
             }
         }
     ) {
-      CompositionLocalProvider(LocalOpenDrawer provides { scope.launch { drawerState.open() } }) {
+      val pageBackdrop = rememberGraphicsLayer()
+      CompositionLocalProvider(
+        LocalOpenDrawer provides { scope.launch { drawerState.open() } },
+        LocalMarketBackdrop provides pageBackdrop
+      ) {
+
+      Box(Modifier.fillMaxSize()) {
+      Box(
+        Modifier.fillMaxSize().drawWithContent {
+            pageBackdrop.record(
+                density = this,
+                layoutDirection = layoutDirection,
+                size = IntSize(size.width.roundToInt(), size.height.roundToInt())
+            ) { this@drawWithContent.drawContent() }
+            drawLayer(pageBackdrop)
+        }
+      ) {
       Scaffold(
         containerColor = Paper,
-        snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
-        bottomBar = {
-            NavigationBar(containerColor = White) {
-                Tab.entries.forEach { item ->
-                    NavigationBarItem(
-                        selected = tab == item,
-                        onClick = { tab = item; if (item != Tab.WATCHLIST) { selectedMarket = null; showSectors = false } },
-                        icon = { NavigationGlyph(item.icon, tab == item) },
-                        label = { Text(item.label) },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = Ink, selectedTextColor = Ink,
-                            indicatorColor = SoftBlue, unselectedIconColor = Muted, unselectedTextColor = Muted
-                        )
-                    )
-                }
-            }
-        }
-    ) { insets ->
-        AnimatedContent(
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState) }
+    ) { insets ->        AnimatedContent(
             targetState = Triple(tab, selectedMarket, showSectors),
             transitionSpec = {
                 (fadeIn(tween(220)) + scaleIn(tween(260), initialScale = .965f) + slideInHorizontally(tween(260)) { it / 14 }) togetherWith
@@ -555,6 +674,20 @@ private fun MarketApp(ledger: Ledger) {
                         }
                     },
                     onBackfillDaily = dataHealthState::backfillDailyHistory,
+                    onBack = { selectedMarket = null },
+                    modifier = Modifier.padding(insets)
+                ) else if (route.second == APPEARANCE_ROUTE) AppearanceScreen(
+                    onBack = { selectedMarket = null },
+                    modifier = Modifier.padding(insets)
+                ) else if (route.second == ALERT_ROUTE) AlertScreen(
+                    state = alertState,
+                    quotes = marketQuotes,
+                    positions = positions,
+                    onBack = { selectedMarket = null },
+                    modifier = Modifier.padding(insets)
+                ) else if (route.second == ASSISTANT_ROUTE) AssistantScreen(
+                    state = assistantState,
+                    onBack = { selectedMarket = null },
                     modifier = Modifier.padding(insets)
                 ) else if (route.second == GOLD_ROUTE) GoldDashboardScreen(
                     quote = marketQuotes[MarketApi.GOLD_SPOT_ID],
@@ -572,7 +705,11 @@ private fun MarketApp(ledger: Ledger) {
                     marketRepository = marketRepository,
                     onRefresh = marketBoardState::refresh,
                     onBack = { showSectors = false },
-                    onOpenDrawer = { scope.launch { drawerState.open() } },
+                    onOpenInstrument = { secid ->
+                        selectedMarket = secid
+                        showSectors = false
+                        tab = Tab.WATCHLIST
+                    },
                     modifier = Modifier.padding(insets)
                 ) else OverviewScreen(
                     positions, pending.size, totalValue, totalCost, holding, realized, accountValue,
@@ -603,7 +740,7 @@ private fun MarketApp(ledger: Ledger) {
                 }
                 Tab.RECORD -> RecordScreen(
                     ledger, fundRepository, marketRepository, marketQuotes, pending, cashBalance, cashEvents,
-                    snackbarHostState, { revision++ }, Modifier.padding(insets)
+                    snackbarHostState, ledgerDraft, { revision++ }, Modifier.padding(insets)
                 )
                 Tab.ASSETS -> AssetsScreen(
                     positions, trades, ledger, marketRepository, marketQuotes,
@@ -769,71 +906,38 @@ private fun MarketApp(ledger: Ledger) {
                 containerColor = White, titleContentColor = Ink, textContentColor = Muted
             )
         }
+
+        }
+        // The bar floats above the page so content keeps scrolling underneath the glass material.
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+            MarketNavBar(
+                items = Tab.entries.map { MarketNavItem(it.label, it.icon) },
+                selectedIndex = Tab.entries.indexOf(tab),
+                onSelect = { index ->
+                    val item = Tab.entries[index]
+                    tab = item
+                    if (item != Tab.WATCHLIST) {
+                        selectedMarket = null
+                        showSectors = false
+                    }
+                }
+            )
+        }
+      }
       }
     }
     }
 }
 
 @Composable
-private fun NavigationGlyph(name: String, selected: Boolean) {
-    val color = if (selected) Ink else Muted
-    Canvas(Modifier.size(24.dp)) {
-        val scale = size.width / 24f
-        fun x(value: Float) = value * scale
-        fun y(value: Float) = value * scale
-        val line = Stroke(width = 1.9.dp.toPx(), cap = StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round)
-        when (name) {
-            "home" -> {
-                val path = Path().apply {
-                    moveTo(x(3.5f), y(10.5f)); lineTo(x(12f), y(3.5f)); lineTo(x(20.5f), y(10.5f))
-                    lineTo(x(19f), y(10.5f)); lineTo(x(19f), y(20f)); lineTo(x(5f), y(20f)); lineTo(x(5f), y(10.5f)); close()
-                }
-                if (selected) drawPath(path, color) else drawPath(path, color, style = line)
-                drawLine(if (selected) White else color, Offset(x(10f), y(20f)), Offset(x(10f), y(14f)), 1.7.dp.toPx())
-                drawLine(if (selected) White else color, Offset(x(14f), y(20f)), Offset(x(14f), y(14f)), 1.7.dp.toPx())
-            }
-            "star" -> {
-                val path = Path()
-                repeat(10) { i ->
-                    val radius = if (i % 2 == 0) x(9.5f) else x(4.2f)
-                    val angle = Math.PI * i / 5 - Math.PI / 2
-                    val px = size.width / 2 + kotlin.math.cos(angle).toFloat() * radius
-                    val py = size.height / 2 + kotlin.math.sin(angle).toFloat() * radius
-                    if (i == 0) path.moveTo(px, py) else path.lineTo(px, py)
-                }
-                path.close()
-                if (selected) drawPath(path, color) else drawPath(path, color, style = line)
-            }
-            "plus" -> {
-                drawCircle(color, radius = x(10f), style = line)
-                drawLine(color, Offset(x(12f), y(7f)), Offset(x(12f), y(17f)), 2.dp.toPx(), StrokeCap.Round)
-                drawLine(color, Offset(x(7f), y(12f)), Offset(x(17f), y(12f)), 2.dp.toPx(), StrokeCap.Round)
-            }
-            "assets" -> {
-                drawRoundRect(color, topLeft = Offset(x(3.5f), y(4f)), size = Size(x(17f), y(16f)), cornerRadius = androidx.compose.ui.geometry.CornerRadius(x(2.5f)), style = line)
-                drawLine(color, Offset(x(8f), y(9f)), Offset(x(17f), y(9f)), 1.7.dp.toPx(), StrokeCap.Round)
-                drawLine(color, Offset(x(8f), y(13f)), Offset(x(17f), y(13f)), 1.7.dp.toPx(), StrokeCap.Round)
-                drawCircle(color, radius = x(1f), center = Offset(x(6f), y(9f)))
-                drawCircle(color, radius = x(1f), center = Offset(x(6f), y(13f)))
-            }
-            else -> {
-                drawLine(color, Offset(x(4f), y(20f)), Offset(x(4f), y(4f)), 1.8.dp.toPx(), StrokeCap.Round)
-                drawLine(color, Offset(x(4f), y(20f)), Offset(x(21f), y(20f)), 1.8.dp.toPx(), StrokeCap.Round)
-                val path = Path().apply {
-                    moveTo(x(6f), y(16f)); lineTo(x(10f), y(12f)); lineTo(x(13.5f), y(14f)); lineTo(x(19f), y(7f))
-                }
-                drawPath(path, color, style = line)
-                drawCircle(color, x(1.3f), Offset(x(19f), y(7f)))
-            }
-        }
-    }
-}
-
+internal fun NavigationGlyph(name: String, selected: Boolean, tint: Color = if (selected) Ink else Muted) =
+    MarketIcon(name, size = 24.dp, tint = tint, filled = selected, onFilled = White)
 @Composable
 internal fun ScreenColumn(
     modifier: Modifier = Modifier,
-    spacing: Dp = 17.dp,
+    spacing: Dp = 12.dp,
     verticalPadding: Dp = 14.dp,
+    bottomClearance: Dp = MarketNavBarClearance,
     onPullRefresh: (() -> Unit)? = null,
     scrollState: ScrollState = rememberScrollState(),
     content: @Composable ColumnScope.() -> Unit
@@ -867,10 +971,12 @@ internal fun ScreenColumn(
             }
         }
     }
+    androidx.compose.runtime.CompositionLocalProvider(LocalMarketScrollOffset provides scrollState.value) {
     Box(modifier.fillMaxSize().nestedScroll(connection)) {
         Column(
             Modifier.fillMaxSize().graphicsLayer { translationY = animatedPull * 0.28f }
-                .verticalScroll(scrollState).padding(horizontal = 20.dp, vertical = verticalPadding),
+                .verticalScroll(scrollState)
+                .padding(start = 20.dp, end = 20.dp, top = verticalPadding, bottom = verticalPadding + bottomClearance),
             verticalArrangement = Arrangement.spacedBy(spacing), content = {
                 if (onPullRefresh != null && animatedPull > 1f) {
                     Box(Modifier.fillMaxWidth().height(with(density) { animatedPull.toDp() }), contentAlignment = Alignment.Center) {
@@ -887,34 +993,36 @@ internal fun ScreenColumn(
             }
         )
     }
-}
-
-@Composable
-internal fun BrandHeader(title: String, trailing: String = "") {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(title, Modifier.weight(1f), color = Ink, fontSize = 27.sp, fontWeight = FontWeight.SemiBold)
-        if (trailing.isNotEmpty()) Surface(shape = CircleShape, color = SoftBlue) {
-            Text(trailing, Modifier.padding(horizontal = 12.dp, vertical = 8.dp), color = Ink, fontSize = 12.sp)
-        }
-        DrawerMenuButton()
     }
+
 }
 
+/**
+ * Header for top-level tabs: the drawer trigger sits top-left, where root navigation belongs on both
+ * iOS and Android, an optional status pill goes top-right, and the title follows below. Sub-pages pass
+ * [onBack] and get their back affordance in the very same spot.
+ */
 @Composable
-internal fun DrawerMenuButton() {
-    val openDrawer = LocalOpenDrawer.current
-    Box(
-        Modifier.padding(start = 10.dp).size(40.dp).clip(CutCornerShape(topStart = 2.dp, topEnd = 12.dp, bottomEnd = 2.dp, bottomStart = 12.dp))
-            .background(SoftBlue).clickable(onClick = openDrawer)
-            .semantics { contentDescription = "打开导航菜单" },
-        contentAlignment = Alignment.Center
-    ) {
-        Canvas(Modifier.size(18.dp)) {
-            val stroke = 1.6.dp.toPx()
-            drawLine(Ink, Offset(1.dp.toPx(), size.height * .25f), Offset(size.width - 1.dp.toPx(), size.height * .25f), stroke, StrokeCap.Round)
-            drawLine(Ink, Offset(1.dp.toPx(), size.height * .5f), Offset(size.width * .72f, size.height * .5f), stroke, StrokeCap.Round)
-            drawLine(Ink, Offset(1.dp.toPx(), size.height * .75f), Offset(size.width - 1.dp.toPx(), size.height * .75f), stroke, StrokeCap.Round)
+internal fun BrandHeader(title: String, trailing: String = "", onBack: (() -> Unit)? = null) {
+    val palette = MarketTheme.colors
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            if (onBack == null) {
+                MarketMenuButton()
+            } else {
+                TextButton(onClick = onBack, contentPadding = PaddingValues(horizontal = 0.dp)) {
+                    Text("‹ 总览", color = palette.accent, fontSize = 13.sp)
+                }
+            }
+            Spacer(Modifier.weight(1f))
+            if (trailing.isNotEmpty()) {
+                Box(
+                    Modifier.clip(RoundedCornerShape(20.dp)).background(palette.surfaceAlt)
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                ) { Text(trailing, color = palette.muted, fontSize = 11.sp) }
+            }
         }
+        Text(title, color = palette.ink, fontSize = 26.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.8).sp)
     }
 }
 
@@ -1048,7 +1156,6 @@ private fun GoldDashboardScreen(
             TextButton(onClick = onBack, contentPadding = PaddingValues(horizontal = 0.dp)) { Text("‹ 总览", color = Blue) }
             Spacer(Modifier.weight(1f))
             TextButton(onClick = { onRefresh(); refreshRevision++ }, enabled = !loading) { Text("刷新行情") }
-            DrawerMenuButton()
         }
         Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Text("黄金", color = Ink, fontSize = 28.sp, fontWeight = FontWeight.SemiBold)
@@ -1117,7 +1224,7 @@ private fun GoldDashboardScreen(
                                     color = if (position.quoteExpired) ErrorColor else Ink, fontSize = 11.sp
                                 )
                                 Text(position.holdingProfit?.let { "盈亏 ${if (it.signum() > 0) "+" else ""}¥${it.portfolioMoney()}" } ?: "估值待补",
-                                    color = position.holdingProfit?.let(::plColor) ?: Muted, fontSize = 10.sp)
+                                    color = position.holdingProfit?.let { value -> plColor(value) } ?: Muted, fontSize = 10.sp)
                             }
                         }
                         if (position.quote != null) Text(
@@ -1178,176 +1285,9 @@ private fun GoldDashboardScreen(
             }
         }
         Button(onClick = onOpenEtf, modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(14.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Ink)) { Text("查看 518880 完整行情与指标") }
+            colors = ButtonDefaults.buttonColors(containerColor = Blue)) { Text("查看 518880 完整行情与指标") }
         if (message.isNotBlank()) Text(message, color = Muted, fontSize = 11.sp)
         Text("国际金价直接显示 XAU/USD 美元 / 金衡盎司报价。国内溢价比较会另按汇率和金衡盎司重量折算为人民币 / 克；ETF 图表仅观察国内交易品种走势。行情可能延迟。", color = Muted, fontSize = 10.sp, lineHeight = 15.sp)
-    }
-}
-
-@Composable
-private fun OverviewPortfolioCard(
-    positions: List<Position>,
-    total: BigDecimal,
-    holding: BigDecimal,
-    cost: BigDecimal,
-    realized: BigDecimal,
-    accountValue: BigDecimal?,
-    cashTrackingEnabled: Boolean,
-    todayProfit: BigDecimal?,
-    todayRate: BigDecimal?,
-    todayMissingReason: String?,
-    accountPeriod: Boolean,
-    allPositionsPriced: Boolean,
-    noPositionQuotes: Boolean,
-    quoteCount: Int,
-    latestQuoteAt: String?,
-    concealAmounts: Boolean,
-    onToggleAmountVisibility: () -> Unit,
-    onRecord: () -> Unit
-) {
-    val headline = when {
-        cashTrackingEnabled && accountValue == null -> "待补价格"
-        positions.isEmpty() && accountValue == null -> "尚未录入持仓"
-        accountValue == null && noPositionQuotes -> "暂无有效报价"
-        else -> "¥${(accountValue ?: total).portfolioMoney()}"
-    }
-    val hasPrivateAmount = accountValue != null || positions.any { it.value != null }
-    val amountHidden = concealAmounts && hasPrivateAmount
-    val subtitle = when {
-        accountValue != null -> "现金跟踪已启用，所有持仓均有报价"
-        cashTrackingEnabled && noPositionQuotes -> "当前持仓暂无报价，账户总资产暂不可用"
-        cashTrackingEnabled && !allPositionsPriced -> "部分持仓缺少报价，账户总资产暂不可用"
-        cashTrackingEnabled -> "账户总额暂不可用，检查持仓报价后重试"
-        noPositionQuotes -> "当前持仓暂无报价，持仓市值暂不可用"
-        !allPositionsPriced -> "部分持仓缺少报价，金额仅统计有报价的持仓"
-        else -> "尚未启用现金跟踪；当前金额只包含基金和黄金持仓"
-    }
-    val quoteStatus = when {
-        positions.isEmpty() -> "暂无持仓报价"
-        latestQuoteAt != null -> "报价覆盖 $quoteCount/${positions.size} 项  ·  最近 $latestQuoteAt"
-        else -> "报价覆盖 $quoteCount/${positions.size} 项  ·  尚无报价时间"
-    }
-
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = TacticalPanel,
-        colors = CardDefaults.cardColors(containerColor = HeroInk),
-        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.10f)),
-        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
-    ) {
-        Box(Modifier.fillMaxWidth().background(Brush.linearGradient(listOf(HeroInk, Color(0xFF30423E))))) {
-            Canvas(Modifier.matchParentSize()) {
-                val center = Offset(size.width * .91f, size.height * .18f)
-                val radius = size.height * .60f
-                drawCircle(Color.White.copy(alpha = .035f), radius, center)
-                drawCircle(
-                    Color.White.copy(alpha = .07f), radius * .76f, center,
-                    style = Stroke(width = 1.dp.toPx())
-                )
-                drawArc(
-                    color = Gold.copy(alpha = .52f), startAngle = 205f, sweepAngle = 112f,
-                    useCenter = false,
-                    topLeft = Offset(center.x - radius * .9f, center.y - radius * .9f),
-                    size = Size(radius * 1.8f, radius * 1.8f),
-                    style = Stroke(width = 1.2.dp.toPx(), cap = StrokeCap.Round)
-                )
-                drawLine(
-                    Color.White.copy(alpha = .045f),
-                    Offset(size.width * .70f, 0f), Offset(size.width, size.height * .46f),
-                    1.dp.toPx()
-                )
-            }
-            Column(
-                Modifier.fillMaxWidth().padding(17.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        Text(
-                            when {
-                                accountValue != null -> "账户总资产 · 含现金"
-                                cashTrackingEnabled -> "账户总资产 · 暂不可用"
-                                else -> "持仓市值 · 不含现金"
-                            },
-                            color = Color.White.copy(alpha = .70f), fontSize = 11.sp
-                        )
-                        Text("本机账本", color = Gold.copy(alpha = .95f), fontSize = 9.sp, letterSpacing = .5.sp)
-                    }
-                    Button(
-                        onClick = onRecord,
-                        contentPadding = PaddingValues(horizontal = 11.dp, vertical = 0.dp),
-                        modifier = Modifier.height(40.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Gold, contentColor = HeroInk)
-                    ) {
-                        Text("＋ 记一笔", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                    }
-                    Spacer(Modifier.width(8.dp))
-                    if (hasPrivateAmount) AmountVisibilityButton(amountHidden, onToggleAmountVisibility)
-                }
-
-                AnimatedContent(
-                    targetState = amountHidden,
-                    transitionSpec = {
-                        (fadeIn(tween(160)) + slideInVertically(tween(200)) { it / 5 }) togetherWith
-                            (fadeOut(tween(110)) + slideOutVertically(tween(150)) { -it / 5 })
-                    },
-                    label = "overview_amount_visibility"
-                ) { hidden ->
-                    Text(
-                        if (hidden) "¥  ••••••" else headline,
-                        color = Color.White,
-                        fontSize = if (headline.startsWith("¥")) 30.sp else 23.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        letterSpacing = (-.5).sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-                Text(subtitle, color = Color.White.copy(alpha = .62f), fontSize = 10.sp, lineHeight = 14.sp)
-
-                Row(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
-                        .background(Color.White.copy(alpha = .075f)).padding(horizontal = 10.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    OverviewMetric(
-                        title = if (accountPeriod) "今日账户盈亏" else "今日持仓盈亏",
-                        value = if (amountHidden) "••••••" else todayProfit?.let {
-                            "${if (it.signum() > 0) "+" else ""}¥${it.portfolioMoney()}"
-                        } ?: "暂不可用",
-                        detail = if (amountHidden) "••••" else todayRate?.let {
-                            "${if (it.signum() > 0) "+" else ""}${it.toPlainString()}%"
-                        } ?: todayMissingReason ?: "需完整的昨日与今日快照",
-                        valueColor = if (amountHidden) Color.White else todayProfit?.let(::heroPlColor) ?: Color.White.copy(alpha = .75f),
-                        modifier = Modifier.weight(1f)
-                    )
-                    Box(Modifier.padding(horizontal = 8.dp).width(1.dp).height(36.dp).background(Color.White.copy(alpha = .14f)))
-                    OverviewMetric(
-                        title = "持有浮盈",
-                        value = if (amountHidden) "••••••" else if (allPositionsPriced) {
-                            "${if (holding.signum() > 0) "+" else ""}¥${holding.portfolioMoney()}"
-                        } else "暂不可用",
-                        detail = if (amountHidden) "••••" else "成本 ¥${cost.portfolioMoney()}",
-                        valueColor = if (amountHidden) Color.White else if (allPositionsPriced) heroPlColor(holding) else Color.White.copy(alpha = .75f),
-                        modifier = Modifier.weight(1f)
-                    )
-                    Box(Modifier.padding(horizontal = 8.dp).width(1.dp).height(36.dp).background(Color.White.copy(alpha = .14f)))
-                    OverviewMetric(
-                        title = "已实现盈亏",
-                        value = if (amountHidden) "••••••" else "${if (realized.signum() > 0) "+" else ""}¥${realized.portfolioMoney()}",
-                        detail = if (amountHidden) "••••" else "按已确认流水",
-                        valueColor = if (amountHidden) Color.White else heroPlColor(realized),
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                    Surface(Modifier.size(6.dp), shape = CircleShape, color = Gold) {}
-                    Text(quoteStatus, color = Color.White.copy(alpha = .66f), fontSize = 9.sp, maxLines = 1)
-                }
-            }
-        }
     }
 }
 
@@ -1375,26 +1315,16 @@ private fun AmountVisibilityButton(hidden: Boolean, onClick: () -> Unit) {
             .semantics { contentDescription = if (hidden) "显示总资产金额" else "隐藏总资产金额" },
         contentAlignment = Alignment.Center
     ) {
-        Canvas(Modifier.size(18.dp).graphicsLayer { rotationZ = rotation }) {
-            val scale = size.width / 20f
-            val eye = Path().apply {
-                moveTo(2f * scale, 10f * scale)
-                quadraticTo(10f * scale, 2.5f * scale, 18f * scale, 10f * scale)
-                quadraticTo(10f * scale, 17.5f * scale, 2f * scale, 10f * scale)
-                close()
-            }
-            drawPath(eye, Color.White.copy(alpha = .90f), style = Stroke(1.5.dp.toPx(), cap = StrokeCap.Round))
-            drawCircle(Color.White, 2.1.dp.toPx(), Offset(size.width / 2f, size.height / 2f))
-            if (hidden) {
-                drawLine(
-                    Gold, Offset(size.width * .19f, size.height * .82f), Offset(size.width * .82f, size.height * .18f),
-                    1.7.dp.toPx(), StrokeCap.Round
-                )
-            }
-        }
+        MarketIcon(
+            if (hidden) "eyeOff" else "eye",
+            size = 19.dp,
+            tint = Color.White,
+            modifier = Modifier.graphicsLayer { rotationZ = rotation }
+        )
     }
 }
 
+@Composable
 private fun heroPlColor(value: BigDecimal): Color = when (value.signum()) {
     1 -> HeroUp
     -1 -> HeroDown
@@ -1429,8 +1359,8 @@ private fun OverviewScreen(
         }.getOrDefault(value.take(16).replace('T', ' '))
     }
     ScreenColumn(modifier, onPullRefresh = { if (!marketLoading) onRefreshMarket() }) {
-        BrandHeader("资产")
-        OverviewPortfolioCard(
+        MarketLargeTitle("资产", subtitle = "账户 · 持仓 · 行情", leading = { MarketMenuButton() })
+        OverviewHeroCard(
             positions = positions,
             total = total,
             holding = holding,
@@ -1451,9 +1381,9 @@ private fun OverviewScreen(
             onRecord = onRecord
         )
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TextButton(onClick = onOpenAssets, modifier = Modifier.weight(1f)) { Text("全部持仓 →") }
-            TextButton(onClick = onOpenGold, modifier = Modifier.weight(1f)) { Text("黄金行情 →") }
-            TextButton(onClick = onOpenWatchlist, modifier = Modifier.weight(1f)) { Text("市场行情 →") }
+            MarketQuickLink("全部持仓", "份额 · 成本 · 盈亏", Modifier.weight(1f), onClick = onOpenAssets)
+            MarketQuickLink("黄金行情", "国内外金价 · 折算", Modifier.weight(1f), onClick = onOpenGold)
+            MarketQuickLink("市场行情", "指数 · 板块 · 自选", Modifier.weight(1f), onClick = onOpenWatchlist)
         }
         if (snapshots.size > 1) {
             Card(
@@ -1470,50 +1400,89 @@ private fun OverviewScreen(
                 }
             }
         }
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("我的持仓", Modifier.weight(1f), color = Ink, fontSize = 19.sp, fontWeight = FontWeight.SemiBold)
-            TextButton(onClick = onOpenAssets) { Text("全部资产 →") }
+        MarketSectionHeader("我的持仓") {
+            Text("全部资产 ›", color = Muted, fontSize = 11.sp, modifier = Modifier.clickable(onClick = onOpenAssets))
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            SmallStat("基金", "${positions.count { it.asset.kind == AssetKind.FUND }} 只", Modifier.weight(1f))
-            SmallStat("黄金", "${positions.count { it.asset.kind == AssetKind.GOLD }} 项", Modifier.weight(1f))
+            MarketCompactStat(
+                "基金持仓",
+                "${positions.count { it.asset.kind == AssetKind.FUND }} 只",
+                Modifier.weight(1f)
+            )
+            MarketCompactStat(
+                "黄金持仓",
+                "${positions.count { it.asset.kind == AssetKind.GOLD }} 项",
+                Modifier.weight(1f)
+            )
         }
         if (positions.isEmpty()) {
-            EmptyCard("先记录一笔基金或黄金交易", "保存交易后，这里会显示份额、成本、最新估值与盈亏。")
+            MarketCard {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text("还没有持仓记录", color = Ink, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                        Text("记一笔后这里显示份额、成本与盈亏", color = Muted, fontSize = 10.sp)
+                    }
+                    Text(
+                        "去记账",
+                        color = Color.White, fontSize = 11.5.sp,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Blue)
+                            .clickable(onClick = onRecord)
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                    )
+                }
+            }
         } else {
             positions.take(5).forEach { PositionCard(it, concealAmounts) }
         }
         if (pendingCount > 0) InfoCard("有 $pendingCount 笔交易待确认", "净值公布后补录确认净值，即可计入持仓。", Blue)
-        if (pendingCount > 0 || positions.isNotEmpty()) {
+        if (positions.isNotEmpty()) {
             TextButton(onClick = onRecord, modifier = Modifier.fillMaxWidth()) { Text("记下买入或卖出") }
         }
 
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("行情观察", color = Ink, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                Text("行情观察", color = Ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                 val latest = marketQuotes.values.maxOfOrNull { it.fetchedAt }
                 Text(
                     if (latest == null) "行情暂未更新" else "行情截至 ${java.time.Instant.ofEpochSecond(latest).atZone(java.time.ZoneId.of("Asia/Shanghai")).format(java.time.format.DateTimeFormatter.ofPattern("MM-dd HH:mm"))}",
                     color = Muted, fontSize = 10.sp
                 )
             }
-            TextButton(onClick = onRefreshMarket, enabled = !marketLoading) { Text(if (marketLoading) "刷新中" else "刷新") }
-            TextButton(onClick = onOpenSectors) { Text("板块 →") }
-            TextButton(onClick = onOpenWatchlist) { Text("自选 →") }
+            Text(if (marketLoading) "刷新中" else "刷新", color = Muted, fontSize = 11.sp,
+                modifier = Modifier.clickable(enabled = !marketLoading, onClick = onRefreshMarket))
+            Spacer(Modifier.width(14.dp))
+            Text("板块 ›", color = Muted, fontSize = 11.sp, modifier = Modifier.clickable(onClick = onOpenSectors))
+            Spacer(Modifier.width(14.dp))
+            Text("自选 ›", color = Muted, fontSize = 11.sp, modifier = Modifier.clickable(onClick = onOpenWatchlist))
         }
         GoldOverviewCard(marketQuotes["GOLD.SGE.AU9999"], marketQuotes[MarketApi.GOLD_SPOT_ID], marketQuotes["1.518880"], onOpenGold = onOpenGold)
         MarketBoardTicker(boardSnapshots, boardLoadingTypes, boardMessage, onOpenSectors, onRefreshBoards)
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("全球大盘指数", Modifier.weight(1f), color = Ink, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+            Text("全球大盘指数", Modifier.weight(1f), color = Ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
         }
         if (marketMessage.isNotBlank()) Text(marketMessage, color = Muted, fontSize = 11.sp)
-        Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
-            MarketInstrumentCatalog.overview.chunked(2).forEach { pair ->
-                Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                    pair.forEach { instrument ->
-                        MarketIndexCard(instrument, marketQuotes[instrument.secid], Modifier.weight(1f)) { onOpenMarket(instrument.secid) }
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            MarketInstrumentCatalog.overview.chunked(3).forEach { trio ->
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    trio.forEach { instrument ->
+                        val quote = marketQuotes[instrument.secid]
+                        MarketIndexTile(
+                            name = instrument.name,
+                            fallbackLabel = when {
+                                quote == null -> instrument.market
+                                quote.source == "daily-close" -> "近收"
+                                else -> instrument.market
+                            },
+                            price = quote?.price?.let { String.format("%.2f", it) } ?: "—",
+                            changePct = quote?.let { it.changePct.asSignedPercent() } ?: "暂无",
+                            changeColor = quote?.let { plColor(BigDecimal.valueOf(it.changePct)) } ?: Muted,
+                            modifier = Modifier.weight(1f),
+                            onClick = { onOpenMarket(instrument.secid) }
+                        )
                     }
-                    if (pair.size == 1) Spacer(Modifier.weight(1f))
+                    repeat(3 - trio.size) { Spacer(Modifier.weight(1f)) }
                 }
             }
         }
@@ -1555,20 +1524,33 @@ internal fun SmallStat(title: String, value: String, modifier: Modifier = Modifi
 
 @Composable
 internal fun EmptyCard(title: String, body: String) {
-    Card(Modifier.fillMaxWidth(), shape = CutCornerShape(3.dp), colors = CardDefaults.cardColors(containerColor = White)) {
-        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(title, color = Ink, fontWeight = FontWeight.SemiBold)
-            Text(body, color = Muted, fontSize = 13.sp, lineHeight = 20.sp)
+    val palette = MarketTheme.colors
+    val geometry = MarketTheme.geometry
+    Card(
+        Modifier.fillMaxWidth().marketShadow(RoundedCornerShape(geometry.card), MarketElevation.card),
+        shape = RoundedCornerShape(geometry.card),
+        colors = CardDefaults.cardColors(containerColor = palette.surface),
+        border = BorderStroke(1.dp, palette.line.copy(alpha = 0.85f))
+    ) {
+        Column(Modifier.padding(geometry.xl), verticalArrangement = Arrangement.spacedBy(geometry.sm)) {
+            Text(title, color = palette.ink, style = MarketType.section)
+            Text(body, color = palette.muted, style = MarketType.body)
         }
     }
 }
 
 @Composable
 internal fun InfoCard(title: String, body: String, color: Color) {
-    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(17.dp), colors = CardDefaults.cardColors(containerColor = SoftBlue)) {
-        Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            Text(title, color = color, fontWeight = FontWeight.SemiBold)
-            Text(body, color = Muted, fontSize = 12.sp)
+    val palette = MarketTheme.colors
+    val geometry = MarketTheme.geometry
+    Card(
+        Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(geometry.card),
+        colors = CardDefaults.cardColors(containerColor = palette.accentSoft)
+    ) {
+        Column(Modifier.padding(geometry.xl), verticalArrangement = Arrangement.spacedBy(geometry.sm)) {
+            Text(title, color = color, style = MarketType.section)
+            Text(body, color = palette.inkSoft, style = MarketType.body)
         }
     }
 }

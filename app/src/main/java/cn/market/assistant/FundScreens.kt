@@ -41,12 +41,18 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import androidx.compose.runtime.ReadOnlyComposable
 
-private val FundInk = Color(0xFF20272A)
-private val FundMuted = Color(0xFF747D80)
-private val FundAccent = Color(0xFF9E6B39)
-private val FundGrid = Color(0xFFE4E2DC)
-private val FundPaper = Color(0xFFFCFBF7)
+private val FundInk: Color
+    @Composable @ReadOnlyComposable get() = MarketTheme.colors.ink
+private val FundMuted: Color
+    @Composable @ReadOnlyComposable get() = MarketTheme.colors.muted
+private val FundAccent: Color
+    @Composable @ReadOnlyComposable get() = MarketTheme.colors.accent
+private val FundGrid: Color
+    @Composable @ReadOnlyComposable get() = MarketTheme.colors.line
+private val FundPaper: Color
+    @Composable @ReadOnlyComposable get() = MarketTheme.colors.surface
 
 @Composable
 internal fun FundSearchResultsPanel(
@@ -406,6 +412,15 @@ private fun FundNavEstimatePanel(
                             FundEstimateMethod.LINKED_ETF_OLS ->
                                 "以 ${estimate.trackingIndexName ?: "联接目标 ETF"} 场内价格回归 · " +
                                     "${estimate.trainingCount} 日训练 / ${estimate.validationCount} 日验证"
+                            FundEstimateMethod.BOND_INDEX_OLS ->
+                                "以 ${estimate.trackingIndexName ?: "债券指数"} 做 60 日回归 · " +
+                                    "${estimate.trainingCount} 日训练 / ${estimate.validationCount} 日验证"
+                            FundEstimateMethod.CONVERTIBLE_INDEX_OLS ->
+                                "以 ${estimate.trackingIndexName ?: "中证转债"} 做 60 日回归 · " +
+                                    "${estimate.trainingCount} 日训练 / ${estimate.validationCount} 日验证"
+                            FundEstimateMethod.QDII_INDEX_OLS ->
+                                "以 ${estimate.trackingIndexName ?: "海外基准"} 的 T-1 海外收盘对齐 · " +
+                                    "${estimate.trainingCount} 日训练 / ${estimate.validationCount} 日验证"
                             FundEstimateMethod.DISCLOSED_HOLDINGS_OLS ->
                                 "按 ${estimate.inputHoldingsReportDate ?: "最近一期"} 重仓报告构建收益因子 · " +
                                     "${estimate.trainingCount} 日训练 / ${estimate.validationCount} 日验证"
@@ -501,6 +516,9 @@ private fun FundEstimateGrade.label(): String = when (this) {
 private fun FundEstimateMethod.label(): String = when (this) {
     FundEstimateMethod.INDEX_OLS -> "指数回归"
     FundEstimateMethod.LINKED_ETF_OLS -> "联接 ETF 回归"
+    FundEstimateMethod.BOND_INDEX_OLS -> "债券指数回归"
+    FundEstimateMethod.CONVERTIBLE_INDEX_OLS -> "转债指数回归"
+    FundEstimateMethod.QDII_INDEX_OLS -> "QDII 滞后对齐回归"
     FundEstimateMethod.DISCLOSED_HOLDINGS_OLS -> "重仓股池回归"
     FundEstimateMethod.DISCLOSED_HOLDINGS -> "披露重仓"
     FundEstimateMethod.NONE -> "不建模"
@@ -585,6 +603,8 @@ private fun FundNavTrend(profile: FundProfile) {
     val minimum = values.minOrNull() ?: 0.0
     val maximum = values.maxOrNull() ?: 0.0
     val range = (maximum - minimum).coerceAtLeast(0.000001)
+    val gridColor = FundGrid
+    val accentColor = FundAccent
     Canvas(
         Modifier.fillMaxWidth().height(76.dp).semantics {
             contentDescription = "${profile.name} ${if (moneyFund) "万份收益" else "单位净值"}趋势，${points.first().day} 至 ${points.last().day}"
@@ -596,7 +616,7 @@ private fun FundNavTrend(profile: FundProfile) {
         val bottom = size.height - 5.dp.toPx()
         repeat(3) { index ->
             val y = top + (bottom - top) * index / 2f
-            drawLine(FundGrid, Offset(left, y), Offset(right, y), 1.dp.toPx())
+            drawLine(gridColor, Offset(left, y), Offset(right, y), 1.dp.toPx())
         }
         val line = Path()
         points.forEachIndexed { index, point ->
@@ -604,7 +624,7 @@ private fun FundNavTrend(profile: FundProfile) {
             val y = bottom - ((values[index] - minimum) / range).toFloat() * (bottom - top)
             if (index == 0) line.moveTo(x, y) else line.lineTo(x, y)
         }
-        drawPath(line, FundAccent, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx()))
+        drawPath(line, accentColor, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx()))
     }
 }
 

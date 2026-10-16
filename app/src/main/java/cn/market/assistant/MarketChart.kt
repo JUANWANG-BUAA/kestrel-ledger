@@ -35,15 +35,24 @@ import cn.market.assistant.domain.market.MarketOhlcBar
 import cn.market.assistant.domain.quant.MacdValue
 import cn.market.assistant.domain.quant.MarketIndicators
 import kotlin.math.roundToInt
+import androidx.compose.runtime.ReadOnlyComposable
 
-private val ChartInk = Color(0xFF20272A)
-private val ChartMuted = Color(0xFF747D80)
-private val ChartAccent = Color(0xFF9E6B39)
-private val ChartSoftAccent = Color(0xFFF0E8DC)
-private val ChartGold = Color(0xFFB89561)
-private val ChartWhite = Color(0xFFFCFBF7)
-private val ChartUp = Color(0xFFC3444D)
-private val ChartDown = Color(0xFF168568)
+private val ChartInk: Color
+    @Composable @ReadOnlyComposable get() = MarketTheme.colors.ink
+private val ChartMuted: Color
+    @Composable @ReadOnlyComposable get() = MarketTheme.colors.muted
+private val ChartAccent: Color
+    @Composable @ReadOnlyComposable get() = MarketTheme.colors.accent
+private val ChartSoftAccent: Color
+    @Composable @ReadOnlyComposable get() = MarketTheme.colors.accentSoft
+private val ChartGold: Color
+    @Composable @ReadOnlyComposable get() = MarketTheme.colors.warn
+private val ChartWhite: Color
+    @Composable @ReadOnlyComposable get() = MarketTheme.colors.surface
+private val ChartUp: Color
+    @Composable @ReadOnlyComposable get() = MarketTheme.colors.up
+private val ChartDown: Color
+    @Composable @ReadOnlyComposable get() = MarketTheme.colors.down
 
 internal enum class MarketChartStyle(val label: String) { LINE("走势"), CANDLE("K线") }
 
@@ -77,6 +86,12 @@ internal fun MarketChart(
             } while (event.changes.any { it.pressed })
         }
     }
+    val softAccent = ChartSoftAccent
+    val accent = ChartAccent
+    val gold = ChartGold
+    val up = ChartUp
+    val down = ChartDown
+    val surface = ChartWhite
     Canvas(touchMod) {
         val left = 6.dp.toPx(); val right = size.width - 6.dp.toPx()
         val volumeHeight = if (showVolume) 30.dp.toPx() else 0f
@@ -101,10 +116,10 @@ internal fun MarketChart(
                     addPath(path)
                     lineTo(right, bottom); lineTo(left, bottom); close()
                 }
-                drawPath(fill, ChartSoftAccent.copy(alpha = .52f), style = Fill)
+                drawPath(fill, softAccent.copy(alpha = .52f), style = Fill)
             }
-            drawPath(path, ChartAccent, style = Stroke(width = 2.5.dp.toPx(), cap = StrokeCap.Round))
-            if (visibleBars.size == 1) drawCircle(ChartAccent, 4.dp.toPx(), Offset(left, y(visibleBars.first().close)))
+            drawPath(path, accent, style = Stroke(width = 2.5.dp.toPx(), cap = StrokeCap.Round))
+            if (visibleBars.size == 1) drawCircle(accent, 4.dp.toPx(), Offset(left, y(visibleBars.first().close)))
             fun movingAverage(period: Int, color: Color) {
                 if (visibleBars.size < period) return
                 val average = Path()
@@ -115,14 +130,14 @@ internal fun MarketChart(
                 }
                 drawPath(average, color, style = Stroke(width = 1.4.dp.toPx(), cap = StrokeCap.Round))
             }
-            if (showMa5) movingAverage(5, ChartGold)
+            if (showMa5) movingAverage(5, gold)
             if (showMa20) movingAverage(20, Color(0xFF8B78C8))
         } else {
             val slot = (right - left) / visibleBars.size
             val bodyWidth = (slot * .58f).coerceAtMost(8.dp.toPx()).coerceAtLeast(2.dp.toPx())
             visibleBars.forEachIndexed { index, bar ->
                 val x = left + slot * (index + .5f)
-                val color = if (bar.close >= bar.open) ChartUp else ChartDown
+                val color = if (bar.close >= bar.open) up else down
                 drawLine(color, Offset(x, y(bar.high)), Offset(x, y(bar.low)), 1.2.dp.toPx())
                 val topBody = y(maxOf(bar.open, bar.close))
                 val bottomBody = y(minOf(bar.open, bar.close))
@@ -138,7 +153,7 @@ internal fun MarketChart(
                 }
                 drawPath(average, color, style = Stroke(width = 1.4.dp.toPx(), cap = StrokeCap.Round))
             }
-            if (showMa5) movingAverage(5, ChartGold)
+            if (showMa5) movingAverage(5, gold)
             if (showMa20) movingAverage(20, Color(0xFF8B78C8))
         }
         if (showVolume) {
@@ -149,7 +164,7 @@ internal fun MarketChart(
             visibleBars.forEachIndexed { index, bar ->
                 val height = ((bar.volume / maxVolume).toFloat() * (volBottom - volTop)).coerceAtLeast(1.dp.toPx())
                 val x = left + slot * (index + .5f)
-                val color = if (bar.close >= bar.open) ChartUp else ChartDown
+                val color = if (bar.close >= bar.open) up else down
                 drawRect(color.copy(alpha = .5f), Offset(x - (slot * .55f) / 2, volBottom - height), Size((slot * .55f).coerceAtLeast(1.dp.toPx()), height))
             }
         }
@@ -159,8 +174,8 @@ internal fun MarketChart(
             drawLine(Color(0xFF9AA7B8), Offset(x, top), Offset(x, if (showVolume) size.height - volumeHeight else bottom), 1.dp.toPx())
             val selectedBar = visibleBars[selected]
             val pointY = if (style == MarketChartStyle.LINE) y(selectedBar.close) else y((selectedBar.open + selectedBar.close) / 2.0)
-            drawCircle(ChartWhite, 5.dp.toPx(), Offset(x, pointY))
-            drawCircle(ChartAccent, 3.dp.toPx(), Offset(x, pointY))
+            drawCircle(surface, 5.dp.toPx(), Offset(x, pointY))
+            drawCircle(accent, 3.dp.toPx(), Offset(x, pointY))
         }
     }
 }
@@ -206,6 +221,10 @@ internal fun IndicatorPane(bars: List<MarketOhlcBar>, selectedIndex: Int, macd: 
             Spacer(Modifier.weight(1f))
             Text("柱 ${selected?.let { String.format("%.3f", it.histogram) } ?: "—"}", color = ChartMuted, fontSize = 9.sp)
         }
+        val up = ChartUp
+        val down = ChartDown
+        val accent = ChartAccent
+        val gold = ChartGold
         Canvas(Modifier.fillMaxWidth().height(62.dp)) {
             val left = 6.dp.toPx(); val right = size.width - 6.dp.toPx(); val center = size.height / 2
             val maxAbs = values.maxOfOrNull { maxOf(kotlin.math.abs(it.dif), kotlin.math.abs(it.dea), kotlin.math.abs(it.histogram)) }
@@ -215,7 +234,7 @@ internal fun IndicatorPane(bars: List<MarketOhlcBar>, selectedIndex: Int, macd: 
             values.forEachIndexed { i, value ->
                 val height = (kotlin.math.abs(value.histogram) / maxAbs).toFloat() * (size.height * .43f)
                 val x = left + slot * (i + .5f)
-                drawRect(if (value.histogram >= 0) ChartUp.copy(alpha = .7f) else ChartDown.copy(alpha = .7f),
+                drawRect(if (value.histogram >= 0) up.copy(alpha = .7f) else down.copy(alpha = .7f),
                     Offset(x - (slot * .55f).coerceAtLeast(1.dp.toPx()) / 2, if (value.histogram >= 0) center - height else center),
                     Size((slot * .55f).coerceAtLeast(1.dp.toPx()), height.coerceAtLeast(1.dp.toPx())))
             }
@@ -228,7 +247,7 @@ internal fun IndicatorPane(bars: List<MarketOhlcBar>, selectedIndex: Int, macd: 
                 }
                 drawPath(path, color, style = Stroke(width = 1.25.dp.toPx(), cap = StrokeCap.Round))
             }
-            lineFor({ it.dif }, ChartAccent); lineFor({ it.dea }, ChartGold)
+            lineFor({ it.dif }, accent); lineFor({ it.dea }, gold)
             val cursorX = left + (right - left) * index / (values.size - 1).coerceAtLeast(1)
             drawLine(Color(0xFF9AA7B8), Offset(cursorX, 0f), Offset(cursorX, size.height), 1.dp.toPx())
         }

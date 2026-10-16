@@ -12,6 +12,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -30,10 +31,15 @@ import java.math.RoundingMode
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.ReadOnlyComposable
 
-private val HealthError = Color(0xFFB8424B)
-private val HealthSoftBlue = Color(0xFFF0E8DC)
-private val HealthPaper = Color(0xFFF2F1ED)
+private val HealthError: Color
+    @Composable @ReadOnlyComposable get() = MarketTheme.colors.up
+private val HealthSoftBlue: Color
+    @Composable @ReadOnlyComposable get() = MarketTheme.colors.accentSoft
+private val HealthPaper: Color
+    @Composable @ReadOnlyComposable get() = MarketTheme.colors.paper
 
 private fun BigDecimal.healthMoney() = setScale(2, RoundingMode.HALF_UP).toPlainString()
 
@@ -53,6 +59,7 @@ internal fun DataHealthScreen(
     healthCheck: HealthCheckSummary?,
     onRunCheck: () -> Unit,
     onBackfillDaily: (String) -> Unit,
+    onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -80,61 +87,56 @@ internal fun DataHealthScreen(
     )
 
     ScreenColumn(modifier, spacing = 14.dp, onPullRefresh = onRunCheck) {
-        BrandHeader("数据健康", "本机诊断")
+        BrandHeader("数据健康", "本机诊断", onBack = onBack)
+        val healthPalette = MarketTheme.colors
+        val healthGeometry = MarketTheme.geometry
         Card(
-            Modifier.fillMaxWidth(), shape = TacticalPanel,
-            colors = CardDefaults.cardColors(containerColor = Ink),
-            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            Modifier.fillMaxWidth().marketShadow(RoundedCornerShape(healthGeometry.panel), MarketElevation.raised),
+            shape = RoundedCornerShape(healthGeometry.panel),
+            colors = CardDefaults.cardColors(containerColor = healthPalette.surface),
+            border = BorderStroke(1.dp, healthPalette.line.copy(alpha = 0.85f))
         ) {
-            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
+            Column(Modifier.padding(healthGeometry.xl), verticalArrangement = Arrangement.spacedBy(healthGeometry.md)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("行情与账本自检", color = White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text("行情与账本自检", color = healthPalette.ink, style = MarketType.section)
                         Text(
                             healthCheck?.let { "上次检查 ${healthCheck.checkedAt.healthTime()}" } ?: "检查公共行情源，并读取本机账本状态",
-                            color = Color(0xFFBBC1C1), fontSize = 11.sp
+                            color = healthPalette.muted, style = MarketType.caption
                         )
                     }
-                    Surface(
-                        shape = CircleShape,
-                        color = when {
-                            healthChecking || healthCheck == null -> Color(0xFF465057)
-                            healthCheck.hasWarnings -> Color(0xFF6B5230)
-                            else -> Color(0xFF245C4D)
-                        }
-                    ) {
-                        Text(
-                            when {
-                                healthChecking -> "检查中"
-                                healthCheck == null -> "未检查"
-                                healthCheck.hasWarnings -> "有缺口"
-                                else -> "已更新"
-                            },
-                            Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                            color = White, fontSize = 10.sp, fontWeight = FontWeight.Medium
-                        )
+                    val (statusLabel, statusColor) = when {
+                        healthChecking -> "检查中" to healthPalette.accent
+                        healthCheck == null -> "未检查" to healthPalette.muted
+                        healthCheck.hasWarnings -> "有缺口" to healthPalette.warn
+                        else -> "已更新" to healthPalette.down
                     }
+                    Box(
+                        Modifier.clip(RoundedCornerShape(healthGeometry.chip))
+                            .background(statusColor.copy(alpha = 0.12f))
+                            .padding(horizontal = 10.dp, vertical = 5.dp)
+                    ) { Text(statusLabel, color = statusColor, style = MarketType.label) }
                 }
                 healthCheck?.let { check ->
-                    Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                        Text("市场行情  ·  ${check.marketStatus}", color = Color(0xFFE0E3E1), fontSize = 11.sp, lineHeight = 16.sp)
-                        Text("黄金行情  ·  ${check.goldStatus}", color = Color(0xFFE0E3E1), fontSize = 11.sp, lineHeight = 16.sp)
+                    Column(verticalArrangement = Arrangement.spacedBy(healthGeometry.sm)) {
+                        Text("市场行情 · ${check.marketStatus}", color = healthPalette.inkSoft, style = MarketType.body)
+                        Text("黄金行情 · ${check.goldStatus}", color = healthPalette.inkSoft, style = MarketType.body)
                     }
                 } ?: Text(
                     "行情缓存会显示来源时间；自检后可看到本次刷新结果。",
-                    color = Color(0xFFBBC1C1), fontSize = 11.sp, lineHeight = 16.sp
+                    color = healthPalette.muted, style = MarketType.body
                 )
                 Button(
                     onClick = onRunCheck,
                     enabled = !healthChecking,
                     modifier = Modifier.fillMaxWidth().height(46.dp),
-                    shape = RoundedCornerShape(13.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = HealthSoftBlue, contentColor = Ink)
-                ) { Text(if (healthChecking) "正在检查…" else "立即自检", fontWeight = FontWeight.SemiBold) }
+                    shape = RoundedCornerShape(healthGeometry.card),
+                    colors = ButtonDefaults.buttonColors(containerColor = healthPalette.accent, contentColor = Color.White)
+                ) { Text(if (healthChecking) "正在检查…" else "立即自检", style = MarketType.label, fontWeight = FontWeight.SemiBold) }
             }
         }
 
-        Text("数据完整性", color = Ink, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+        Text("数据完整性", color = MarketTheme.colors.ink, style = MarketType.title)
         Card(
             Modifier.fillMaxWidth(), shape = TacticalPanel,
             colors = CardDefaults.cardColors(containerColor = White),
@@ -168,7 +170,7 @@ internal fun DataHealthScreen(
             }
         }
 
-        Text("本机账本", color = Ink, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+        Text("本机账本", color = MarketTheme.colors.ink, style = MarketType.title)
         Card(
             Modifier.fillMaxWidth(), shape = TacticalPanel,
             colors = CardDefaults.cardColors(containerColor = White),
@@ -301,17 +303,31 @@ internal fun DataHealthScreen(
                         }
                     }
                 }
-                TextButton(
-                    onClick = {
-                        val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as ClipboardManager
-                        clipboard.setPrimaryClip(ClipData.newPlainText(
-                            "Market 数据诊断",
-                            buildRedactedDiagnostic(quotes, dataSourceRuns, now)
-                        ))
-                        diagnosticCopied = true
-                    },
-                    modifier = Modifier.align(Alignment.End)
-                ) { Text(if (diagnosticCopied) "诊断信息已复制" else "复制脱敏诊断", color = Ink) }
+                Row(
+                    Modifier.align(Alignment.End),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextButton(
+                        onClick = {
+                            val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            clipboard.setPrimaryClip(ClipData.newPlainText(
+                                "Market 数据诊断",
+                                buildRedactedDiagnostic(quotes, dataSourceRuns, now)
+                            ))
+                            diagnosticCopied = true
+                        }
+                    ) { Text(if (diagnosticCopied) "诊断信息已复制" else "复制脱敏诊断", color = Ink) }
+                    TextButton(
+                        onClick = {
+                            shareLocalText(
+                                context,
+                                "Market 脱敏诊断",
+                                buildRedactedDiagnostic(quotes, dataSourceRuns, now)
+                            )
+                        }
+                    ) { Text("分享诊断包", color = Ink) }
+                }
             }
         }
         HealthInfoCard(

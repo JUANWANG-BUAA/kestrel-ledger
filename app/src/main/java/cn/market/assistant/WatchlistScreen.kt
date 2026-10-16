@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.CutCornerShape
@@ -53,6 +54,15 @@ import java.math.BigDecimal
 
 internal enum class WatchlistSort(val label: String) {
     ADDED("加入顺序"), GAINERS("涨幅靠前"), LOSERS("跌幅靠前")
+}
+
+@Composable
+private fun BreadthLegend(label: String, count: Int, color: Color) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+        Box(Modifier.size(7.dp).clip(CircleShape).background(color))
+        Text(label, color = MarketTheme.colors.muted, style = MarketType.caption)
+        Text("$count", color = color, style = MarketType.numberSmall)
+    }
 }
 
 @Composable
@@ -112,57 +122,58 @@ internal fun WatchlistScreen(
     }
     ScreenColumn(modifier, onPullRefresh = { if (!loading) onRefresh() }) {
         BrandHeader("自选", "${instruments.size + fundEntries.size} 个")
-        if (instruments.isNotEmpty()) Card(
-            Modifier.fillMaxWidth().animateContentSize(tween(240)),
-            shape = TacticalPanel,
-            colors = CardDefaults.cardColors(containerColor = Ink),
-            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-        ) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        Text("自选市场广度", color = White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                        Text(
-                            latestQuote?.let { quote ->
-                                "${freshQuotes.size}/${instruments.size} 个有效报价 · " +
-                                    "最近时点 ${quote.displayTime()}"
-                            } ?: "${instruments.size} 个关注标的 · 等待行情刷新",
-                            color = Color(0xFFBBC1C1), fontSize = 10.sp
-                        )
+        if (instruments.isNotEmpty()) {
+            val palette = MarketTheme.colors
+            val geometry = MarketTheme.geometry
+            Card(
+                Modifier.fillMaxWidth().animateContentSize(tween(240))
+                    .marketShadow(RoundedCornerShape(geometry.panel), MarketElevation.card),
+                shape = RoundedCornerShape(geometry.panel),
+                colors = CardDefaults.cardColors(containerColor = palette.surface),
+                border = BorderStroke(1.dp, palette.line.copy(alpha = 0.85f))
+            ) {
+                Column(
+                    Modifier.padding(geometry.xl),
+                    verticalArrangement = Arrangement.spacedBy(geometry.md)
+                ) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text("自选市场广度", color = palette.ink, style = MarketType.section)
+                            Text(
+                                latestQuote?.let { quote ->
+                                    "${freshQuotes.size}/${instruments.size} 个有效报价 · 最近时点 ${quote.displayTime()}"
+                                } ?: "${instruments.size} 个关注标的 · 等待行情刷新",
+                                color = palette.muted, style = MarketType.caption
+                            )
+                        }
+                        Text("${freshQuotes.size}/${instruments.size}", color = palette.ink, style = MarketType.numberLarge)
                     }
-                    Text(
-                        "${freshQuotes.size}/${instruments.size}", color = White,
-                        fontSize = 17.sp, fontWeight = FontWeight.SemiBold
-                    )
-                }
-                if (freshQuotes.isEmpty()) {
-                    Text(
-                        "收到有效报价后，这里会汇总自选标的的涨跌分布。",
-                        color = Color(0xFFBBC1C1), fontSize = 11.sp
-                    )
-                } else {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("上涨 $advancing", Modifier.weight(1f), color = Color(0xFFFFB1B5), fontSize = 11.sp)
-                        Text("持平 $unchanged", Modifier.weight(1f), color = Color(0xFFD0D3D0), fontSize = 11.sp)
-                        Text("下跌 $declining", color = Color(0xFF83D1B9), fontSize = 11.sp)
-                    }
-                    Row(
-                        Modifier.fillMaxWidth().height(8.dp).clip(CircleShape).background(Color(0xFF465057))
-                            .semantics {
-                                contentDescription = "自选市场广度：" +
-                                    "上涨 $advancing 个，持平 $unchanged 个，下跌 $declining 个，" +
-                                    "共 ${freshQuotes.size} 个有效报价"
-                            }
-                    ) {
-                        if (advancing > 0) Box(
-                            Modifier.weight(advancing.toFloat()).fillMaxHeight().background(MarketUp)
-                        )
-                        if (unchanged > 0) Box(
-                            Modifier.weight(unchanged.toFloat()).fillMaxHeight().background(Color(0xFF9DA5A3))
-                        )
-                        if (declining > 0) Box(
-                            Modifier.weight(declining.toFloat()).fillMaxHeight().background(MarketDown)
-                        )
+                    if (freshQuotes.isEmpty()) {
+                        Text("收到有效报价后，这里会汇总自选标的的涨跌分布。", color = palette.muted, style = MarketType.caption)
+                    } else {
+                        Row(
+                            Modifier.fillMaxWidth().height(8.dp).clip(CircleShape).background(palette.surfaceAlt)
+                                .semantics {
+                                    contentDescription = "自选市场广度：" +
+                                        "上涨 $advancing 个，持平 $unchanged 个，下跌 $declining 个，" +
+                                        "共 ${freshQuotes.size} 个有效报价"
+                                }
+                        ) {
+                            if (advancing > 0) Box(
+                                Modifier.weight(advancing.toFloat()).fillMaxHeight().background(palette.up)
+                            )
+                            if (unchanged > 0) Box(
+                                Modifier.weight(unchanged.toFloat()).fillMaxHeight().background(palette.muted.copy(alpha = 0.55f))
+                            )
+                            if (declining > 0) Box(
+                                Modifier.weight(declining.toFloat()).fillMaxHeight().background(palette.down)
+                            )
+                        }
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(geometry.lg)) {
+                            BreadthLegend("上涨", advancing, palette.up)
+                            BreadthLegend("持平", unchanged, palette.muted)
+                            BreadthLegend("下跌", declining, palette.down)
+                        }
                     }
                 }
             }

@@ -3,6 +3,8 @@ package cn.market.assistant
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -15,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -60,6 +63,7 @@ import androidx.compose.ui.unit.sp
 import cn.market.assistant.domain.market.CachedMarketChart
 import cn.market.assistant.domain.market.ChartPeriod
 import cn.market.assistant.domain.market.MarketBoard
+import cn.market.assistant.domain.market.BoardMemberAnalytics
 import cn.market.assistant.domain.market.MarketBoardSnapshot
 import cn.market.assistant.domain.market.MarketBoardType
 import cn.market.assistant.domain.market.MarketRepository
@@ -70,15 +74,24 @@ import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import androidx.compose.runtime.ReadOnlyComposable
 
-private val BoardInk = Color(0xFF20272A)
-private val BoardMuted = Color(0xFF747D80)
-private val BoardPaper = Color(0xFFF2F1ED)
-private val BoardWhite = Color(0xFFFCFBF7)
-private val BoardAccent = Color(0xFF9E6B39)
-private val BoardUp = Color(0xFFC3444D)
-private val BoardDown = Color(0xFF168568)
-private val BoardLine = Color(0xFFD8D8D2)
+private val BoardInk: Color
+    @Composable @ReadOnlyComposable get() = MarketTheme.colors.ink
+private val BoardMuted: Color
+    @Composable @ReadOnlyComposable get() = MarketTheme.colors.muted
+private val BoardPaper: Color
+    @Composable @ReadOnlyComposable get() = MarketTheme.colors.paper
+private val BoardWhite: Color
+    @Composable @ReadOnlyComposable get() = MarketTheme.colors.surface
+private val BoardAccent: Color
+    @Composable @ReadOnlyComposable get() = MarketTheme.colors.accent
+private val BoardUp: Color
+    @Composable @ReadOnlyComposable get() = MarketTheme.colors.up
+private val BoardDown: Color
+    @Composable @ReadOnlyComposable get() = MarketTheme.colors.down
+private val BoardLine: Color
+    @Composable @ReadOnlyComposable get() = MarketTheme.colors.line
 
 @Composable
 internal fun MarketBoardTicker(
@@ -161,6 +174,7 @@ internal fun MarketBoardTicker(
                     )
                 }
             } else {
+                val tickerFade = MarketTheme.colors.surface
                 Box(Modifier.fillMaxWidth().height(70.dp).clip(RoundedCornerShape(12.dp))) {
                     LazyRow(
                         state = listState,
@@ -172,10 +186,10 @@ internal fun MarketBoardTicker(
                             BoardTickerCard(boards[index % boards.size])
                         }
                     }
-                    Box(Modifier.align(Alignment.CenterStart).width(10.dp).fillMaxHeight()
-                        .background(Brush.horizontalGradient(listOf(BoardWhite, Color.Transparent))))
-                    Box(Modifier.align(Alignment.CenterEnd).width(10.dp).fillMaxHeight()
-                        .background(Brush.horizontalGradient(listOf(Color.Transparent, BoardWhite))))
+                    Box(Modifier.align(Alignment.CenterStart).width(16.dp).fillMaxHeight()
+                        .background(Brush.horizontalGradient(listOf(tickerFade, Color.Transparent))))
+                    Box(Modifier.align(Alignment.CenterEnd).width(16.dp).fillMaxHeight()
+                        .background(Brush.horizontalGradient(listOf(Color.Transparent, tickerFade))))
                 }
             }
         }
@@ -184,22 +198,23 @@ internal fun MarketBoardTicker(
 
 @Composable
 private fun BoardTickerCard(board: MarketBoard) {
+    val tickerPalette = MarketTheme.colors
     Card(
-        modifier = Modifier.width(120.dp).height(62.dp),
+        modifier = Modifier.width(124.dp).height(62.dp),
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = BoardPaper),
-        border = BorderStroke(1.dp, Color(0xFFE3E1DA))
+        colors = CardDefaults.cardColors(containerColor = tickerPalette.surfaceAlt),
+        border = BorderStroke(1.dp, tickerPalette.line.copy(alpha = 0.85f))
     ) {
         Column(Modifier.fillMaxSize().padding(horizontal = 9.dp, vertical = 7.dp),
             verticalArrangement = Arrangement.SpaceBetween) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(board.name, Modifier.weight(1f), color = BoardInk, fontSize = 11.sp,
-                    fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(board.type.label, color = BoardMuted, fontSize = 8.sp)
+                Text(board.name, Modifier.weight(1f), color = tickerPalette.ink, style = MarketType.label,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(board.type.label, color = tickerPalette.muted, style = MarketType.caption)
             }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(String.format("%.2f", board.price), Modifier.weight(1f), color = BoardInk, fontSize = 11.sp)
-                Text(board.changePct.signedPct(), color = board.changePct.marketColor(), fontSize = 10.sp,
+                Text(String.format("%.2f", board.price), Modifier.weight(1f), color = tickerPalette.ink, style = MarketType.numberSmall)
+                Text(board.changePct.signedPct(), color = board.changePct.marketColor(), style = MarketType.numberSmall,
                     fontWeight = FontWeight.Medium)
             }
         }
@@ -214,7 +229,7 @@ internal fun MarketBoardExplorerScreen(
     marketRepository: MarketRepository,
     onRefresh: (MarketBoardType) -> Unit,
     onBack: () -> Unit,
-    onOpenDrawer: () -> Unit,
+    onOpenInstrument: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var type by remember { mutableStateOf(MarketBoardType.INDUSTRY) }
@@ -249,7 +264,7 @@ internal fun MarketBoardExplorerScreen(
     LazyColumn(
         state = listState,
         modifier = modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 10.dp),
-        contentPadding = PaddingValues(bottom = 18.dp),
+        contentPadding = PaddingValues(bottom = MarketNavBarClearance),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         item(key = "board-controls") {
@@ -261,9 +276,6 @@ internal fun MarketBoardExplorerScreen(
                     Spacer(Modifier.weight(1f))
                     TextButton(onClick = { onRefresh(type) }, enabled = !isLoading) {
                         Text(if (isLoading) "同步中" else "刷新 ${type.label}")
-                    }
-                    TextButton(onClick = onOpenDrawer, contentPadding = PaddingValues(horizontal = 4.dp)) {
-                        Text("菜单", color = BoardAccent)
                     }
                 }
 
@@ -353,7 +365,12 @@ internal fun MarketBoardExplorerScreen(
     }
 
     selectedBoard?.let { board ->
-        MarketBoardDetailSheet(board, marketRepository, onDismiss = { selectedBoard = null })
+        MarketBoardDetailSheet(
+            board = board,
+            repository = marketRepository,
+            onOpenInstrument = onOpenInstrument,
+            onDismiss = { selectedBoard = null }
+        )
     }
 }
 
@@ -471,12 +488,51 @@ private fun BoardDetailValue(label: String, value: String, modifier: Modifier = 
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun MarketBoardDetailSheet(board: MarketBoard, repository: MarketRepository, onDismiss: () -> Unit) {
+private fun MarketBoardDetailSheet(
+    board: MarketBoard,
+    repository: MarketRepository,
+    onOpenInstrument: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
     var period by remember(board.id) { mutableStateOf(ChartPeriod.DAY) }
     var chart by remember(board.id, period) { mutableStateOf<CachedMarketChart?>(null) }
     var chartMessage by remember(board.id, period) { mutableStateOf("读取历史走势…") }
     var loading by remember(board.id, period) { mutableStateOf(false) }
+    var members by remember(board.id) { mutableStateOf<cn.market.assistant.domain.market.MarketBoardMemberSnapshot?>(null) }
+    var membersMessage by remember(board.id) { mutableStateOf("") }
+    var membersLoading by remember(board.id) { mutableStateOf(false) }
+    var memberSort by remember(board.id) { mutableStateOf(BoardMemberAnalytics.MemberSort.CHANGE_DESC) }
     val scope = rememberCoroutineScope()
+
+    fun loadMembers(force: Boolean) {
+        if (membersLoading) return
+        scope.launch {
+            membersLoading = true
+            val cached = runCatching { repository.cachedBoardMembers(board.id) }.getOrNull()
+            cached?.takeIf { it.members.isNotEmpty() }?.let {
+                members = it
+                membersMessage = ""
+            }
+            val fresh = cached?.fetchedAt?.let { System.currentTimeMillis() - it * 1_000L < 15 * 60 * 1_000L } == true
+            if (!force && fresh && cached?.members?.isNotEmpty() == true) {
+                membersLoading = false
+                return@launch
+            }
+            runCatching { repository.refreshBoardMembers(board.id, board.name) }
+                .onSuccess { loaded ->
+                    members = loaded
+                    membersMessage = if (loaded.isTruncated) {
+                        "公开接口按市值返回前 ${loaded.members.size} 只，板块共 ${loaded.totalCount} 只"
+                    } else ""
+                }
+                .onFailure {
+                    if (members?.members.isNullOrEmpty()) membersMessage = it.message ?: "成分股暂不可用"
+                }
+            membersLoading = false
+        }
+    }
+
+    LaunchedEffect(board.id) { loadMembers(force = false) }
 
     fun loadChart(force: Boolean) {
         if (loading) return
@@ -568,6 +624,87 @@ private fun MarketBoardDetailSheet(board: MarketBoard, repository: MarketReposit
                 fontSize = 10.sp,
                 lineHeight = 14.sp
             )
+            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = BoardWhite), border = BorderStroke(1.dp, BoardLine)) {
+                Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text("成分股", color = BoardInk, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                members?.let { snapshot ->
+                                    val (up, down) = BoardMemberAnalytics.advanceDecline(snapshot.members)
+                                    val concentration = BoardMemberAnalytics.concentrationTopN(snapshot.members, 5)
+                                    "已取 ${snapshot.members.size} 只 · 涨 $up / 跌 $down" +
+                                        (concentration?.let { " · 前五市值占比 ${String.format("%.1f", it)}%" } ?: "")
+                                } ?: if (membersMessage.isBlank()) "读取成分股…" else membersMessage,
+                                color = BoardMuted, fontSize = 9.sp, lineHeight = 13.sp
+                            )
+                        }
+                        TextButton(onClick = { loadMembers(force = true) }, enabled = !membersLoading) {
+                            Text(if (membersLoading) "更新中" else "刷新成分", color = BoardAccent, fontSize = 11.sp)
+                        }
+                    }
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        BoardMemberAnalytics.MemberSort.entries.forEach { option ->
+                            FilterChip(
+                                selected = memberSort == option,
+                                onClick = { memberSort = option },
+                                label = { Text(option.label, fontSize = 10.sp) },
+                                colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = Color(0xFFF0E8DC),
+                                    selectedLabelColor = BoardInk,
+                                    containerColor = BoardWhite,
+                                    labelColor = BoardMuted
+                                )
+                            )
+                        }
+                    }
+                    val visibleMembers = members?.let { BoardMemberAnalytics.sortMembers(it.members, memberSort) }.orEmpty()
+                    if (visibleMembers.isEmpty()) {
+                        Text(membersMessage.ifBlank { "暂无成分股缓存，点击刷新成分" }, color = BoardMuted, fontSize = 10.sp)
+                    } else {
+                        Column(
+                            Modifier.fillMaxWidth().heightIn(max = 320.dp).verticalScroll(rememberScrollState()),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            visibleMembers.forEach { member ->
+                                Row(
+                                    Modifier.fillMaxWidth().clickable { onOpenInstrument(member.secid) }
+                                        .padding(vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                        Text(member.name, color = BoardInk, fontSize = 12.sp)
+                                        Text(
+                                            "${member.code} · ${member.marketCap?.let(::formatYuan) ?: "市值—"}",
+                                            color = BoardMuted, fontSize = 9.sp
+                                        )
+                                    }
+                                    Text(
+                                        String.format("%.2f", member.price),
+                                        color = BoardInk, fontSize = 12.sp
+                                    )
+                                    Spacer(Modifier.width(10.dp))
+                                    Text(
+                                        member.changePct.signedPct(),
+                                        color = member.changePct.marketColor(),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                            }
+                        }
+                        if (membersMessage.isNotBlank()) {
+                            Text(membersMessage, color = BoardMuted, fontSize = 9.sp, lineHeight = 13.sp)
+                        }
+                        Text(
+                            "成分股为板块公开页面按市值排序的前若干只，不等同完整成分；行情来源 " +
+                                "${members?.source ?: "—"} · 时点 ${members?.fetchedAt?.boardTime() ?: "—"}",
+                            color = BoardMuted, fontSize = 9.sp, lineHeight = 13.sp
+                        )
+                    }
+                }
+            }
             Text(
                 "行情来源：${board.source.boardSourceLabel()} · 报价时点 ${board.quoteTime.boardTime()} · 列表快照 ${board.fetchedAt.boardTime()}",
                 color = BoardMuted,
@@ -620,6 +757,7 @@ private fun formatYuan(value: Double): String = when {
 
 private fun Double.signedPct(): String = "${if (this > 0) "+" else ""}${String.format("%.2f", this)}%"
 
+@Composable
 private fun Double.marketColor(): Color = when {
     this > 0 -> BoardUp
     this < 0 -> BoardDown

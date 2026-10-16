@@ -233,8 +233,9 @@ internal class FundFeatureState(
         estimateGeneration++
         val generation = estimateGeneration
         estimateJob?.cancel()
-        val isIndexLinked = FundNavEstimator.usesIndexBenchmarkRoute(profile)
-        val usesDisclosedHoldings = FundNavEstimator.usesDisclosedHoldingsRoute(profile) && profile.holdings.isNotEmpty()
+        val usesBenchmark = FundNavEstimator.usesBenchmarkQuoteRoute(profile)
+        val usesDisclosedHoldings = FundNavEstimator.usesDisclosedHoldingsRoute(profile) &&
+            profile.holdings.isNotEmpty() && !usesBenchmark
         if (usesDisclosedHoldings) {
             isEstimatingNav = true
             estimateJob = scope.launch {
@@ -295,11 +296,11 @@ internal class FundFeatureState(
             }
             return
         }
-        val linkedEtfId = if (profile.trackingIndexSecid == null && isIndexLinked) {
+        val linkedEtfId = if (profile.trackingIndexSecid == null && FundNavEstimator.usesIndexBenchmarkRoute(profile)) {
             FundListedPriceAnalytics.marketSecid(profile.linkedEtfCode.orEmpty())
         } else null
-        val benchmarkId = profile.trackingIndexSecid ?: linkedEtfId
-        val usesLinkedEtfQuote = linkedEtfId != null && profile.trackingIndexSecid == null
+        val benchmarkId = FundNavEstimator.benchmarkSecid(profile)
+        val usesLinkedEtfQuote = linkedEtfId != null && profile.trackingIndexSecid == null && linkedEtfId == benchmarkId
         if (benchmarkId == null || (indexQuote != null && indexQuote.secid != benchmarkId && !forceRefresh)) {
             navEstimate = FundNavEstimator.estimate(profile, emptyList(), indexQuote)
             isEstimatingNav = false
@@ -341,7 +342,7 @@ internal class FundFeatureState(
             } catch (error: Exception) {
                 if (generation == estimateGeneration && profileTarget?.code == targetCode) {
                     navEstimate = FundNavEstimator.estimate(profile, emptyList(), indexQuote)
-                        .copy(reason = error.message ?: "跟踪指数历史数据暂不可用")
+                        .copy(reason = error.message ?: "基准指数历史数据暂不可用")
                 }
             } finally {
                 if (generation == estimateGeneration && profileTarget?.code == targetCode) isEstimatingNav = false
@@ -358,6 +359,9 @@ internal class FundFeatureState(
             val supportsIntervalCalibration = when (estimate.method) {
                 FundEstimateMethod.INDEX_OLS,
                 FundEstimateMethod.LINKED_ETF_OLS,
+                FundEstimateMethod.BOND_INDEX_OLS,
+                FundEstimateMethod.CONVERTIBLE_INDEX_OLS,
+                FundEstimateMethod.QDII_INDEX_OLS,
                 FundEstimateMethod.DISCLOSED_HOLDINGS_OLS -> true
                 else -> false
             }

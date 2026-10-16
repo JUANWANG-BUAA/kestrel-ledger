@@ -63,7 +63,16 @@ internal fun AssetsScreen(
     ScreenColumn(modifier) {
         BrandHeader("资产")
         Text("持仓按确认流水计算。补充当前净值或克价后，账面市值与盈亏会同步更新。", color = Muted, fontSize = 13.sp, lineHeight = 20.sp)
-        if (positions.isEmpty()) EmptyCard("这里还没有资产", "先到“记账”页搜索基金名称，按买入金额记下申购。")
+        if (positions.isEmpty()) {
+            // Right after the first purchase the list is still empty, so point at confirmation
+            // instead of telling the user to do what they just did.
+            val pendingTrades = trades.count { !it.confirmed && !it.isReversed }
+            EmptyCard(
+                if (pendingTrades > 0) "有 $pendingTrades 笔交易待确认" else "这里还没有资产",
+                if (pendingTrades > 0) "补录确认净值后就会生成持仓；确认前不计入份额和盈亏。"
+                else "先到“记账”页搜索基金名称，按买入金额记下申购。"
+            )
+        }
         positions.forEach { position ->
             PositionCard(position)
             QuoteEditor(position, marketQuotes, ledger, marketRepository, onMarketQuoteFetched) { onChanged() }
@@ -102,7 +111,7 @@ internal fun AssetsScreen(
                     color = Muted, fontSize = 11.sp, lineHeight = 16.sp
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = onExport, shape = RoundedCornerShape(13.dp), colors = ButtonDefaults.buttonColors(containerColor = Ink)) {
+                    Button(onClick = onExport, shape = RoundedCornerShape(13.dp), colors = ButtonDefaults.buttonColors(containerColor = Blue)) {
                         Text("导出备份")
                     }
                     TextButton(onClick = onImport) { Text("恢复备份", color = Ink) }

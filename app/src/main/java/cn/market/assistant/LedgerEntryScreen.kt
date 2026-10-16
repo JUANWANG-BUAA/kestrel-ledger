@@ -29,6 +29,7 @@ import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -59,6 +60,38 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
+/**
+ * Draft of the trade being entered. It is remembered above the tab host, so switching tabs, opening
+ * the drawer or pressing back no longer throws away a half-filled form.
+ */
+@Stable
+internal class LedgerDraft {
+    val filter = mutableStateOf(AssetKind.FUND)
+    val selected = mutableStateOf<AssetInfo?>(null)
+    val transferTarget = mutableStateOf<AssetInfo?>(null)
+    val confirmTarget = mutableStateOf<Trade?>(null)
+    val search = mutableStateOf("")
+    val side = mutableStateOf(TradeSide.BUY)
+    val amount = mutableStateOf("")
+    val units = mutableStateOf("")
+    val price = mutableStateOf("")
+    val fee = mutableStateOf("0")
+    val shareFactor = mutableStateOf("")
+    val transferSearch = mutableStateOf("")
+    val transferUnits = mutableStateOf("")
+    val transferCost = mutableStateOf("")
+    val showFee = mutableStateOf(false)
+    val note = mutableStateOf("")
+    val message = mutableStateOf("")
+    val messageIsError = mutableStateOf(false)
+    val customCode = mutableStateOf("")
+    val customName = mutableStateOf("")
+    val confirmPrice = mutableStateOf("")
+    val cashAmount = mutableStateOf("")
+    val cashMemo = mutableStateOf("")
+    val cashEventType = mutableStateOf(AccountCashEventType.DEPOSIT)
+}
+
 @Composable
 internal fun RecordScreen(
     ledger: Ledger,
@@ -69,6 +102,7 @@ internal fun RecordScreen(
     cashBalance: AccountCashBalance?,
     accountCashEvents: List<AccountCashEvent>,
     snackbarHostState: SnackbarHostState,
+    draft: LedgerDraft,
     onChanged: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -96,30 +130,30 @@ internal fun RecordScreen(
     LaunchedEffect(viewedFundProfile?.code, viewedFundProfile?.navDate) {
         viewedFundProfile?.let { fundFeatureState.loadListedMarketPrice(it) }
     }
-    var filter by remember { mutableStateOf(AssetKind.FUND) }
-    var search by remember { mutableStateOf("") }
-    var selected by remember { mutableStateOf<AssetInfo?>(null) }
-    var side by remember { mutableStateOf(TradeSide.BUY) }
-    var amount by remember { mutableStateOf("") }
-    var units by remember { mutableStateOf("") }
-    var price by remember { mutableStateOf("") }
-    var fee by remember { mutableStateOf("0") }
-    var shareFactor by remember { mutableStateOf("") }
-    var transferSearch by remember { mutableStateOf("") }
-    var transferTarget by remember { mutableStateOf<AssetInfo?>(null) }
-    var transferUnits by remember { mutableStateOf("") }
-    var transferCost by remember { mutableStateOf("") }
-    var showFee by remember { mutableStateOf(false) }
-    var note by remember { mutableStateOf("") }
-    var message by remember { mutableStateOf("") }
-    var messageIsError by remember { mutableStateOf(false) }
-    var customCode by remember { mutableStateOf("") }
-    var customName by remember { mutableStateOf("") }
-    var confirmTarget by remember { mutableStateOf<Trade?>(null) }
-    var confirmPrice by remember { mutableStateOf("") }
-    var cashAmount by remember { mutableStateOf("") }
-    var cashMemo by remember { mutableStateOf("") }
-    var cashEventType by remember { mutableStateOf(AccountCashEventType.DEPOSIT) }
+    var filter by draft.filter
+    var search by draft.search
+    var selected by draft.selected
+    var side by draft.side
+    var amount by draft.amount
+    var units by draft.units
+    var price by draft.price
+    var fee by draft.fee
+    var shareFactor by draft.shareFactor
+    var transferSearch by draft.transferSearch
+    var transferTarget by draft.transferTarget
+    var transferUnits by draft.transferUnits
+    var transferCost by draft.transferCost
+    var showFee by draft.showFee
+    var note by draft.note
+    var message by draft.message
+    var messageIsError by draft.messageIsError
+    var customCode by draft.customCode
+    var customName by draft.customName
+    var confirmTarget by draft.confirmTarget
+    var confirmPrice by draft.confirmPrice
+    var cashAmount by draft.cashAmount
+    var cashMemo by draft.cashMemo
+    var cashEventType by draft.cashEventType
     val recentCashEvents = accountCashEvents.filter {
         it.type == AccountCashEventType.DEPOSIT || it.type == AccountCashEventType.WITHDRAWAL ||
             it.type == AccountCashEventType.DIVIDEND
@@ -177,7 +211,7 @@ internal fun RecordScreen(
                             .onSuccess { cashAmount = ""; message = "现金跟踪已启用"; messageIsError = false; onChanged() }
                             .onFailure { message = it.message ?: "设置失败"; messageIsError = true }
                     }, enabled = cashAmount.isNotBlank(), modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(13.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Ink)) { Text("开始跟踪现金") }
+                        colors = ButtonDefaults.buttonColors(containerColor = Blue)) { Text("开始跟踪现金") }
                 } else {
                     Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                         FilterChip(selected = cashEventType == AccountCashEventType.DEPOSIT,
@@ -192,7 +226,7 @@ internal fun RecordScreen(
                                 .onSuccess { cashAmount = ""; cashMemo = ""; message = if (cashEventType == AccountCashEventType.DEPOSIT) "入金已记录" else "出金已记录"; messageIsError = false; onChanged() }
                                 .onFailure { message = it.message ?: "保存失败"; messageIsError = true }
                         }, enabled = cashAmount.isNotBlank(), shape = RoundedCornerShape(13.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Ink)) { Text(if (cashEventType == AccountCashEventType.DEPOSIT) "记入金" else "记出金") }
+                            colors = ButtonDefaults.buttonColors(containerColor = Blue)) { Text(if (cashEventType == AccountCashEventType.DEPOSIT) "记入金" else "记出金") }
                     }
                     OutlinedTextField(cashMemo, { cashMemo = it }, modifier = Modifier.fillMaxWidth(),
                         label = { Text("备注（选填）") }, singleLine = true, shape = RoundedCornerShape(13.dp), colors = fieldColors())
@@ -225,7 +259,7 @@ internal fun RecordScreen(
                 search, { search = it; fundFeatureState.search(it) }, modifier = Modifier.fillMaxWidth(), singleLine = true,
                 label = { Text(if (filter == AssetKind.FUND) "搜索基金名称或代码" else "搜索黄金品种") },
                 placeholder = { Text(if (filter == AssetKind.FUND) "例如：易方达蓝筹、110011" else "例如：积存金、Au99.99") },
-                leadingIcon = { Text("⌕", color = Muted, fontSize = 23.sp) },
+                leadingIcon = { MarketIcon("search", size = 19.dp, tint = Muted) },
                 trailingIcon = if (search.isNotEmpty()) ({ TextButton(onClick = { search = ""; fundFeatureState.clearSearch() }) { Text("清除") } }) else null,
                 shape = RoundedCornerShape(18.dp), colors = fieldColors()
             )
@@ -563,7 +597,7 @@ internal fun RecordScreen(
                         }
                     } catch (e: Exception) { message = e.message ?: "请检查填写内容"; messageIsError = true }
                 }, modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(15.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Ink)
+                colors = ButtonDefaults.buttonColors(containerColor = Blue)
             ) {
                 Text(when (side) {
                     TradeSide.BUY -> "记下买入${amount.takeIf { it.isNotBlank() }?.let { " ¥$it" } ?: ""}"

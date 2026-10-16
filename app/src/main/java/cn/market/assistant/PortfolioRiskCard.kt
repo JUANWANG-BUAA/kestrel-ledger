@@ -27,8 +27,10 @@ import androidx.compose.ui.unit.sp
 import cn.market.assistant.domain.portfolio.PortfolioRiskSummary
 import java.math.BigDecimal
 import java.math.RoundingMode
+import androidx.compose.runtime.ReadOnlyComposable
 
-private val RiskPanel = Color(0xFFF3F1EB)
+private val RiskPanel: Color
+    @Composable @ReadOnlyComposable get() = MarketTheme.colors.surfaceAlt
 
 @Composable
 internal fun PortfolioRiskCard(

@@ -56,15 +56,24 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.math.BigDecimal
 import java.math.RoundingMode
+import androidx.compose.runtime.ReadOnlyComposable
 
-private val MarketDetailInk = Color(0xFF20272A)
-private val MarketDetailMuted = Color(0xFF747D80)
-private val MarketDetailAccent = Color(0xFF9E6B39)
-private val MarketDetailSoftAccent = Color(0xFFF0E8DC)
-private val MarketDetailGold = Color(0xFFB89561)
-private val MarketDetailWhite = Color(0xFFFCFBF7)
-private val MarketDetailUp = Color(0xFFC3444D)
-private val MarketDetailDown = Color(0xFF168568)
+private val MarketDetailInk: Color
+    @Composable @ReadOnlyComposable get() = MarketTheme.colors.ink
+private val MarketDetailMuted: Color
+    @Composable @ReadOnlyComposable get() = MarketTheme.colors.muted
+private val MarketDetailAccent: Color
+    @Composable @ReadOnlyComposable get() = MarketTheme.colors.accent
+private val MarketDetailSoftAccent: Color
+    @Composable @ReadOnlyComposable get() = MarketTheme.colors.accentSoft
+private val MarketDetailGold: Color
+    @Composable @ReadOnlyComposable get() = MarketTheme.colors.warn
+private val MarketDetailWhite: Color
+    @Composable @ReadOnlyComposable get() = MarketTheme.colors.surface
+private val MarketDetailUp: Color
+    @Composable @ReadOnlyComposable get() = MarketTheme.colors.up
+private val MarketDetailDown: Color
+    @Composable @ReadOnlyComposable get() = MarketTheme.colors.down
 private val MarketDetailPanel = RoundedCornerShape(20.dp)
 
 @Composable
@@ -158,7 +167,6 @@ internal fun MarketDetailScreen(
             TextButton(onClick = onBack, contentPadding = PaddingValues(horizontal = 0.dp)) { Text("‹ 自选", color = MarketDetailAccent) }
             Spacer(Modifier.weight(1f))
             TextButton(onClick = { onToggle(!isWatched) }) { Text(if (isWatched) "★ 已自选" else "☆ 加自选", color = MarketDetailAccent) }
-            DrawerMenuButton()
         }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(instrument?.name ?: "行情详情", color = MarketDetailInk, fontSize = 25.sp, fontWeight = FontWeight.SemiBold)
@@ -277,6 +285,7 @@ internal fun MarketDetailScreen(
 }
 
 
+@Composable
 private fun marketDetailColor(value: BigDecimal): Color = when (value.signum()) {
     1 -> MarketDetailUp
     -1 -> MarketDetailDown

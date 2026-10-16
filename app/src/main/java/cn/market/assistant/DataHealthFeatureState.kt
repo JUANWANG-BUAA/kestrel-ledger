@@ -18,6 +18,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 internal data class HealthCheckSummary(
     val checkedAt: Long,
@@ -27,6 +28,9 @@ internal data class HealthCheckSummary(
 )
 
 /** Coordinates the data-health route without making its screen or the application route own repository work. */
+/** Bounds the blocking provider calls so the health page always recovers. */
+private const val HEALTH_CHECK_TIMEOUT_MILLIS = 45_000L
+
 @Stable
 internal class DataHealthFeatureState(
     private val repository: MarketRepository,
@@ -59,12 +63,29 @@ internal class DataHealthFeatureState(
         scope.launch {
             healthChecking = true
             try {
-                val (marketResult, goldResult) = coroutineScope {
-                    val marketTask = async { capture { repository.refreshOverview() } }
-                    val goldTask = async { capture { repository.refreshGold() } }
-                    marketTask.await() to goldTask.await()
+                // The provider calls are blocking, so the timeout must cancel only the `await`; a child
+                // scope timeout would still wait for the blocking sockets to finish.
+                val work = async {
+                    coroutineScope {
+                        val marketTask = async { capture { repository.refreshOverview() } }
+                        val goldTask = async { capture { repository.refreshGold() } }
+                        marketTask.await() to goldTask.await()
+                    }
                 }
+                val results = withTimeoutOrNull(HEALTH_CHECK_TIMEOUT_MILLIS) { work.await() }
                 capture { repository.cachedQuotes() }.onSuccess(onQuotesUpdated)
+                if (results == null) {
+                    work.cancel()
+                    healthCheck = HealthCheckSummary(
+                        checkedAt = System.currentTimeMillis() / 1000,
+                        marketStatus = "自检超时：公开数据源在 ${HEALTH_CHECK_TIMEOUT_MILLIS / 1000} 秒内没有全部返回",
+                        goldStatus = "继续使用本机缓存；可稍后重试或检查网络",
+                        hasWarnings = true
+                    )
+                    reloadDiagnostics()
+                    return@launch
+                }
+                val (marketResult, goldResult) = results
 
                 val marketStatus = marketResult.fold(
                     onSuccess = { result -> when {

@@ -31,14 +31,23 @@ import cn.market.assistant.domain.portfolio.ReportPeriod
 import cn.market.assistant.domain.portfolio.Trade
 import cn.market.assistant.domain.portfolio.XirrResult
 import cn.market.assistant.domain.portfolio.PortfolioRiskSummary
+import cn.market.assistant.domain.market.ChartPeriod
 import cn.market.assistant.domain.market.MarketRepository
+import cn.market.assistant.domain.market.MarketVenue
+import cn.market.assistant.domain.market.TradingCalendar
+import cn.market.assistant.domain.market.TradingDaySet
+import cn.market.assistant.domain.report.ReportExport
 import java.math.BigDecimal
 import java.math.RoundingMode
 import java.time.LocalDate
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.ui.graphics.Color
 
-private val AnalysisPaper = Color(0xFFF2F1ED)
+private val AnalysisPaper: Color
+    @Composable @ReadOnlyComposable get() = MarketTheme.colors.paper
 
 private fun BigDecimal.money() = setScale(2, RoundingMode.HALF_UP).toPlainString()
 
@@ -64,6 +73,15 @@ internal fun AnalysisScreen(
 ) {
     val pending = trades.count { !it.confirmed && !it.isReversed }
     val today = LocalDate.now(java.time.ZoneId.of("Asia/Shanghai"))
+    val context = LocalContext.current
+    val sessionCalendar by produceState<TradingDaySet?>(initialValue = null, marketRepository) {
+        value = withContext(Dispatchers.IO) {
+            runCatching { marketRepository.cachedChart("1.000300", ChartPeriod.DAY).bars }
+                .getOrNull()
+                ?.let { bars -> TradingCalendar.fromBars(MarketVenue.SHANGHAI, bars, "1.000300") }
+                ?.takeIf { calendar -> !calendar.inferred && calendar.days.size >= 20 }
+        }
+    }
     val riskFeatureState = rememberPortfolioRiskFeatureState(LocalContext.current)
     val riskParameters = riskFeatureState.parameters
     val benchmarkFeatureState = rememberPortfolioBenchmarkFeatureState(LocalContext.current, marketRepository)
@@ -79,7 +97,8 @@ internal fun AnalysisScreen(
             PortfolioRiskAnalytics.trailingSummary(
                 today, snapshots, positionSnapshots, trades, cashEvents,
                 riskFreeAnnualRate = riskParameters.riskFreeAnnualRate,
-                minimumAcceptableAnnualReturn = riskParameters.minimumAcceptableAnnualReturn
+                minimumAcceptableAnnualReturn = riskParameters.minimumAcceptableAnnualReturn,
+                sessionCalendar = sessionCalendar
             )
         }
     }
@@ -124,24 +143,59 @@ internal fun AnalysisScreen(
             "原始快照仍保留在本机和备份中；受影响日期不参与盈亏与风险分析，后续观察会从最新流水重新开始。",
             Blue
         )
-        Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = White),
-            border = BorderStroke(1.dp, Color(0xFFD8D8D2))) {
-            Column(Modifier.padding(19.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("账面表现", color = Muted, fontSize = 12.sp)
-                Text("${if (holding.add(realized).signum() > 0) "+" else ""}¥${holding.add(realized).money()}", color = plColor(holding.add(realized)), fontSize = 29.sp, fontWeight = FontWeight.SemiBold)
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    SmallStat("账户总资产", accountValue?.let { "¥${it.money()}" } ?: if (cashBalance == null) "未启用" else "待补价格", Modifier.weight(1f))
-                    SmallStat("可用现金", cashBalance?.let { "¥${it.amount.money()}" } ?: "—", Modifier.weight(1f))
+        val analysisPalette = MarketTheme.colors
+        val analysisGeometry = MarketTheme.geometry
+        Card(
+            Modifier.fillMaxWidth().marketShadow(RoundedCornerShape(analysisGeometry.panel), MarketElevation.raised),
+            shape = RoundedCornerShape(analysisGeometry.panel),
+            colors = CardDefaults.cardColors(containerColor = analysisPalette.surface),
+            border = BorderStroke(1.dp, analysisPalette.line.copy(alpha = 0.85f))
+        ) {
+            Column(
+                Modifier.padding(analysisGeometry.xl),
+                verticalArrangement = Arrangement.spacedBy(analysisGeometry.md)
+            ) {
+                Text("累计盈亏", color = analysisPalette.muted, style = MarketType.label)
+                Text(
+                    "${if (holding.add(realized).signum() > 0) "+" else ""}¥${holding.add(realized).money()}",
+                    color = plColor(holding.add(realized)),
+                    style = MarketType.amount
+                )
+                Box(Modifier.fillMaxWidth().height(1.dp).background(analysisPalette.line))
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    MarketMetric(
+                        label = "账户总资产",
+                        value = accountValue?.let { "¥${it.money()}" } ?: if (cashBalance == null) "未启用" else "待补价格",
+                        valueColor = analysisPalette.ink,
+                        modifier = Modifier.weight(1f)
+                    )
+                    MarketMetric(
+                        label = "可用现金",
+                        value = cashBalance?.let { "¥${it.amount.money()}" } ?: "—",
+                        valueColor = analysisPalette.ink,
+                        modifier = Modifier.weight(1f),
+                        withDivider = true
+                    )
+                    MarketMetric(
+                        label = "持仓市值",
+                        value = "¥${currentValue.money()}",
+                        valueColor = analysisPalette.ink,
+                        modifier = Modifier.weight(1f),
+                        withDivider = true
+                    )
                 }
-                Text("当前持仓市值 ¥${currentValue.money()}  ·  持仓浮盈 ¥${holding.money()}  ·  已实现 ¥${realized.money()}", color = Muted, fontSize = 11.sp)
+                Text(
+                    "持仓浮盈 ¥${holding.money()} · 已实现 ¥${realized.money()}",
+                    color = analysisPalette.muted, style = MarketType.caption
+                )
             }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            SmallStat("全部流水", "${trades.size} 笔", Modifier.weight(1f))
-            SmallStat("待确认", "$pending 笔", Modifier.weight(1f))
+        Row(horizontalArrangement = Arrangement.spacedBy(analysisGeometry.md)) {
+            MarketCompactStat("全部流水", "${trades.size} 笔", Modifier.weight(1f))
+            MarketCompactStat("待确认", "$pending 笔", Modifier.weight(1f))
         }
         if (pending > 0) InfoCard("$pending 笔交易待确认", "待确认交易暂不计入份额和已确认周期统计。", Blue)
-        Text("资产走势", color = Ink, fontSize = 19.sp, fontWeight = FontWeight.SemiBold)
+        Text("资产走势", color = MarketTheme.colors.ink, style = MarketType.title)
         PortfolioTrendCard(
             points = trendPoints,
             metric = trendMetric,
@@ -195,7 +249,22 @@ internal fun AnalysisScreen(
             val facts = PortfolioAnalytics.facts(
                 period, today, snapshots, positionSnapshots, trades, cashEvents, benchmarkFeatureState.series
             )
-            PeriodReportCard(facts, snapshots, positionSnapshots)
+            PeriodReportCard(facts, snapshots, positionSnapshots) { format ->
+                val provenance = reportProvenance(
+                    context,
+                    listOfNotNull("本机账本", benchmarkFeatureState.series?.source)
+                )
+                val text = when (format) {
+                    ReportExportFormat.MARKDOWN -> ReportExport.periodFactsMarkdown(facts, provenance)
+                    ReportExportFormat.CSV -> ReportExport.periodFactsCsv(facts, provenance)
+                }
+                shareLocalText(
+                    context,
+                    "养基助手-${facts.period.title}报告",
+                    text,
+                    if (format == ReportExportFormat.CSV) "text/csv" else "text/plain"
+                )
+            }
         }
         Text("报告只使用本机记录。启用现金跟踪且快照估值完整后才纳入账户现金；未记录的外部账户和分红不计入。记录频率不足时会显示缺口，不推测收益。", color = Muted, fontSize = 11.sp, lineHeight = 16.sp)
     }
@@ -245,7 +314,7 @@ private fun PortfolioTrendCard(
                         metric == TrendMetric.ASSET && changePct != null -> "${if (changePct.signum() > 0) "+" else ""}${changePct.toPlainString()}% · ${if (change.signum() > 0) "+" else ""}¥${change.money()}"
                         else -> "区间变化 ${if (change.signum() > 0) "+" else ""}¥${change.money()}"
                     }
-                    Text(changeLabel, color = change?.let(::plColor) ?: Muted, fontSize = 10.sp)
+                    Text(changeLabel, color = change?.let { value -> plColor(value) } ?: Muted, fontSize = 10.sp)
                 }
             }
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -307,6 +376,7 @@ private fun PortfolioTrendChart(
     val selected = selectedIndex.coerceIn(points.indices)
     val change = points.last().value - points.first().value
     val lineColor = plColor(change)
+    val canvasSurface = White
     val reveal = remember(points) { Animatable(0f) }
     LaunchedEffect(points) {
         reveal.snapTo(0f)
@@ -377,7 +447,7 @@ private fun PortfolioTrendChart(
             Color(0xFFAAA9A2), Offset(activeX, top), Offset(activeX, bottom), 1.dp.toPx(),
             pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 4.dp.toPx()))
         )
-        drawCircle(White, radius = 6.dp.toPx(), center = Offset(activeX, activeY))
+        drawCircle(canvasSurface, radius = 6.dp.toPx(), center = Offset(activeX, activeY))
         drawCircle(lineColor, radius = 5.dp.toPx(), center = Offset(activeX, activeY), style = Stroke(2.dp.toPx()))
     }
 }
@@ -490,11 +560,14 @@ private fun allocationColor(id: String): Color {
     return palette[(id.hashCode() and Int.MAX_VALUE) % palette.size]
 }
 
+private enum class ReportExportFormat { MARKDOWN, CSV }
+
 @Composable
 private fun PeriodReportCard(
     facts: PeriodFacts,
     snapshots: List<PortfolioSnapshot>,
-    positionSnapshots: Map<LocalDate, List<PositionSnapshot>>
+    positionSnapshots: Map<LocalDate, List<PositionSnapshot>>,
+    onExport: (ReportExportFormat) -> Unit
 ) {
     var expanded by remember(facts.period) { mutableStateOf(false) }
     val accountBased = facts.opening?.accountComplete == true && facts.closing?.accountComplete == true
@@ -521,6 +594,14 @@ private fun PeriodReportCard(
                     Text(facts.period.title, color = Ink, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                     Text("${facts.start} — ${facts.end}", color = Muted, fontSize = 10.sp)
                 }
+                TextButton(
+                    onClick = { onExport(ReportExportFormat.MARKDOWN) },
+                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
+                ) { Text("导出 MD", color = Blue, fontSize = 10.sp) }
+                TextButton(
+                    onClick = { onExport(ReportExportFormat.CSV) },
+                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
+                ) { Text("CSV", color = Blue, fontSize = 10.sp) }
                 Text(if (expanded) "收起⌃" else "详情⌄", color = Blue, fontSize = 11.sp, fontWeight = FontWeight.Medium)
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -528,13 +609,13 @@ private fun PeriodReportCard(
                     Text(if (accountBased) "账户区间盈亏" else "持仓区间盈亏", color = Muted, fontSize = 10.sp)
                     Text(
                         displayProfit?.let { "${if (it.signum() > 0) "+" else ""}¥${it.money()}" } ?: "暂不可算",
-                        color = displayProfit?.let(::plColor) ?: Muted, fontSize = 21.sp, fontWeight = FontWeight.SemiBold
+                        color = displayProfit?.let { value -> plColor(value) } ?: Muted, fontSize = 21.sp, fontWeight = FontWeight.SemiBold
                     )
                 }
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     Text(if (accountBased) "账户 Modified Dietz" else "持仓 Modified Dietz", color = Muted, fontSize = 10.sp)
                     Text(displayRate?.let { "${if (it.signum() > 0) "+" else ""}${it.toPlainString()}%" } ?: "—",
-                        color = displayRate?.let(::plColor) ?: Muted, fontSize = 21.sp, fontWeight = FontWeight.SemiBold)
+                        color = displayRate?.let { value -> plColor(value) } ?: Muted, fontSize = 21.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
             if (series.size >= 2) PortfolioProfitSparkline(series, Modifier.fillMaxWidth().height(46.dp))
