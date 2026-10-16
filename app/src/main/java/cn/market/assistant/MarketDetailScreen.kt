@@ -129,7 +129,7 @@ internal fun MarketDetailScreen(
                     }
                     message = if (!refreshed.refreshed) "行情源没有返回数据，显示本机缓存" else "${period.label}已更新 · ${if (instrument?.yahooSymbol != null) "Yahoo Finance" else "公开行情源"}"
                 }
-                .onFailure { message = if (bars.isEmpty()) "当前市场暂不支持该周期：${it.message ?: "请稍后重试"}" else "更新失败，显示本机缓存" }
+                .onFailure { message = if (bars.isEmpty()) "当前市场暂不支持该周期：${it.userFacingMessage("请稍后重试")}" else "更新失败，显示本机缓存" }
             loading = false
         }
     }

@@ -170,7 +170,7 @@ internal class AssistantFeatureState(
         settingsStore.save(settings)
         apiKey?.takeIf { it.isNotBlank() }?.let { key ->
             runCatching { secretStore.saveApiKey(settings.provider.name.lowercase(), key) }
-                .onFailure { statusMessage = it.message ?: "API Key 保存失败" }
+                .onFailure { statusMessage = it.userFacingMessage("API Key 保存失败") }
         }
         refreshSecrets()
         connectionCheck = null
@@ -223,7 +223,7 @@ internal class AssistantFeatureState(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
-                "连接失败：${error.message ?: error.javaClass.simpleName}"
+                "连接失败：${error.userFacingMessage("服务未响应，请检查网络与模型配置")}"
             }
             checkingConnection = false
         }
@@ -448,7 +448,7 @@ internal class AssistantFeatureState(
                     turnId,
                     effectiveQuestion,
                     attachments,
-                    "调用失败（${error.message ?: error.javaClass.simpleName}），已回退离线事实回答",
+                    "调用失败（${error.userFacingMessage("模型未返回可用结果")}），已回退离线事实回答",
                     keepSteps = true,
                     classificationHint = skill?.name
                 )

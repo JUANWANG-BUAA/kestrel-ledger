@@ -538,7 +538,7 @@ private fun MarketBoardDetailSheet(
                     } else ""
                 }
                 .onFailure {
-                    if (members?.members.isNullOrEmpty()) membersMessage = it.message ?: "成分股暂不可用"
+                    if (members?.members.isNullOrEmpty()) membersMessage = it.userFacingMessage("成分股暂不可用")
                 }
             membersLoading = false
         }
@@ -569,7 +569,7 @@ private fun MarketBoardDetailSheet(
                         chartMessage = "公开行情源暂未返回该板块的历史 K 线。"
                     }
                 }
-                .onFailure { if (chart?.bars.isNullOrEmpty()) chartMessage = it.message ?: "历史走势暂不可用。" }
+                .onFailure { if (chart?.bars.isNullOrEmpty()) chartMessage = it.userFacingMessage("历史走势暂不可用。") }
             loading = false
         }
     }

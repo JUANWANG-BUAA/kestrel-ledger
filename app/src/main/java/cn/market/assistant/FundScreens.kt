@@ -67,21 +67,21 @@ internal fun FundSearchResultsPanel(
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         when {
-            query.trim().length < 2 -> Text("输入至少 2 个字或基金代码，搜索全市场基金。", color = FundMuted, fontSize = 11.sp)
-            isLoading -> Text("正在搜索基金…", color = FundMuted, fontSize = 11.sp)
+            query.trim().length < 2 -> Text("输入至少 2 个字或基金代码，搜索全市场基金。", color = FundMuted, style = MarketType.label)
+            isLoading -> Text("正在搜索基金…", color = FundMuted, style = MarketType.label)
             error != null -> Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("基金搜索暂不可用：$error", Modifier.weight(1f), color = FundAccent, fontSize = 11.sp)
-                TextButton(onClick = onRetry) { Text("重试", color = FundInk, fontSize = 10.sp) }
+                Text("基金搜索暂不可用：$error", Modifier.weight(1f), color = FundAccent, style = MarketType.label)
+                TextButton(onClick = onRetry) { Text("重试", color = FundInk, style = MarketType.label) }
             }
-            completedQuery == query.trim() && results.isEmpty() -> Text("没有匹配的公募基金，可检查代码或手动添加。", color = FundMuted, fontSize = 11.sp)
-            results.isNotEmpty() -> Text("全市场基金 · ${results.size} 项 · ${results.first().source} ${results.first().fetchedAt.fundFetchTime()}", color = FundMuted, fontSize = 10.sp)
+            completedQuery == query.trim() && results.isEmpty() -> Text("没有匹配的公募基金，可检查代码或手动添加。", color = FundMuted, style = MarketType.label)
+            results.isNotEmpty() -> Text("全市场基金 · ${results.size} 项 · ${results.first().source} ${results.first().fetchedAt.fundFetchTime()}", color = FundMuted, style = MarketType.label)
         }
         results.forEach { result ->
             Card(
                 Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(13.dp),
                 colors = CardDefaults.cardColors(containerColor = FundPaper),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2DED5))
+                border = androidx.compose.foundation.BorderStroke(1.dp, MarketTheme.colors.line.copy(alpha = 0.85f))
             ) {
                 Row(
                     Modifier.fillMaxWidth().padding(start = 12.dp, end = 8.dp, top = 9.dp, bottom = 9.dp),
@@ -89,16 +89,16 @@ internal fun FundSearchResultsPanel(
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        Text(result.name, color = FundInk, fontSize = 12.sp)
-                        Text("${result.code} · ${result.category}", color = FundMuted, fontSize = 10.sp)
+                        Text(result.name, color = FundInk, style = MarketType.numberSmall)
+                        Text("${result.code} · ${result.category}", color = FundMuted, style = MarketType.label)
                     }
-                    TextButton(onClick = { onView(result) }) { Text("画像", color = FundInk, fontSize = 11.sp) }
+                    TextButton(onClick = { onView(result) }) { Text("画像", color = FundInk, style = MarketType.label) }
                     OutlinedButton(
                         onClick = { onUse(result) },
                         shape = RoundedCornerShape(10.dp),
                         contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 6.dp),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = FundInk)
-                    ) { Text("用于记账", fontSize = 10.sp) }
+                    ) { Text("用于记账", style = MarketType.label) }
                 }
             }
         }
@@ -131,26 +131,26 @@ internal fun FundProfileCard(
         Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(17.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFD8D8D2))
+        border = androidx.compose.foundation.BorderStroke(1.dp, MarketTheme.colors.line.copy(alpha = 0.85f))
     ) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
             when {
-                isLoading -> Text("正在读取基金画像、净值和重仓…", color = FundMuted, fontSize = 11.sp)
+                isLoading -> Text("正在读取基金画像、净值和重仓…", color = FundMuted, style = MarketType.label)
                 error != null -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("基金详情读取失败：$error", color = FundAccent, fontSize = 11.sp)
-                    onRetry?.let { retry -> TextButton(onClick = retry) { Text("重试", color = FundInk, fontSize = 10.sp) } }
+                    Text("基金详情读取失败：$error", color = FundAccent, style = MarketType.label)
+                    onRetry?.let { retry -> TextButton(onClick = retry) { Text("重试", color = FundInk, style = MarketType.label) } }
                 }
-                profile == null -> Text("等待基金详情", color = FundMuted, fontSize = 11.sp)
+                profile == null -> Text("等待基金详情", color = FundMuted, style = MarketType.label)
                 else -> {
                     val moneyFund = profile.isMoneyMarketFund()
-                    Text("${profile.name} · ${profile.code}", color = FundInk, fontSize = 14.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                    Text("${profile.name} · ${profile.code}", color = FundInk, style = MarketType.number, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
                     Text(
                         listOfNotNull(
                             profile.fundType,
                             profile.managementCompany,
                             profile.trackingIndexName?.let { "跟踪 $it" }
                         ).joinToString(" · ").ifBlank { "基金画像" },
-                        color = FundMuted, fontSize = 10.sp
+                        color = FundMuted, style = MarketType.label
                     )
                     if (moneyFund) {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -166,14 +166,14 @@ internal fun FundProfileCard(
                                 profile.changePct.fundPercent(),
                                 Modifier.weight(1f),
                                 profile.changePct?.takeIf { it.isFinite() }?.let {
-                                    when { it > 0 -> Color(0xFFC3444D); it < 0 -> Color(0xFF168568); else -> FundInk }
+                                    when { it > 0 -> MarketTheme.colors.up; it < 0 -> MarketTheme.colors.down; else -> FundInk }
                                 } ?: FundInk
                             )
                         }
                     }
                     Text(
                         "${if (moneyFund) "收益公布日" else "净值日期"} ${profile.navDate ?: "暂无"} · 申购 ${profile.subscriptionStatus ?: "未知"} · 赎回 ${profile.redemptionStatus ?: "未知"}",
-                        color = FundMuted, fontSize = 10.sp, lineHeight = 15.sp
+                        color = FundMuted, style = MarketType.label, lineHeight = 15.sp
                     )
                     if (moneyFund) {
                         FundMoneyYieldPanel(moneyYieldEstimate, isLoading = isLoading, onRefresh = onRetry)
@@ -187,20 +187,29 @@ internal fun FundProfileCard(
                             onRefresh = onRefreshListedPrice
                         )
                     }
-                    profile.riskLevel?.let { Text("风险等级 $it", color = FundMuted, fontSize = 10.sp) }
                     if (profile.navHistory.size > 1) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                if (moneyFund) "万份收益走势" else "单位净值走势",
+                                color = FundInk, style = MarketType.section,
+                                modifier = Modifier.weight(1f)
+                            )
+                            profile.riskLevel?.let {
+                                Text("风险等级 $it", color = FundMuted, style = MarketType.caption)
+                            }
+                        }
                         FundNavTrend(profile)
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text(profile.navHistory.first().day, color = FundMuted, fontSize = 9.sp)
+                            Text(profile.navHistory.first().day, color = FundMuted, style = MarketType.caption)
                             Text(
                                 "近 ${profile.navHistory.size} 个${if (moneyFund) "收益记录" else "净值点"}",
                                 color = FundMuted,
-                                fontSize = 9.sp
+                                style = MarketType.caption
                             )
-                            Text(profile.navHistory.last().day, color = FundMuted, fontSize = 9.sp)
+                            Text(profile.navHistory.last().day, color = FundMuted, style = MarketType.caption)
                         }
                     } else {
-                        Text(profile.navError ?: "暂缺净值历史", color = FundMuted, fontSize = 10.sp)
+                        Text(profile.navError ?: "暂缺净值历史", color = FundMuted, style = MarketType.label)
                     }
                     historyCache?.let { cache ->
                         Text(
@@ -208,12 +217,12 @@ internal fun FundProfileCard(
                                 "${cache.firstDay ?: "暂无起点"} 至 ${cache.lastDay ?: "暂无"}" +
                                 (cache.cachedAt?.let { " · 更新 ${it.fundFetchTime()}" } ?: ""),
                             color = FundMuted,
-                            fontSize = 9.sp,
+                            style = MarketType.caption,
                             lineHeight = 14.sp
                         )
                     }
                     if (historySyncMessage != null) {
-                        Text(historySyncMessage, color = FundMuted, fontSize = 10.sp, lineHeight = 14.sp)
+                        Text(historySyncMessage, color = FundMuted, style = MarketType.label, lineHeight = 14.sp)
                     }
                     onBackfillFullHistory?.let { action ->
                         OutlinedButton(
@@ -222,7 +231,7 @@ internal fun FundProfileCard(
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(11.dp),
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = FundInk)
-                        ) { Text(if (isBackfillingHistory) "正在补齐历史…" else "补齐完整净值历史", fontSize = 10.sp) }
+                        ) { Text(if (isBackfillingHistory) "正在补齐历史…" else "补齐完整净值历史", style = MarketType.label) }
                     }
                     onToggleWatchlist?.let { action ->
                         OutlinedButton(
@@ -230,30 +239,30 @@ internal fun FundProfileCard(
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(11.dp),
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = FundInk)
-                        ) { Text(if (isWatchlisted) "移出基金自选" else "加入基金自选", fontSize = 10.sp) }
+                        ) { Text(if (isWatchlisted) "移出基金自选" else "加入基金自选", style = MarketType.label) }
                     }
-                    watchlistMessage?.let { Text(it, color = FundMuted, fontSize = 10.sp) }
+                    watchlistMessage?.let { Text(it, color = FundMuted, style = MarketType.label) }
                     if (profile.holdings.isNotEmpty()) {
                         Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("披露重仓 · ${profile.holdingsReportDate ?: "报告期未知"}", color = FundInk, fontSize = 11.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium)
-                                Text("占净值", color = FundMuted, fontSize = 9.sp)
+                                Text("披露重仓 · ${profile.holdingsReportDate ?: "报告期未知"}", color = FundInk, style = MarketType.label, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium)
+                                Text("占净值", color = FundMuted, style = MarketType.caption)
                             }
                             profile.holdings.take(10).forEachIndexed { index, holding ->
                                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    Text("${index + 1}", color = FundMuted, fontSize = 9.sp)
-                                    Text(holding.name, Modifier.weight(1f), color = FundInk, fontSize = 10.sp, maxLines = 1)
-                                    Text(holding.code, color = FundMuted, fontSize = 9.sp)
-                                    Text("${String.format(Locale.US, "%.2f", holding.weightPct)}%", color = FundInk, fontSize = 10.sp)
+                                    Text("${index + 1}", color = FundMuted, style = MarketType.caption)
+                                    Text(holding.name, Modifier.weight(1f), color = FundInk, style = MarketType.label, maxLines = 1)
+                                    Text(holding.code, color = FundMuted, style = MarketType.caption)
+                                    Text("${String.format(Locale.US, "%.2f", holding.weightPct)}%", color = FundInk, style = MarketType.label)
                                 }
                             }
                         }
                     } else {
-                        Text(profile.holdingsError ?: "当前没有可展示的披露重仓", color = FundMuted, fontSize = 10.sp)
+                        Text(profile.holdingsError ?: "当前没有可展示的披露重仓", color = FundMuted, style = MarketType.label)
                     }
-                    Text("来源 ${profile.source} · 获取 ${profile.fetchedAt.fundFetchTime()}", color = FundMuted, fontSize = 9.sp)
+                    Text("来源 ${profile.source} · 获取 ${profile.fetchedAt.fundFetchTime()}", color = FundMuted, style = MarketType.caption)
                     onRetry?.let { retry ->
-                        TextButton(onClick = retry) { Text("刷新基金数据", color = FundInk, fontSize = 10.sp) }
+                        TextButton(onClick = retry) { Text("刷新基金数据", color = FundInk, style = MarketType.label) }
                     }
                     onUse?.let { action ->
                         OutlinedButton(
@@ -278,21 +287,21 @@ private fun FundMoneyYieldPanel(
     Card(
         Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(13.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFFF4F1EA)),
+        colors = CardDefaults.cardColors(containerColor = MarketTheme.colors.surfaceAlt),
         border = androidx.compose.foundation.BorderStroke(1.dp, FundGrid)
     ) {
         Column(Modifier.padding(11.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text("货币基金收益参考", color = FundInk, fontSize = 11.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
-                Text(estimate?.grade?.label() ?: "公布收益", color = FundAccent, fontSize = 9.sp)
+                Text("货币基金收益参考", color = FundInk, style = MarketType.label, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                Text(estimate?.grade?.label() ?: "公布收益", color = FundAccent, style = MarketType.caption)
             }
             when {
-                isLoading && estimate == null -> Text("正在读取万份收益历史…", color = FundMuted, fontSize = 10.sp)
-                estimate == null -> Text("等待万份收益历史", color = FundMuted, fontSize = 10.sp)
+                isLoading && estimate == null -> Text("正在读取万份收益历史…", color = FundMuted, style = MarketType.label)
+                estimate == null -> Text("等待万份收益历史", color = FundMuted, style = MarketType.label)
                 estimate.latestIncomePer10k != null -> Text(
                     "最近公布 ${estimate.latestIncomePer10k.moneyIncome()} 元/万份" +
                         (estimate.baseDate?.let { " · $it" } ?: ""),
-                    color = FundInk, fontSize = 11.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
+                    color = FundInk, style = MarketType.label, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
                 )
             }
             when {
@@ -301,30 +310,30 @@ private fun FundMoneyYieldPanel(
                     Text(
                         "近 7 个公布日均值参考 ${estimate.estimatedIncomePer10k.moneyIncome()} 元/万份",
                         color = if (estimate.grade == FundEstimateGrade.LOW) FundMuted else FundInk,
-                        fontSize = 12.sp,
+                        style = MarketType.numberSmall,
                         fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
                     )
                     Text(
                         "${estimate.validationCount} 日样本外 MAE ${estimate.validationMaePer10k.moneyIncome()} · " +
                             "最近一期基线 MAE ${estimate.persistenceBaselineMaePer10k.moneyIncome()} 元/万份 · " +
                             "历史 ${estimate.historyCount} 条",
-                        color = FundMuted, fontSize = 9.sp, lineHeight = 13.sp
+                        color = FundMuted, style = MarketType.caption, lineHeight = 13.sp
                     )
-                    estimate.reason?.let { Text(it, color = FundAccent, fontSize = 9.sp) }
+                    estimate.reason?.let { Text(it, color = FundAccent, style = MarketType.caption) }
                 }
                 estimate != null -> Text(
                     estimate.reason ?: "历史不足或验证效果不佳，暂不生成收益参考值",
-                    color = FundMuted, fontSize = 10.sp, lineHeight = 14.sp
+                    color = FundMuted, style = MarketType.label, lineHeight = 14.sp
                 )
             }
             Text(
                 "万份收益是已公布的收益金额；均值仅作历史参考，不是单位净值或盘中净值估算，也不代表未来收益。" +
                     (estimate?.let { " 来源 ${it.source} · 获取 ${it.fetchedAt.fundFetchTime()}" } ?: ""),
-                color = FundMuted, fontSize = 9.sp, lineHeight = 13.sp
+                color = FundMuted, style = MarketType.caption, lineHeight = 13.sp
             )
             onRefresh?.let { action ->
                 TextButton(onClick = action, enabled = !isLoading) {
-                    Text(if (isLoading) "刷新中" else "刷新万份收益历史", color = FundInk, fontSize = 10.sp)
+                    Text(if (isLoading) "刷新中" else "刷新万份收益历史", color = FundInk, style = MarketType.label)
                 }
             }
         }
@@ -342,36 +351,36 @@ private fun FundNavEstimatePanel(
     Card(
         Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(13.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFFF4F1EA)),
+        colors = CardDefaults.cardColors(containerColor = MarketTheme.colors.surfaceAlt),
         border = androidx.compose.foundation.BorderStroke(1.dp, FundGrid)
     ) {
         Column(Modifier.padding(11.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text("盘中净值估算", color = FundInk, fontSize = 11.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
-                Text(estimate?.let { "${it.method.label()} · ${it.grade.label()}" } ?: "估算路由", color = FundAccent, fontSize = 9.sp)
+                Text("盘中净值估算", color = FundInk, style = MarketType.label, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                Text(estimate?.let { "${it.method.label()} · ${it.grade.label()}" } ?: "估算路由", color = FundAccent, style = MarketType.caption)
             }
             when {
                 isLoading && estimate == null -> Text(
                     if (usesDisclosedHoldings) "正在读取重仓行情与前复权历史并进行样本外验证…"
                     else "正在读取基准行情历史并进行样本外验证…",
                     color = FundMuted,
-                    fontSize = 10.sp
+                    style = MarketType.label
                 )
-                estimate == null -> Text("等待行情与估值输入", color = FundMuted, fontSize = 10.sp)
+                estimate == null -> Text("等待行情与估值输入", color = FundMuted, style = MarketType.label)
                 estimate.grade == FundEstimateGrade.NONE -> Text(
                     estimate.reason ?: "该品类不提供盘中估算数字",
-                    color = FundMuted, fontSize = 10.sp, lineHeight = 14.sp
+                    color = FundMuted, style = MarketType.label, lineHeight = 14.sp
                 )
                 estimate.estimatedChangePct == null -> Text(
                     "— · ${estimate.reason ?: "当前数据不足，未生成估算"}",
-                    color = FundMuted, fontSize = 10.sp, lineHeight = 14.sp
+                    color = FundMuted, style = MarketType.label, lineHeight = 14.sp
                 )
                 else -> {
                     val pct = requireNotNull(estimate.estimatedChangePct)
                     Text(
                         "估算涨跌 ${pct.asFundPercent()} · 单位净值 ${estimate.estimatedUnitNav.fundDecimal()}",
                         color = if (estimate.grade == FundEstimateGrade.LOW) FundMuted else FundInk,
-                        fontSize = 12.sp,
+                        style = MarketType.numberSmall,
                         fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
                     )
                     val intervalCalibration = estimate.intervalCalibration
@@ -382,27 +391,27 @@ private fun FundNavEstimatePanel(
                                 "${intervalCalibration.calibrationCount} 日校准 · " +
                                 "最近 ${intervalCalibration.auditCount} 日覆盖 " +
                                 "${String.format(Locale.US, "%.0f", intervalCalibration.observedAuditCoveragePct ?: 0.0)}%",
-                            color = FundMuted, fontSize = 9.sp
+                            color = FundMuted, style = MarketType.caption
                         )
                     } else if (intervalCalibration != null && intervalCalibration.auditCount > 0) {
                         Text(
                             "近 ${intervalCalibration.auditCount} 日区间覆盖 " +
                                 "${String.format(Locale.US, "%.0f", intervalCalibration.observedAuditCoveragePct ?: 0.0)}% ，未达到 80% 门槛，暂不显示区间",
-                            color = FundMuted, fontSize = 9.sp
+                            color = FundMuted, style = MarketType.caption
                         )
                     } else if (intervalCalibration != null) {
                         Text(
                             "误差区间校准样本 ${intervalCalibration.calibrationCount}/60，样本不足时不显示范围",
-                            color = FundMuted, fontSize = 9.sp
+                            color = FundMuted, style = MarketType.caption
                         )
                     } else {
-                        Text("当前路由没有经过校准的误差区间", color = FundMuted, fontSize = 9.sp)
+                        Text("当前路由没有经过校准的误差区间", color = FundMuted, style = MarketType.caption)
                     }
                     Text(
                         "${estimate.trackingIndexName ?: estimate.trackingIndexId ?: "跟踪指数"} · " +
                             "样本外 MAE ${estimate.outOfSampleMaePct.fundPercent()} · 零基线 R² ${estimate.rSquared.fundDecimal()} · " +
                             "覆盖 ${String.format(Locale.US, "%.0f", estimate.inputCoveragePct)}%",
-                        color = FundMuted, fontSize = 9.sp, lineHeight = 13.sp
+                        color = FundMuted, style = MarketType.caption, lineHeight = 13.sp
                     )
                     Text(
                         when (estimate.method) {
@@ -426,22 +435,22 @@ private fun FundNavEstimatePanel(
                                     "${estimate.trainingCount} 日训练 / ${estimate.validationCount} 日验证"
                             else -> "以 ${estimate.baseNavDate ?: "最近披露"} 官方净值作基准 · 当前没有样本外精度验证"
                         },
-                        color = FundMuted, fontSize = 9.sp
+                        color = FundMuted, style = MarketType.caption
                     )
-                    estimate.reason?.let { Text(it, color = FundAccent, fontSize = 9.sp) }
+                    estimate.reason?.let { Text(it, color = FundAccent, style = MarketType.caption) }
                 }
             }
             Text(
                 "估算值不是基金公司公布的净值。" +
                     (estimate?.let { " 数据源 ${it.source ?: "—"} · 行情时点 ${it.sourceTime?.fundFetchTime() ?: "—"}" } ?: ""),
-                color = FundMuted, fontSize = 9.sp, lineHeight = 13.sp
+                color = FundMuted, style = MarketType.caption, lineHeight = 13.sp
             )
             onRefresh?.let { action ->
                 TextButton(onClick = action, enabled = !isLoading) {
                     Text(
                         if (isLoading) "估算中" else if (usesDisclosedHoldings) "刷新重仓行情后重估" else "更新基准行情后重估",
                         color = FundInk,
-                        fontSize = 10.sp
+                        style = MarketType.label
                     )
                 }
             }
@@ -458,16 +467,16 @@ private fun FundListedMarketPricePanel(
     Card(
         Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(13.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFFF4F1EA)),
+        colors = CardDefaults.cardColors(containerColor = MarketTheme.colors.surfaceAlt),
         border = androidx.compose.foundation.BorderStroke(1.dp, FundGrid)
     ) {
         Column(Modifier.padding(11.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text("场内价格对照", color = FundInk, fontSize = 11.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
-                Text(comparison?.marketSecid.orEmpty(), color = FundAccent, fontSize = 9.sp)
+                Text("场内价格对照", color = FundInk, style = MarketType.label, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                Text(comparison?.marketSecid.orEmpty(), color = FundAccent, style = MarketType.caption)
             }
             when {
-                isRefreshing && comparison == null -> Text("正在读取场内交易价格…", color = FundMuted, fontSize = 10.sp)
+                isRefreshing && comparison == null -> Text("正在读取场内交易价格…", color = FundMuted, style = MarketType.label)
                 else -> {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         FundMetric(
@@ -490,15 +499,15 @@ private fun FundListedMarketPricePanel(
                     Text(
                         "净值日期 ${comparison?.navDate ?: "—"} · " +
                             "来源 ${comparison?.source ?: "—"} · 报价 ${comparison?.quoteTime?.fundFetchTime() ?: "—"}",
-                        color = FundMuted, fontSize = 9.sp, lineHeight = 13.sp
+                        color = FundMuted, style = MarketType.caption, lineHeight = 13.sp
                     )
-                    comparison?.reason?.let { Text(it, color = FundAccent, fontSize = 9.sp, lineHeight = 13.sp) }
+                    comparison?.reason?.let { Text(it, color = FundAccent, style = MarketType.caption, lineHeight = 13.sp) }
                 }
             }
-            Text("市价与基金公司最近公布净值的差异，不代表盘中净值或申赎价格。", color = FundMuted, fontSize = 9.sp, lineHeight = 13.sp)
+            Text("市价与基金公司最近公布净值的差异，不代表盘中净值或申赎价格。", color = FundMuted, style = MarketType.caption, lineHeight = 13.sp)
             onRefresh?.let { action ->
                 TextButton(onClick = action, enabled = !isRefreshing) {
-                    Text(if (isRefreshing) "刷新中" else "刷新场内价格", color = FundInk, fontSize = 10.sp)
+                    Text(if (isRefreshing) "刷新中" else "刷新场内价格", color = FundInk, style = MarketType.label)
                 }
             }
         }
@@ -535,10 +544,10 @@ internal fun FundWatchlistPanel(
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("基金自选", Modifier.weight(1f), color = FundInk, fontSize = 12.sp)
-            Text("${entries.size} 个", color = FundMuted, fontSize = 10.sp)
+            Text("基金自选", Modifier.weight(1f), color = FundInk, style = MarketType.numberSmall)
+            Text("${entries.size} 个", color = FundMuted, style = MarketType.label)
         }
-        message?.let { Text(it, color = FundMuted, fontSize = 10.sp) }
+        message?.let { Text(it, color = FundMuted, style = MarketType.label) }
         entries.forEach { entry ->
             Card(
                 Modifier.fillMaxWidth(),
@@ -552,34 +561,34 @@ internal fun FundWatchlistPanel(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(entry.name, color = FundInk, fontSize = 12.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium, maxLines = 1)
+                        Text(entry.name, color = FundInk, style = MarketType.numberSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium, maxLines = 1)
                         Text(
                             "${entry.code} · ${entry.category ?: "公募基金"} · ${entry.latest?.day ?: "暂无本地记录"} · " +
                                 "${entry.navCount} 个${if (entry.isMoneyMarketFund()) "收益记录" else "净值点"}",
                             color = FundMuted,
-                            fontSize = 9.sp
+                            style = MarketType.caption
                         )
                         Text(
                             entry.cachedAt?.let { "天天基金 · 本机更新 ${it.fundFetchTime()}" } ?: "来源 天天基金 · 尚未同步净值",
                             color = FundMuted,
-                            fontSize = 9.sp
+                            style = MarketType.caption
                         )
                     }
                     Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                        Text(entry.latest?.unitNav?.let { String.format(Locale.US, "%.4f", it) } ?: "—", color = FundInk, fontSize = 12.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                        Text(entry.latest?.unitNav?.let { String.format(Locale.US, "%.4f", it) } ?: "—", color = FundInk, style = MarketType.numberSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
                         Text(
                             if (entry.isMoneyMarketFund()) "元/万份"
                             else entry.latest?.changePct?.let { "${if (it > 0) "+" else ""}${String.format(Locale.US, "%.2f", it)}%" } ?: "净值",
                             color = FundMuted,
-                            fontSize = 9.sp
+                            style = MarketType.caption
                         )
                     }
                 }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     TextButton(onClick = { onRefresh(entry) }, enabled = refreshingCode != entry.code) {
-                        Text(if (refreshingCode == entry.code) "刷新中" else "刷新净值", color = FundInk, fontSize = 10.sp)
+                        Text(if (refreshingCode == entry.code) "刷新中" else "刷新净值", color = FundInk, style = MarketType.label)
                     }
-                    TextButton(onClick = { onRemove(entry) }) { Text("移除", color = FundMuted, fontSize = 10.sp) }
+                    TextButton(onClick = { onRemove(entry) }) { Text("移除", color = FundMuted, style = MarketType.label) }
                 }
             }
         }
@@ -588,10 +597,14 @@ internal fun FundWatchlistPanel(
 
 @Composable
 private fun FundMetric(label: String, value: String, modifier: Modifier = Modifier, valueColor: Color = FundInk) {
-    Column(modifier.background(Color(0xFFF4F1EA), RoundedCornerShape(10.dp)).padding(horizontal = 9.dp, vertical = 8.dp)) {
-        Text(label, color = FundMuted, fontSize = 9.sp)
-        Spacer(Modifier.height(2.dp))
-        Text(value, color = valueColor, fontSize = 12.sp)
+    Column(
+        modifier
+            .background(MarketTheme.colors.surfaceAlt, RoundedCornerShape(MarketTheme.geometry.chip))
+            .padding(horizontal = MarketTheme.geometry.md, vertical = MarketTheme.geometry.sm),
+        verticalArrangement = Arrangement.spacedBy(3.dp)
+    ) {
+        Text(label, color = FundMuted, style = MarketType.caption, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+        Text(value, color = valueColor, style = MarketType.number, maxLines = 1)
     }
 }
 

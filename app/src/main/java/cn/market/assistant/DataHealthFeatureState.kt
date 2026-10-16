@@ -141,7 +141,7 @@ internal class DataHealthFeatureState(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
-                backfillStatus = "$secid 回填失败：${error.message ?: "数据源暂不可用"}"
+                backfillStatus = "$secid 回填失败：${error.userFacingMessage("数据源暂不可用")}"
             } finally {
                 backfillLoadingIds = backfillLoadingIds - secid
                 if (currentCoroutineContext().isActive) reloadDiagnostics()

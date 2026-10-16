@@ -120,7 +120,7 @@ internal class FundFeatureState(
                 throw cancelled
             } catch (error: Exception) {
                 if (generation == searchGeneration) {
-                    searchError = error.message ?: "数据源暂不可用"
+                    searchError = error.userFacingMessage("数据源暂不可用")
                     completedQuery = normalized
                 }
             } finally {
@@ -166,7 +166,7 @@ internal class FundFeatureState(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
-                if (generation == profileGeneration) profileError = error.message ?: "基金数据暂不可用"
+                if (generation == profileGeneration) profileError = error.userFacingMessage("基金数据暂不可用")
             } finally {
                 if (generation == profileGeneration) isProfileLoading = false
             }
@@ -216,7 +216,7 @@ internal class FundFeatureState(
                 if (generation == listedPriceGeneration && profileTarget?.code == targetCode) {
                     val fallback = cachedComparison ?: FundListedPriceAnalytics.compare(profile, null)
                     listedPriceComparison = fallback.copy(
-                        reason = "刷新场内报价失败：${error.message ?: "数据源暂不可用"}"
+                        reason = "刷新场内报价失败：${error.userFacingMessage("数据源暂不可用")}"
                     )
                 }
             } finally {
@@ -288,7 +288,7 @@ internal class FundFeatureState(
                 } catch (error: Exception) {
                     if (generation == estimateGeneration && profileTarget?.code == targetCode) {
                         navEstimate = FundNavEstimator.estimate(profile, emptyList(), null)
-                            .copy(reason = error.message ?: "披露重仓行情暂不可用")
+                            .copy(reason = error.userFacingMessage("披露重仓行情暂不可用"))
                     }
                 } finally {
                     if (generation == estimateGeneration && profileTarget?.code == targetCode) isEstimatingNav = false
@@ -342,7 +342,7 @@ internal class FundFeatureState(
             } catch (error: Exception) {
                 if (generation == estimateGeneration && profileTarget?.code == targetCode) {
                     navEstimate = FundNavEstimator.estimate(profile, emptyList(), indexQuote)
-                        .copy(reason = error.message ?: "基准指数历史数据暂不可用")
+                        .copy(reason = error.userFacingMessage("基准指数历史数据暂不可用"))
                 }
             } finally {
                 if (generation == estimateGeneration && profileTarget?.code == targetCode) isEstimatingNav = false
@@ -379,7 +379,7 @@ internal class FundFeatureState(
                 intervalCalibration = null,
                 reason = listOfNotNull(
                     estimate.reason,
-                    "误差区间校准数据暂不可用：${error.message ?: "本地保存失败"}"
+                    "误差区间校准数据暂不可用：${error.userFacingMessage("本地保存失败")}"
                 ).joinToString("；")
             )
         }
@@ -400,7 +400,7 @@ internal class FundFeatureState(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
-                if (profileTarget?.code == target.code) historySyncMessage = error.message ?: "历史净值补齐失败"
+                if (profileTarget?.code == target.code) historySyncMessage = error.userFacingMessage("历史净值补齐失败")
             } finally {
                 if (profileTarget?.code == target.code) isBackfillingHistory = false
             }
@@ -424,7 +424,7 @@ internal class FundFeatureState(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
-                if (profileTarget?.code == target.code) watchlistMessage = error.message ?: "自选更新失败"
+                if (profileTarget?.code == target.code) watchlistMessage = error.userFacingMessage("自选更新失败")
             }
         }
     }

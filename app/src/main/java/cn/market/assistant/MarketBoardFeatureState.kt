@@ -70,7 +70,7 @@ internal class MarketBoardFeatureState(
             } catch (error: Exception) {
                 val cached = snapshots[type]
                 message = if (cached == null) {
-                    "${type.label}板块同步失败：${error.message ?: "暂不可用"}"
+                    "${type.label}板块同步失败：${error.userFacingMessage("暂不可用")}"
                 } else {
                     "${type.label}板块刷新失败，保留 ${cached.boards.size} 项本机快照"
                 }
