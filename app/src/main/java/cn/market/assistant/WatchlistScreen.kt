@@ -20,7 +20,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.CutCornerShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -204,56 +203,64 @@ internal fun WatchlistScreen(
                 transitionSpec = { fadeIn(tween(150)) togetherWith fadeOut(tween(100)) },
                 label = "watchlist_order"
             ) { visibleInstruments ->
-                Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                val palette = MarketTheme.colors
+                val geometry = MarketTheme.geometry
+                Column(verticalArrangement = Arrangement.spacedBy(geometry.sm)) {
                     visibleInstruments.forEach { instrument ->
                         val quote = quotes[instrument.secid]
                         Card(
-                            onClick = { onOpen(instrument.secid) }, modifier = Modifier.fillMaxWidth(),
-                            shape = CutCornerShape(
-                                topStart = 2.dp, topEnd = 15.dp, bottomEnd = 2.dp, bottomStart = 15.dp
-                            ),
-                            colors = CardDefaults.cardColors(containerColor = White),
-                            border = BorderStroke(1.dp, Color(0xFFD8D8D2))) {
+                            onClick = { onOpen(instrument.secid) },
+                            modifier = Modifier.fillMaxWidth()
+                                .marketShadow(RoundedCornerShape(geometry.card), MarketElevation.card),
+                            shape = RoundedCornerShape(geometry.card),
+                            colors = CardDefaults.cardColors(containerColor = palette.surface),
+                            border = BorderStroke(1.dp, palette.line.copy(alpha = 0.85f))
+                        ) {
                             Row(
-                                Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                                Modifier.padding(start = geometry.lg, end = geometry.sm, top = geometry.md, bottom = geometry.md),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(7.dp)
+                                        horizontalArrangement = Arrangement.spacedBy(geometry.sm)
                                     ) {
-                                        Text(instrument.name, color = Ink, fontWeight = FontWeight.SemiBold)
-                                        Text(instrument.market, color = Blue, fontSize = 10.sp)
+                                        Text(instrument.name, color = palette.ink, style = MarketType.number)
+                                        Text(instrument.market, color = palette.accent, style = MarketType.caption)
                                     }
                                     Text(
                                         "${quote?.let {
                                             if (it.source == "daily-close") "近收 ${it.displayTime()}"
                                             else "行情 ${it.displayTime()}"
-                                        } ?: "暂无报价"}  ·  点开看日线",
-                                        color = Muted, fontSize = 11.sp
+                                        } ?: "暂无报价"} · 点开看日线",
+                                        color = palette.muted, style = MarketType.caption
                                     )
                                 }
                                 Column(
                                     horizontalAlignment = Alignment.End,
-                                    verticalArrangement = Arrangement.spacedBy(3.dp)
+                                    verticalArrangement = Arrangement.spacedBy(2.dp)
                                 ) {
                                     Text(
                                         quote?.let { String.format("%.2f", it.price) } ?: "—",
-                                        color = Ink, fontWeight = FontWeight.SemiBold
+                                        color = palette.ink, style = MarketType.numberLarge
                                     )
                                     Text(
                                         quote?.let {
                                             "${if (it.changePct > 0) "+" else ""}" +
                                                 "${String.format("%.2f", it.changePct)}%"
                                         } ?: "等待行情",
-                                        color = quote?.let { plColor(BigDecimal.valueOf(it.changePct)) } ?: Muted,
-                                        fontSize = 11.sp
+                                        color = quote?.let { plColor(BigDecimal.valueOf(it.changePct)) } ?: palette.muted,
+                                        style = MarketType.numberSmall
                                     )
                                 }
-                                TextButton(onClick = { onToggle(instrument.secid, false) }) {
-                                    Text("移除", color = Muted)
-                                }
+                                Text(
+                                    "移除",
+                                    color = palette.muted, style = MarketType.label,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(geometry.chip))
+                                        .marketPressable { onToggle(instrument.secid, false) }
+                                        .padding(horizontal = geometry.md, vertical = geometry.sm)
+                                )
                             }
                         }
                     }
@@ -309,14 +316,30 @@ internal fun WatchlistScreen(
         }
         if (candidates.isEmpty()) EmptyCard("没有匹配标的", "试试名称关键词，或切换市场分类。")
         candidates.forEach { instrument ->
-            Card(Modifier.fillMaxWidth(), shape = CutCornerShape(3.dp),
-                colors = CardDefaults.cardColors(containerColor = White), border = BorderStroke(1.dp, Color(0xFFD8D8D2))) {
-                Row(Modifier.padding(horizontal = 15.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text(instrument.name, color = Ink, fontWeight = FontWeight.Medium)
-                        Text(instrument.market, color = Muted, fontSize = 11.sp)
+            val palette = MarketTheme.colors
+            val geometry = MarketTheme.geometry
+            Card(
+                Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(geometry.card),
+                colors = CardDefaults.cardColors(containerColor = palette.surface),
+                border = BorderStroke(1.dp, palette.line.copy(alpha = 0.85f))
+            ) {
+                Row(
+                    Modifier.padding(horizontal = geometry.lg, vertical = geometry.md),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(instrument.name, color = palette.ink, style = MarketType.number)
+                        Text(instrument.market, color = palette.muted, style = MarketType.caption)
                     }
-                    TextButton(onClick = { onToggle(instrument.secid, true) }) { Text("＋ 关注") }
+                    Text(
+                        "＋ 关注",
+                        color = palette.accent, style = MarketType.label,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(geometry.chip))
+                            .marketPressable { onToggle(instrument.secid, true) }
+                            .padding(horizontal = geometry.md, vertical = geometry.sm)
+                    )
                 }
             }
         }

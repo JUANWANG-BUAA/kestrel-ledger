@@ -171,7 +171,7 @@ internal fun MarketNavBar(
                     )
                 )
         )
-        val backdrop = LocalMarketBackdrop.current
+        val backdrop = LocalMarketBackdrop.current.takeIf { MarketTheme.state?.blurEnabled != false }
         val blurPx = with(androidx.compose.ui.platform.LocalDensity.current) { MarketGlassBlur.toPx() }
         var barOrigin by remember { androidx.compose.runtime.mutableStateOf(Offset.Zero) }
         Box(

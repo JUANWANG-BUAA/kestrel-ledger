@@ -87,6 +87,7 @@ internal class LedgerDraft {
     val customCode = mutableStateOf("")
     val customName = mutableStateOf("")
     val confirmPrice = mutableStateOf("")
+    val cashSetupOpen = mutableStateOf(false)
     val cashAmount = mutableStateOf("")
     val cashMemo = mutableStateOf("")
     val cashEventType = mutableStateOf(AccountCashEventType.DEPOSIT)
@@ -151,6 +152,7 @@ internal fun RecordScreen(
     var customName by draft.customName
     var confirmTarget by draft.confirmTarget
     var confirmPrice by draft.confirmPrice
+    var cashSetupOpen by draft.cashSetupOpen
     var cashAmount by draft.cashAmount
     var cashMemo by draft.cashMemo
     var cashEventType by draft.cashEventType
@@ -178,7 +180,7 @@ internal fun RecordScreen(
         BrandHeader("记一笔")
         Text(
             when (side) {
-                TradeSide.BUY -> "记录新买入；确认净值可以稍后补录。"
+                TradeSide.BUY -> "记录新买入，份额按确认净值计算。"
                 TradeSide.SELL -> "记录卖出或赎回，不能超过当前持有份额。"
                 TradeSide.OPENING_POSITION -> "录入已有持仓的份额和历史成本，从今天开始建立快照。"
                 TradeSide.CASH_DIVIDEND -> if (cashBalance == null) {
@@ -193,26 +195,58 @@ internal fun RecordScreen(
             color = Muted, fontSize = 13.sp, lineHeight = 20.sp
         )
 
-        Card(Modifier.fillMaxWidth(), shape = TacticalPanel, colors = CardDefaults.cardColors(containerColor = White),
-            border = BorderStroke(1.dp, Color(0xFFD8D8D2))) {
-            Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("账户现金", color = Ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                        Text(if (cashBalance == null) "启用后记录入金、出金和买卖对现金的影响" else "现金跟踪起点 ${cashBalance.trackingStart}", color = Muted, fontSize = 10.sp)
+        val cashPalette = MarketTheme.colors
+        val cashGeometry = MarketTheme.geometry
+        Card(
+            Modifier.fillMaxWidth().marketShadow(RoundedCornerShape(cashGeometry.card), MarketElevation.card),
+            shape = RoundedCornerShape(cashGeometry.card),
+            colors = CardDefaults.cardColors(containerColor = cashPalette.surface),
+            border = BorderStroke(1.dp, cashPalette.line.copy(alpha = 0.85f))
+        ) {
+            Column(Modifier.padding(cashGeometry.xl), verticalArrangement = Arrangement.spacedBy(cashGeometry.md)) {
+                Row(
+                    Modifier.fillMaxWidth()
+                        .then(
+                            if (cashBalance == null) Modifier.marketPressable { cashSetupOpen = !cashSetupOpen }
+                            else Modifier
+                        ),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text("账户现金", color = cashPalette.ink, style = MarketType.section)
+                        Text(
+                            when {
+                                cashBalance != null -> "现金跟踪起点 ${cashBalance.trackingStart}"
+                                cashSetupOpen -> "从今天起记录入金、出金和买卖对现金的影响"
+                                else -> "未启用 · 启用后计入账户总资产"
+                            },
+                            color = cashPalette.muted, style = MarketType.caption
+                        )
                     }
-                    Text(cashBalance?.amount?.let { "¥${it.portfolioMoney()}" } ?: "未启用", color = Ink, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        cashBalance?.amount?.let { "¥${it.portfolioMoney()}" } ?: "未启用",
+                        color = cashPalette.ink, style = MarketType.numberLarge
+                    )
+                    if (cashBalance == null) {
+                        Spacer(Modifier.width(cashGeometry.md))
+                        Text(
+                            if (cashSetupOpen) "收起 ›" else "启用 ›",
+                            color = cashPalette.accent, style = MarketType.label
+                        )
+                    }
                 }
-                if (cashBalance == null) {
+                if (cashBalance == null && cashSetupOpen) {
                     NumericField(cashAmount, { cashAmount = it }, "从今天开始的期初可用现金（元）", Modifier.fillMaxWidth())
-                    Text("既有基金和黄金持仓继续保留；历史买卖不会改写。从起点后的新买卖和现金分红会自动记入现金。", color = Muted, fontSize = 10.sp, lineHeight = 15.sp)
+                    Text("既有基金和黄金持仓继续保留；历史买卖不会改写。从起点后的新买卖和现金分红会自动记入现金。", color = cashPalette.muted, style = MarketType.caption)
                     Button(onClick = {
                         runCatching { ledger.initializeAccountCash(cashAmount.toBigDecimalOrNull() ?: error("请填写期初现金")) }
                             .onSuccess { cashAmount = ""; message = "现金跟踪已启用"; messageIsError = false; onChanged() }
                             .onFailure { message = it.message ?: "设置失败"; messageIsError = true }
                     }, enabled = cashAmount.isNotBlank(), modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(13.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = Blue)) { Text("开始跟踪现金") }
-                } else {
+                }
+                // Cash movements only make sense once tracking has a starting point.
+                if (cashBalance != null) {
                     Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                         FilterChip(selected = cashEventType == AccountCashEventType.DEPOSIT,
                             onClick = { cashEventType = AccountCashEventType.DEPOSIT }, label = { Text("入金") }, colors = assetChipColors())
@@ -263,11 +297,23 @@ internal fun RecordScreen(
                 trailingIcon = if (search.isNotEmpty()) ({ TextButton(onClick = { search = ""; fundFeatureState.clearSearch() }) { Text("清除") } }) else null,
                 shape = RoundedCornerShape(18.dp), colors = fieldColors()
             )
-            if (candidates.isNotEmpty()) {
-                Text("搜索结果 · ${candidates.size}", color = Muted, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+            // The market search returns the same code the local catalogue already knows about; keep the
+            // richer market row and only surface local-only assets here.
+            val remoteCodes = fundFeatureState.results.map { it.code }.toSet()
+            val localCandidates = if (filter == AssetKind.FUND && search.isNotBlank()) {
+                candidates.filterNot { it.symbol in remoteCodes }
+            } else {
+                candidates
+            }
+            if (localCandidates.isNotEmpty()) {
+                Text(
+                    if (filter == AssetKind.FUND && search.isNotBlank()) "本机标的 · ${localCandidates.size}"
+                    else "搜索结果 · ${localCandidates.size}",
+                    color = Muted, fontSize = 12.sp, fontWeight = FontWeight.Medium
+                )
                 Card(Modifier.fillMaxWidth().heightIn(max = 370.dp).verticalScroll(rememberScrollState()), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = White)) {
                     Column {
-                        candidates.forEach { asset ->
+                        localCandidates.forEach { asset ->
                             TextButton(onClick = {
                                 selected = asset; search = ""; transferTarget = null; transferSearch = ""
                                 asset.toFundSearchResult()?.let(fundFeatureState::openProfile) ?: fundFeatureState.clearProfile()

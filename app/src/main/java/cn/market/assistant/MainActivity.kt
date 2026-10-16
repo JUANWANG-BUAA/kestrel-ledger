@@ -121,6 +121,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -235,15 +236,26 @@ class MainActivity : ComponentActivity() {
         setContent {
             val themeStore = rememberMarketThemeStore(LocalContext.current)
             val themeState = remember(themeStore) { themeStore.load() }
-            LaunchedEffect(themeState.accent, themeState.mode, themeState.density, themeState.fontScale, themeState.corner) {
+            LaunchedEffect(
+                themeState.accent, themeState.mode, themeState.density, themeState.fontScale,
+                themeState.corner, themeState.blurEnabled
+            ) {
                 themeStore.save(themeState)
             }
             MarketThemeProvider(themeState) {
                 val colors = MarketTheme.colors
+                val dark = MarketTheme.isDark
+                LaunchedEffect(colors.paper, dark) {
+                    @Suppress("DEPRECATION")
+                    window.decorView.systemUiVisibility =
+                        if (dark) 0 else android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+                    window.statusBarColor = colors.paper.toArgb()
+                    window.navigationBarColor = colors.paper.toArgb()
+                }
                 MaterialTheme(colorScheme = lightColorScheme(
-                    primary = colors.accent, onPrimary = Color.White, secondary = Gold,
+                    primary = colors.accent, onPrimary = Color.White, secondary = colors.accent,
                     background = colors.paper, surface = colors.surface, onSurface = colors.ink,
-                    onBackground = colors.ink, error = ErrorColor,
+                    onBackground = colors.ink, error = colors.up,
                     secondaryContainer = colors.accentSoft, onSecondaryContainer = colors.ink,
                     surfaceVariant = colors.surfaceAlt, outline = colors.line
                 )) {
@@ -627,7 +639,7 @@ private fun MarketApp(ledger: Ledger) {
       val pageBackdrop = rememberGraphicsLayer()
       CompositionLocalProvider(
         LocalOpenDrawer provides { scope.launch { drawerState.open() } },
-        LocalMarketBackdrop provides pageBackdrop
+        LocalMarketBackdrop provides if (MarketTheme.state?.blurEnabled != false) pageBackdrop else null
       ) {
 
       Box(Modifier.fillMaxSize()) {

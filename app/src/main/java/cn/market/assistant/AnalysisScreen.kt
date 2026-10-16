@@ -156,11 +156,18 @@ internal fun AnalysisScreen(
                 verticalArrangement = Arrangement.spacedBy(analysisGeometry.md)
             ) {
                 Text("累计盈亏", color = analysisPalette.muted, style = MarketType.label)
-                Text(
-                    "${if (holding.add(realized).signum() > 0) "+" else ""}¥${holding.add(realized).money()}",
-                    color = plColor(holding.add(realized)),
-                    style = MarketType.amount
-                )
+                // With only unconfirmed trades the number is a meaningless zero, so name the reason
+                // instead of showing ¥0.00 as the headline.
+                if (holding.add(realized).signum() == 0 && pending > 0) {
+                    Text("$pending 笔待确认", color = analysisPalette.ink, style = MarketType.amount)
+                    Text("确认净值后才计入盈亏与风险统计", color = analysisPalette.muted, style = MarketType.caption)
+                } else {
+                    Text(
+                        "${if (holding.add(realized).signum() > 0) "+" else ""}¥${holding.add(realized).money()}",
+                        color = plColor(holding.add(realized)),
+                        style = MarketType.amount
+                    )
+                }
                 Box(Modifier.fillMaxWidth().height(1.dp).background(analysisPalette.line))
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     MarketMetric(

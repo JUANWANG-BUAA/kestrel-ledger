@@ -126,7 +126,8 @@ internal class MarketThemeState(
     mode: MarketThemeMode = MarketThemeMode.SYSTEM,
     density: MarketDensity = MarketDensity.STANDARD,
     fontScale: MarketFontScale = MarketFontScale.STANDARD,
-    corner: MarketCorner = MarketCorner.STANDARD
+    corner: MarketCorner = MarketCorner.STANDARD,
+    blurEnabled: Boolean = true
 ) {
     var accent by mutableStateOf(accent)
     var mode by mutableStateOf(mode)
@@ -134,12 +135,16 @@ internal class MarketThemeState(
     var fontScale by mutableStateOf(fontScale)
     var corner by mutableStateOf(corner)
 
+    /** Real backdrop blur costs one extra full-screen layer pass; slower devices can drop it. */
+    var blurEnabled by mutableStateOf(blurEnabled)
+
     fun reset() {
         accent = MarketAccent.BLUE
         mode = MarketThemeMode.SYSTEM
         density = MarketDensity.STANDARD
         fontScale = MarketFontScale.STANDARD
         corner = MarketCorner.STANDARD
+        blurEnabled = true
     }
 }
 
@@ -151,7 +156,8 @@ internal class MarketThemeStore(context: Context) {
         mode = enumOf(preferences.getString(KEY_MODE, null), MarketThemeMode.SYSTEM),
         density = enumOf(preferences.getString(KEY_DENSITY, null), MarketDensity.STANDARD),
         fontScale = enumOf(preferences.getString(KEY_FONT_SCALE, null), MarketFontScale.STANDARD),
-        corner = enumOf(preferences.getString(KEY_CORNER, null), MarketCorner.STANDARD)
+        corner = enumOf(preferences.getString(KEY_CORNER, null), MarketCorner.STANDARD),
+        blurEnabled = preferences.getBoolean(KEY_BLUR, true)
     )
 
     fun save(state: MarketThemeState) {
@@ -161,6 +167,7 @@ internal class MarketThemeStore(context: Context) {
             .putString(KEY_DENSITY, state.density.name)
             .putString(KEY_FONT_SCALE, state.fontScale.name)
             .putString(KEY_CORNER, state.corner.name)
+            .putBoolean(KEY_BLUR, state.blurEnabled)
             .apply()
     }
 
@@ -174,6 +181,7 @@ internal class MarketThemeStore(context: Context) {
         const val KEY_DENSITY = "density"
         const val KEY_FONT_SCALE = "font_scale"
         const val KEY_CORNER = "corner"
+        const val KEY_BLUR = "blur"
     }
 }
 

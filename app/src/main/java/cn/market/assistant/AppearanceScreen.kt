@@ -67,6 +67,9 @@ internal fun AppearanceScreen(onBack: () -> Unit, modifier: Modifier = Modifier)
         AppearanceSection("信息密度", MarketDensity.entries.map { it.label to (state.density == it) }) { index ->
             state.density = MarketDensity.entries[index]
         }
+        AppearanceSection("背景模糊", listOf("开启" to state.blurEnabled, "关闭" to !state.blurEnabled)) { index ->
+            state.blurEnabled = index == 0
+        }
         AppearanceSection("字号", MarketFontScale.entries.map { it.label to (state.fontScale == it) }) { index ->
             state.fontScale = MarketFontScale.entries[index]
         }
