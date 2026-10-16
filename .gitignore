@@ -16,3 +16,8 @@ data/backtest_detail.json
 .learnings/
 **/__pycache__/
 *.py[cod]
+
+# Editor / tooling artifacts
+.DS_Store
+.playwright-mcp/
+logs/
