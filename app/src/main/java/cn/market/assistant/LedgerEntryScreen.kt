@@ -105,6 +105,7 @@ internal class LedgerDraft {
     val cashMemo = mutableStateOf("")
     val cashEventType = mutableStateOf(AccountCashEventType.DEPOSIT)
     val tradeDay = mutableStateOf(LocalDate.now(ZoneId.of("Asia/Shanghai")))
+    val saving = mutableStateOf(false)
 }
 
 @Composable
@@ -171,6 +172,7 @@ internal fun RecordScreen(
     var cashMemo by draft.cashMemo
     var cashEventType by draft.cashEventType
     var tradeDay by draft.tradeDay
+    var isSaving by draft.saving
     var showDatePicker by remember { mutableStateOf(false) }
     var fundDetailOpen by remember { mutableStateOf(false) }
     LaunchedEffect(fundFeatureState.profileTarget?.code) {
@@ -595,18 +597,25 @@ internal fun RecordScreen(
             }
             Button(
                 onClick = {
+                    if (isSaving) return@Button
+                    isSaving = true
+                    scope.launch {
                     try {
+                        val asset = requireNotNull(selected) { "请先选择标的" }
+                        val day = tradeDay
+                        val noteText = note
+                        val sideSnapshot = side
                         val savedTradeId: Long
                         val savedMessage: String
                         if (side == TradeSide.OPENING_POSITION) {
                             val openingUnits = units.toBigDecimalOrNull() ?: error("请填写当前持有份额")
                             val openingCost = amount.toBigDecimalOrNull() ?: error("请填写历史持仓成本")
-                            savedTradeId = ledger.addOpeningPosition(requireNotNull(selected), openingUnits, openingCost, tradeDay)
+                            savedTradeId = withContext(Dispatchers.IO) { ledger.addOpeningPosition(asset, openingUnits, openingCost, day) }
                             savedMessage = "期初持仓已录入"
                         } else if (side == TradeSide.CASH_DIVIDEND) {
                             val grossAmount = amount.toBigDecimalOrNull() ?: error("请填写税前分红金额")
                             val withholdingTax = fee.toBigDecimalOrNull() ?: error("请填写代扣税费；无税时填 0")
-                            savedTradeId = ledger.addCashDividend(requireNotNull(selected), grossAmount, withholdingTax, note, tradeDay)
+                            savedTradeId = withContext(Dispatchers.IO) { ledger.addCashDividend(asset, grossAmount, withholdingTax, noteText, day) }
                             savedMessage = if (cashBalance == null) {
                                 "分红已记入已实现收益；启用现金跟踪后可记录现金余额"
                             } else {
@@ -616,22 +625,24 @@ internal fun RecordScreen(
                             val grossAmount = amount.toBigDecimalOrNull() ?: error("请填写税前分红金额")
                             val withholdingTax = fee.toBigDecimalOrNull() ?: error("请填写代扣税费；无税时填 0")
                             val reinvestmentPrice = price.toBigDecimalOrNull() ?: error("请填写再投资净值 / 克价")
-                            savedTradeId = ledger.addDividendReinvestment(
-                                requireNotNull(selected), grossAmount, withholdingTax, reinvestmentPrice, note, tradeDay
-                            )
+                            savedTradeId = withContext(Dispatchers.IO) {
+                                ledger.addDividendReinvestment(
+                                    asset, grossAmount, withholdingTax, reinvestmentPrice, noteText, day
+                                )
+                            }
                             savedMessage = "红利再投已记录；税后分红换算为新增份额，现金余额不变"
                         } else if (side == TradeSide.SHARE_SPLIT) {
                             val factor = shareFactor.toBigDecimalOrNull() ?: error("请填写每份换算比例")
-                            savedTradeId = ledger.addShareSplit(requireNotNull(selected), factor, note, tradeDay)
+                            savedTradeId = withContext(Dispatchers.IO) { ledger.addShareSplit(asset, factor, noteText, day) }
                             savedMessage = "份额拆分已记录；总成本不变，请更新拆分后的报价"
                         } else if (side == TradeSide.ASSET_TRANSFER) {
                             val sourceUnits = units.toBigDecimalOrNull() ?: error("请填写转出份额")
                             val destinationUnits = transferUnits.toBigDecimalOrNull() ?: error("请填写转入份额")
                             val declaredCost = transferCost.toBigDecimalOrNull() ?: error("请填写转移成本")
-                            savedTradeId = ledger.addAssetTransfer(
-                                requireNotNull(selected), requireNotNull(transferTarget) { "请先选择转入标的" },
-                                sourceUnits, destinationUnits, declaredCost, note, tradeDay
-                            )
+                            val target = requireNotNull(transferTarget) { "请先选择转入标的" }
+                            savedTradeId = withContext(Dispatchers.IO) {
+                                ledger.addAssetTransfer(asset, target, sourceUnits, destinationUnits, declaredCost, noteText, day)
+                            }
                             savedMessage = "资产转移已记录；成本已在两个标的间转移，现金余额不变"
                         } else {
                             val tradePrice = price.toBigDecimalOrNull()
@@ -645,9 +656,10 @@ internal fun RecordScreen(
                                 tradeUnits = units.toBigDecimalOrNull() ?: error("填写赎回份额")
                                 tradeAmount = tradePrice?.multiply(tradeUnits) ?: BigDecimal.ZERO
                             }
-                            savedTradeId = ledger.addTrade(requireNotNull(selected), side, tradeAmount, tradeUnits, tradePrice, tradeFee, tradeDay)
+                            savedTradeId = withContext(Dispatchers.IO) { ledger.addTrade(asset, sideSnapshot, tradeAmount, tradeUnits, tradePrice, tradeFee, day) }
                             savedMessage = if (tradePrice == null) "已记下，净值确认后请补录价格" else "流水已保存"
                         }
+                        isSaving = false
                         message = savedMessage
                         messageIsError = false
                         amount = ""; units = ""; price = ""; fee = "0"; showFee = false; note = ""; shareFactor = ""
@@ -667,7 +679,7 @@ internal fun RecordScreen(
                             }
                             val result = withTimeoutOrNull(5_000L) { snackbar.await() }
                             if (result == SnackbarResult.ActionPerformed) {
-                                runCatching { ledger.deleteTrade(savedTradeId) }
+                                runCatching { withContext(Dispatchers.IO) { ledger.deleteTrade(savedTradeId) } }
                                     .onSuccess {
                                         message = "已撤销刚才的流水"
                                         messageIsError = false
@@ -697,11 +709,17 @@ internal fun RecordScreen(
                                 messageIsError = failure != null
                             }
                         }
-                    } catch (e: Exception) { message = e.message ?: "请检查填写内容"; messageIsError = true }
+                    } catch (e: Exception) {
+                        isSaving = false
+                        message = e.message ?: "请检查填写内容"
+                        messageIsError = true
+                    }
+                    }
                 }, modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(15.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Blue)
+                colors = ButtonDefaults.buttonColors(containerColor = Blue),
+                enabled = !isSaving
             ) {
-                Text(when (side) {
+                Text(if (isSaving) "保存中…" else when (side) {
                     TradeSide.BUY -> "记下买入${amount.takeIf { it.isNotBlank() }?.let { " ¥$it" } ?: ""}"
                     TradeSide.SELL -> "记下赎回"
                     TradeSide.OPENING_POSITION -> "录入期初持仓"
