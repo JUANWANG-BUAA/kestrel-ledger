@@ -38,7 +38,11 @@ data class AssistantReply(
     val usedToolIds: List<String> = emptyList()
 )
 
-data class AgentToolRequest(val arguments: Map<String, String>)
+data class AgentToolRequest(
+    val arguments: Map<String, String>,
+    /** Present when a tool composes other tools (recipes); the registry re-checks every nested call. */
+    val authorization: AgentToolAuthorization = AgentToolAuthorization()
+)
 
 /** A chart a tool asks the UI to draw; values stay in the tool's own unit and are never re-derived. */
 enum class AssistantChartKind { LINE, AREA, BAR }
@@ -78,7 +82,8 @@ enum class AssistantActionKind {
     RECORD_FUND_SELL,
     UPDATE_RISK_PARAMETERS,
     SAVE_PREFERENCE,
-    SAVE_SKILL
+    SAVE_SKILL,
+    SAVE_RECIPE
 }
 
 /** A typed preview of a local change. The app applies it only after an explicit user confirmation. */
@@ -98,7 +103,10 @@ data class AssistantActionProposal(
     val preference: String? = null,
     val skillName: String? = null,
     val skillInstruction: String? = null,
-    val skillTrigger: String? = null
+    val skillTrigger: String? = null,
+    val recipeId: String? = null,
+    val recipeName: String? = null,
+    val recipeSpec: String? = null
 )
 
 data class AgentToolParameter(
@@ -163,7 +171,7 @@ class AgentToolRegistry(tools: Collection<AgentTool>) {
             return AgentToolResult(emptyList(), INVALID_TOOL_ARGUMENTS)
         }
         val result = try {
-            tool.execute(request)
+            tool.execute(request.copy(authorization = authorization))
         } catch (cancelled: java.util.concurrent.CancellationException) {
             throw cancelled
         } catch (_: Exception) {

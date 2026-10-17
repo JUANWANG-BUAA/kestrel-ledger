@@ -7,6 +7,7 @@ import cn.market.assistant.domain.assistant.AgentToolRequest
 import cn.market.assistant.domain.assistant.AgentToolResult
 import cn.market.assistant.domain.assistant.AssistantActionKind
 import cn.market.assistant.domain.assistant.AssistantActionProposal
+import cn.market.assistant.domain.assistant.AssistantFact
 import java.math.BigDecimal
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
@@ -18,7 +19,7 @@ class PortfolioChangeProposalAgentTool(private val ledger: Ledger) : AgentTool {
     override val description =
         "准备添加/移除基金自选、记录本地买卖流水、更新风险分析参数、保存使用偏好或新增一个可复用技能；只生成预览，不会直接写入。"
     override val parameters = listOf(
-        AgentToolParameter("action", "watch_add、watch_remove、record_buy、record_sell、risk_parameters、save_preference 或 save_skill", true),
+        AgentToolParameter("action", "watch_add、watch_remove、record_buy、record_sell、risk_parameters、save_preference、save_skill 或 save_recipe", true),
         AgentToolParameter("fund_code", "六位基金代码"),
         AgentToolParameter("fund_name", "基金名称"),
         AgentToolParameter("category", "基金分类"),
@@ -31,7 +32,8 @@ class PortfolioChangeProposalAgentTool(private val ledger: Ledger) : AgentTool {
         AgentToolParameter("preference", "希望助手以后遵循的分析方法或偏好"),
         AgentToolParameter("skill_name", "技能名称，例如「周度复盘」"),
         AgentToolParameter("skill_instruction", "技能执行要求，写给未来的自己看"),
-        AgentToolParameter("skill_trigger", "触发词，多个用顿号分隔")
+        AgentToolParameter("skill_trigger", "触发词，多个用顿号分隔"),
+        AgentToolParameter("recipe_spec", "配方 JSON（version/id/name/summary/steps；steps 仅支持 tool 与 write）")
     )
 
     override suspend fun execute(request: AgentToolRequest): AgentToolResult =
@@ -67,6 +69,21 @@ class PortfolioChangeProposalAgentTool(private val ledger: Ledger) : AgentTool {
                     kind = AssistantActionKind.SAVE_PREFERENCE,
                     summary = "记住这条分析偏好：$preference",
                     preference = preference
+                )
+            }
+            "save_recipe" -> {
+                val spec = args["recipe_spec"]?.trim()?.takeIf { it.length in 10..4_000 }
+                    ?: return invalid("recipe_spec 缺失或长度不在 10–4000")
+                val decoded = RecipeCodec.decodeDetailed(spec)
+                val recipe = decoded.recipe
+                    ?: return invalid("配方校验失败：${decoded.error ?: "未知原因"}")
+                AssistantActionProposal(
+                    id = UUID.randomUUID().toString(),
+                    kind = AssistantActionKind.SAVE_RECIPE,
+                    summary = "保存配方「${recipe.name}」：${recipe.steps.size} 步，调用 ${recipe.toolIds.joinToString("、")}",
+                    recipeId = recipe.id,
+                    recipeName = recipe.name,
+                    recipeSpec = spec
                 )
             }
             "save_skill" -> {
@@ -148,5 +165,17 @@ class PortfolioChangeProposalAgentTool(private val ledger: Ledger) : AgentTool {
         ?.takeIf { it.length <= 32 }
         ?.let { runCatching { BigDecimal(it) }.getOrNull() }
 
-    private fun invalid() = AgentToolResult(emptyList(), "INVALID_CHANGE_PROPOSAL")
+    private fun invalid(reason: String? = null): AgentToolResult {
+        val detail = reason?.let {
+            listOf(
+                AssistantFact(
+                    key = "proposal.error",
+                    value = it,
+                    source = "本机提议校验",
+                    observedAt = java.time.Instant.now().toString()
+                )
+            )
+        }.orEmpty()
+        return AgentToolResult(detail, "INVALID_CHANGE_PROPOSAL")
+    }
 }

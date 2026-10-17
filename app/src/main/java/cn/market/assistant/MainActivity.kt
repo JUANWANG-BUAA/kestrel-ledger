@@ -519,7 +519,7 @@ private fun MarketApp(ledger: Ledger) {
     }
     val assistantFactsState = rememberUpdatedState(assistantFacts)
     val assistantRegistry = remember(ledger, marketRepository) {
-        ReadOnlyAgentTools.createRegistry(ledger, marketRepository, Dispatchers.IO, fundRepository)
+        ReadOnlyAgentTools.createRegistry(context, ledger, marketRepository, Dispatchers.IO, fundRepository)
     }
     val assistantState = rememberAssistantFeatureState(
         ledger = ledger,

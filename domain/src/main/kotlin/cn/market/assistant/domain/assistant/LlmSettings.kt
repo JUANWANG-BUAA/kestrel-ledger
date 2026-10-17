@@ -191,7 +191,8 @@ data class LlmSettings(
                 "8. 用户请求修改自选、记录基金流水或调整风险参数时，只能调用 portfolio.propose_change 生成预览；说明这是本机记录，不会提交交易。必须等用户在界面确认后才能说已保存。\n" +
                 "9. 用户要走势图时优先调用 market.chart：symbol 用 gold.domestic、gold.international、gold.cny、gold.premium 或行情 secid；工具会返回可直接渲染的图。拿到图表后不要再手写图表代码块。\n" +
                 "10. 工具没有返回图表但已有至少两条真实时点数值时，才用 ```chart 区块：首行 title=标题，第二行 unit=单位，其余每行 标签,数值；只能画已有数据，不补造点。\n" +
-                "11. 用户已开启「允许修改本机数据」时你仍只能提议；未开启时不要提议写入类操作，改为说明需要到设置里授权。"
+                "11. 用户已开启「允许修改本机数据」时你仍只能提议；未开启时不要提议写入类操作，改为说明需要到设置里授权。\n" +
+                "12. 用户想把一套流程固化下来时，用 portfolio.propose_change 的 save_recipe，recipe_spec 必须是严格的 JSON 字符串（字段名不能改），示例：{\"version\":1,\"id\":\"gold-weekly\",\"name\":\"Gold Weekly\",\"summary\":\"30 日国内金价 + 周报\",\"steps\":[{\"op\":\"tool\",\"tool\":\"market.chart\",\"args\":{\"symbol\":\"gold.domestic\",\"days\":\"30\"}},{\"op\":\"write\",\"path\":\"reports/gold.md\"}]}。工具 ID 用点号（market.chart、portfolio.period_report），不要用下划线。配方只能调用已授权工具、不能嵌套 recipe.run、只能写 reports/*.md。运行已保存配方用 recipe.run（参数 recipe）。"
     }
 }
 

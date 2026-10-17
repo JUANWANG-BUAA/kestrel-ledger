@@ -18,7 +18,9 @@ import cn.market.assistant.domain.assistant.AssistantChart
 import cn.market.assistant.domain.assistant.AssistantCitation
 import cn.market.assistant.domain.assistant.AssistantEngine
 import cn.market.assistant.domain.assistant.AssistantFact
+import cn.market.assistant.data.assistant.RecipeCodec
 import cn.market.assistant.domain.assistant.AssistantMemoryRanker
+import cn.market.assistant.domain.assistant.AssistantRecipe
 import cn.market.assistant.domain.assistant.AssistantMemoryStore
 import cn.market.assistant.domain.assistant.AssistantSessionState
 import cn.market.assistant.domain.assistant.AssistantSkill
@@ -136,6 +138,8 @@ internal class AssistantFeatureState(
         private set
     var skills by mutableStateOf(emptyList<AssistantSkill>())
         private set
+    var recipes by mutableStateOf(emptyList<AssistantRecipe>())
+        private set
     var workflows by mutableStateOf(emptyList<AssistantWorkflow>())
         private set
     var habits by mutableStateOf(HabitSummary())
@@ -181,10 +185,12 @@ internal class AssistantFeatureState(
 
     fun refresh() {
         scope.launch {
-            val (loadedSkills, loadedWorkflows, events) = withContext(ioDispatcher) {
-                Triple(skillStore.skills(), workflowStore.workflows(limit = 200), memoryStore.memoryEvents())
-            }
+            val loadedSkills = withContext(ioDispatcher) { skillStore.skills() }
+            val loadedWorkflows = withContext(ioDispatcher) { workflowStore.workflows(limit = 200) }
+            val events = withContext(ioDispatcher) { memoryStore.memoryEvents() }
+            val loadedRecipes = withContext(ioDispatcher) { ledger.recipes() }
             skills = loadedSkills
+            recipes = loadedRecipes
             workflows = loadedWorkflows
             lazyMemoryEvents = events
             habits = AssistantMemoryRanker.summarize(events)
@@ -795,6 +801,13 @@ internal class AssistantFeatureState(
             habits = AssistantMemoryRanker.summarize(lazyMemoryEvents)
             "已在本机记住这条分析方法，后续回答会优先参考。"
         }
+        AssistantActionKind.SAVE_RECIPE -> {
+            val spec = requireNotNull(action.recipeSpec)
+            val recipe = requireNotNull(RecipeCodec.decode(spec)) { "配方内容无效" }
+            val stored = ledger.upsertRecipe(recipe)
+            recipes = ledger.recipes()
+            "已保存配方「${stored.name}」，可以让助手运行 ${stored.id}。"
+        }
         AssistantActionKind.SAVE_SKILL -> {
             val name = requireNotNull(action.skillName)
             val instructions = requireNotNull(action.skillInstruction)
@@ -815,6 +828,14 @@ internal class AssistantFeatureState(
             val stored = skillStore.upsertSkill(skill)
             skills = skillStore.skills()
             "已保存技能「${stored.name}」，可以用 /技能ID 或触发词调用。"
+        }
+    }
+
+    fun deleteRecipe(id: String) {
+        scope.launch {
+            withContext(ioDispatcher) { ledger.deleteRecipe(id) }
+            recipes = ledger.recipes()
+            statusMessage = "已删除配方 $id"
         }
     }
 

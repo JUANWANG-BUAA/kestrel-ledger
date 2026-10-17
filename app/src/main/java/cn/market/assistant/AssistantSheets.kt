@@ -636,6 +636,38 @@ private fun AssistantSkillsPanel(state: AssistantFeatureState, onEditSkill: (Ass
             }
         }
     }
+
+    if (state.recipes.isNotEmpty()) {
+        Text("我的配方", color = Ink, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+        Text(
+            "配方 = 可重复执行的工具序列（数据，不是代码）；助手可用 recipe.run 运行，也可以按需写成报告。",
+            color = Muted, fontSize = 10.sp, lineHeight = 14.sp
+        )
+        state.recipes.forEach { recipe ->
+            Card(
+                Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = White)
+            ) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("${recipe.name}  /recipe ${recipe.id}", color = Ink, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "${recipe.steps.size} 步 · 工具 ${recipe.toolIds.joinToString("、").ifBlank { "无" }}",
+                        color = Muted, fontSize = 9.sp, lineHeight = 12.sp
+                    )
+                    recipe.summary.takeIf { it.isNotBlank() }?.let {
+                        Text(it, color = Muted, fontSize = 10.sp, lineHeight = 14.sp)
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        TextButton(
+                            onClick = { state.deleteRecipe(recipe.id) },
+                            contentPadding = PaddingValues(horizontal = 6.dp)
+                        ) { Text("删除", color = AssistantDown, fontSize = 10.sp) }
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable

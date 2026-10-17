@@ -18,6 +18,10 @@ import cn.market.assistant.domain.market.MarketBoardMember
 import cn.market.assistant.domain.market.MarketBoardMemberSnapshot
 import cn.market.assistant.domain.assistant.AssistantMemoryStore
 import cn.market.assistant.domain.assistant.AssistantSkill
+import cn.market.assistant.data.assistant.RecipeCodec
+import cn.market.assistant.domain.assistant.AssistantRecipe
+import cn.market.assistant.domain.assistant.AssistantRecipeStore
+import cn.market.assistant.domain.assistant.RecipeRules
 import cn.market.assistant.domain.assistant.AssistantSkillStore
 import cn.market.assistant.domain.assistant.AssistantWorkflow
 import cn.market.assistant.domain.assistant.AssistantWorkflowStore
@@ -61,7 +65,7 @@ data class MarketBar(val day: String, val close: Double)
 data class GoldDailyPoint(val day: String, val value: Double)
 
 class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, AssistantMemoryStore,
-    AssistantWorkflowStore, AlertRuleStore {
+    AssistantWorkflowStore, AlertRuleStore, AssistantRecipeStore {
     private companion object {
         /** Shared by every Ledger instance so the UI, workers and repositories never write concurrently. */
         val writeLock = java.util.concurrent.locks.ReentrantLock()
@@ -141,7 +145,7 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
         LedgerDatabaseEncryption.DATABASE_NAME,
         passphrase,
         null,
-        25,
+        26,
         0,
         LedgerDatabaseEncryption.errorHandler(),
         null,
@@ -231,6 +235,7 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
         }
         if (oldVersion < 24) LedgerSchema.createAlertSchema(db)
         if (oldVersion < 25) LedgerSchema.createGoldHistorySchema(db)
+        if (oldVersion < 26) LedgerSchema.createRecipeSchema(db)
     }
 
     private fun createSchema(db: SQLiteDatabase) {
@@ -250,6 +255,7 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
         LedgerSchema.createManualGoldQuoteSchema(db)
         LedgerSchema.createMarketSchema(db)
         LedgerSchema.createGoldHistorySchema(db)
+        LedgerSchema.createRecipeSchema(db)
         LedgerSchema.createMarketBoardSchema(db)
         LedgerSchema.createMarketBoardMemberSchema(db)
         LedgerSchema.createMarketChartSchema(db)
@@ -465,6 +471,42 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
 
     override suspend fun clearWorkflows() {
         writes.delete("assistant_workflows", null, null)
+    }
+
+    override suspend fun recipes(): List<AssistantRecipe> = buildList {
+        readableDatabase.rawQuery(
+            "SELECT id,name,summary,steps,created_at,updated_at FROM assistant_recipes ORDER BY updated_at DESC",
+            null
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                RecipeCodec.decode(cursor.getString(3))?.let { recipe ->
+                    add(recipe.copy(createdAtMillis = cursor.getLong(4), updatedAtMillis = cursor.getLong(5)))
+                }
+            }
+        }
+    }
+
+    override suspend fun upsertRecipe(recipe: AssistantRecipe): AssistantRecipe {
+        RecipeRules.validate(recipe)?.let { error(it) }
+        val now = System.currentTimeMillis()
+        val stored = recipe.copy(
+            createdAtMillis = recipe.createdAtMillis.takeIf { it > 0L } ?: now,
+            updatedAtMillis = now
+        )
+        writes.insertWithOnConflict("assistant_recipes", null, ContentValues().apply {
+            put("id", stored.id)
+            put("name", stored.name)
+            put("summary", stored.summary)
+            put("steps", RecipeCodec.encode(stored))
+            put("created_at", stored.createdAtMillis)
+            put("updated_at", stored.updatedAtMillis)
+        }, SQLiteDatabase.CONFLICT_REPLACE)
+        return stored
+    }
+
+    override suspend fun deleteRecipe(id: String) {
+        require(RecipeRules.ID.matches(id)) { "配方 ID 无效" }
+        writes.delete("assistant_recipes", "id=?", arrayOf(id))
     }
 
     private fun readWorkflow(cursor: android.database.Cursor): AssistantWorkflow = AssistantWorkflow(

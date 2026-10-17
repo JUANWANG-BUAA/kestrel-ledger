@@ -8,6 +8,14 @@ import net.zetetic.database.sqlcipher.SQLiteDatabase
  * surface stays reviewable: schema changes never carry query or business logic.
  */
 internal object LedgerSchema {
+    /** Saved assistant recipes: declarative tool sequences, never executable code. */
+    fun createRecipeSchema(db: SQLiteDatabase) {
+        db.execSQL("""CREATE TABLE IF NOT EXISTS assistant_recipes (
+            id TEXT PRIMARY KEY, name TEXT NOT NULL, summary TEXT NOT NULL DEFAULT '',
+            steps TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)""")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_assistant_recipes_updated ON assistant_recipes(updated_at DESC)")
+    }
+
 
 fun createQuoteHistory(db: SQLiteDatabase) {
     db.execSQL("""CREATE TABLE IF NOT EXISTS quote_history (
