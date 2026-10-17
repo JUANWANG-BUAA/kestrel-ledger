@@ -1,0 +1,95 @@
+name: Android CI
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+      KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+      KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+      KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Unit tests
+        run: ./gradlew --console=plain :domain:test :data:testDebugUnitTest :app:testDebugUnitTest
+
+      - name: Version from tag
+        id: version
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            NAME="${GITHUB_REF#refs/tags/v}"
+            IFS='.' read -r MAJOR MINOR PATCH <<< "${NAME%%-*}"
+            CODE=$((10#${MAJOR:-0} * 10000 + 10#${MINOR:-0} * 100 + 10#${PATCH:-0}))
+          else
+            NAME="0.2.0-dev.${GITHUB_RUN_NUMBER}"
+            CODE=$((GITHUB_RUN_NUMBER + 1000))
+          fi
+          echo "name=${NAME}" >> "$GITHUB_OUTPUT"
+          echo "code=${CODE}" >> "$GITHUB_OUTPUT"
+
+      - name: Require signing key for releases
+        if: startsWith(github.ref, 'refs/tags/v') && env.KEYSTORE_BASE64 == ''
+        run: |
+          echo "Missing KEYSTORE_BASE64: a published APK must keep the same signature for self-update." >&2
+          exit 1
+
+      - name: Configure signing
+        if: env.KEYSTORE_BASE64 != ''
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 -d > "${RUNNER_TEMP}/market-release.jks"
+          {
+            echo "MARKET_KEYSTORE=${RUNNER_TEMP}/market-release.jks"
+            echo "MARKET_KEYSTORE_PASSWORD=${KEYSTORE_PASSWORD}"
+            echo "MARKET_KEY_ALIAS=${KEY_ALIAS}"
+            echo "MARKET_KEY_PASSWORD=${KEY_PASSWORD}"
+          } >> "$GITHUB_ENV"
+
+      - name: Build release APK
+        env:
+          VERSION_NAME: ${{ steps.version.outputs.name }}
+          VERSION_CODE: ${{ steps.version.outputs.code }}
+        run: ./gradlew --console=plain :app:assembleRelease
+
+      - name: Checksums
+        run: |
+          cd app/build/outputs/apk/release
+          sha256sum app-release.apk | awk '{print $1"  app-release.apk"}' > app-release.apk.sha256
+          cat app-release.apk.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: market-apk
+          path: |
+            app/build/outputs/apk/release/app-release.apk
+            app/build/outputs/apk/release/app-release.apk.sha256
+
+      - name: Create GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Market ${{ steps.version.outputs.name }}
+          tag_name: ${{ github.ref_name }}
+          files: |
+            app/build/outputs/apk/release/app-release.apk
+            app/build/outputs/apk/release/app-release.apk.sha256
+          body: |
+            Android 安装包（固定签名）。首次安装如与本机旧版签名不同，需先导出加密备份再卸载重装。
+            应用内「关于与更新」会读取最新 release、校验 SHA-256 与签名后安装。

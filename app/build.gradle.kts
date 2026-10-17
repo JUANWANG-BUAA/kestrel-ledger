@@ -4,6 +4,10 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+// Version and signing come from the environment so CI can publish signed builds; local builds keep
+// working with the debug key when no keystore is configured.
+val releaseKeystore = System.getenv("MARKET_KEYSTORE")?.takeIf { it.isNotBlank() }
+
 android {
     namespace = "cn.market.assistant"
     compileSdk = 35
@@ -11,8 +15,26 @@ android {
         applicationId = "cn.market.assistant"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = (System.getenv("VERSION_CODE") ?: "2").toInt()
+        versionName = System.getenv("VERSION_NAME") ?: "0.2.0"
+    }
+    signingConfigs {
+        if (releaseKeystore != null) {
+            create("release") {
+                storeFile = file(releaseKeystore)
+                storePassword = System.getenv("MARKET_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("MARKET_KEY_ALIAS")
+                keyPassword = System.getenv("MARKET_KEY_PASSWORD")
+            }
+        }
+    }
+    buildTypes {
+        release {
+            isMinifyEnabled = false
+            // Never publish with a throwaway key: self-update compares signatures and will refuse a
+            // different certificate. CI supplies the long-lived keystore through secrets.
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
+        }
     }
     buildFeatures { compose = true }
     compileOptions {
