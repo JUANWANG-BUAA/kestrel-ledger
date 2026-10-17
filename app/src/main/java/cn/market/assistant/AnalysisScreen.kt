@@ -70,7 +70,9 @@ internal fun AnalysisScreen(
     snapshots: List<PortfolioSnapshot>, positionSnapshots: Map<LocalDate, List<PositionSnapshot>>,
     invalidatedSnapshotCount: Int, marketRepository: MarketRepository,
     riskFeatureState: PortfolioRiskFeatureState,
-    onRecordSnapshot: () -> Unit, modifier: Modifier = Modifier
+    onRecordSnapshot: () -> Unit,
+    onRebuildSnapshots: (() -> Unit)? = null,
+    modifier: Modifier = Modifier
 ) {
     val pending = trades.count { !it.confirmed && !it.isReversed }
     val today = LocalDate.now(java.time.ZoneId.of("Asia/Shanghai"))
@@ -246,6 +248,9 @@ internal fun AnalysisScreen(
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Text("周期复盘", color = Ink, fontSize = 19.sp, fontWeight = FontWeight.SemiBold)
                 Text("按每日观察快照计算；报价缺失时不补零", color = Muted, fontSize = 11.sp)
+            }
+            onRebuildSnapshots?.let { rebuild ->
+                TextButton(onClick = rebuild) { Text("重建观察点") }
             }
             TextButton(onClick = onRecordSnapshot) { Text("记录观察点") }
         }

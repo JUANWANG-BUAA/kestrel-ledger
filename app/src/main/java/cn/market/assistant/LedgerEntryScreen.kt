@@ -21,11 +21,15 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -38,6 +42,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -57,9 +63,14 @@ import cn.market.assistant.domain.portfolio.AssetKind
 import cn.market.assistant.domain.portfolio.Trade
 import cn.market.assistant.domain.portfolio.TradeSide
 import java.math.BigDecimal
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
 import java.math.RoundingMode
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
@@ -93,6 +104,7 @@ internal class LedgerDraft {
     val cashAmount = mutableStateOf("")
     val cashMemo = mutableStateOf("")
     val cashEventType = mutableStateOf(AccountCashEventType.DEPOSIT)
+    val tradeDay = mutableStateOf(LocalDate.now(ZoneId.of("Asia/Shanghai")))
 }
 
 @Composable
@@ -158,6 +170,8 @@ internal fun RecordScreen(
     var cashAmount by draft.cashAmount
     var cashMemo by draft.cashMemo
     var cashEventType by draft.cashEventType
+    var tradeDay by draft.tradeDay
+    var showDatePicker by remember { mutableStateOf(false) }
     var fundDetailOpen by remember { mutableStateOf(false) }
     LaunchedEffect(fundFeatureState.profileTarget?.code) {
         if (fundFeatureState.profileTarget == null) fundDetailOpen = false
@@ -188,7 +202,7 @@ internal fun RecordScreen(
             when (side) {
                 TradeSide.BUY -> "记录新买入，份额按确认净值计算。"
                 TradeSide.SELL -> "记录卖出或赎回，不能超过当前持有份额。"
-                TradeSide.OPENING_POSITION -> "录入已有持仓的份额和历史成本，从今天开始建立快照。"
+                TradeSide.OPENING_POSITION -> "录入已有持仓的份额和历史成本，从所选日期开始建立快照。"
                 TradeSide.CASH_DIVIDEND -> if (cashBalance == null) {
                     "记录现金分红和代扣税费；税后金额计入已实现收益，启用现金跟踪后也会计入现金。"
                 } else {
@@ -200,6 +214,8 @@ internal fun RecordScreen(
             },
             color = Muted, fontSize = 13.sp, lineHeight = 20.sp
         )
+
+        TradeDateRow(day = tradeDay, onClick = { showDatePicker = true })
 
         val cashPalette = MarketTheme.colors
         val cashGeometry = MarketTheme.geometry
@@ -262,7 +278,7 @@ internal fun RecordScreen(
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         NumericField(cashAmount, { cashAmount = it }, "金额（元）", Modifier.weight(1f))
                         Button(onClick = {
-                            runCatching { ledger.addExternalCashMovement(cashEventType, cashAmount.toBigDecimalOrNull() ?: error("请填写金额"), cashMemo) }
+                            runCatching { ledger.addExternalCashMovement(cashEventType, cashAmount.toBigDecimalOrNull() ?: error("请填写金额"), cashMemo, tradeDay) }
                                 .onSuccess { cashAmount = ""; cashMemo = ""; message = if (cashEventType == AccountCashEventType.DEPOSIT) "入金已记录" else "出金已记录"; messageIsError = false; onChanged() }
                                 .onFailure { message = it.message ?: "保存失败"; messageIsError = true }
                         }, enabled = cashAmount.isNotBlank(), shape = RoundedCornerShape(13.dp),
@@ -585,12 +601,12 @@ internal fun RecordScreen(
                         if (side == TradeSide.OPENING_POSITION) {
                             val openingUnits = units.toBigDecimalOrNull() ?: error("请填写当前持有份额")
                             val openingCost = amount.toBigDecimalOrNull() ?: error("请填写历史持仓成本")
-                            savedTradeId = ledger.addOpeningPosition(requireNotNull(selected), openingUnits, openingCost)
+                            savedTradeId = ledger.addOpeningPosition(requireNotNull(selected), openingUnits, openingCost, tradeDay)
                             savedMessage = "期初持仓已录入"
                         } else if (side == TradeSide.CASH_DIVIDEND) {
                             val grossAmount = amount.toBigDecimalOrNull() ?: error("请填写税前分红金额")
                             val withholdingTax = fee.toBigDecimalOrNull() ?: error("请填写代扣税费；无税时填 0")
-                            savedTradeId = ledger.addCashDividend(requireNotNull(selected), grossAmount, withholdingTax, note)
+                            savedTradeId = ledger.addCashDividend(requireNotNull(selected), grossAmount, withholdingTax, note, tradeDay)
                             savedMessage = if (cashBalance == null) {
                                 "分红已记入已实现收益；启用现金跟踪后可记录现金余额"
                             } else {
@@ -601,12 +617,12 @@ internal fun RecordScreen(
                             val withholdingTax = fee.toBigDecimalOrNull() ?: error("请填写代扣税费；无税时填 0")
                             val reinvestmentPrice = price.toBigDecimalOrNull() ?: error("请填写再投资净值 / 克价")
                             savedTradeId = ledger.addDividendReinvestment(
-                                requireNotNull(selected), grossAmount, withholdingTax, reinvestmentPrice, note
+                                requireNotNull(selected), grossAmount, withholdingTax, reinvestmentPrice, note, tradeDay
                             )
                             savedMessage = "红利再投已记录；税后分红换算为新增份额，现金余额不变"
                         } else if (side == TradeSide.SHARE_SPLIT) {
                             val factor = shareFactor.toBigDecimalOrNull() ?: error("请填写每份换算比例")
-                            savedTradeId = ledger.addShareSplit(requireNotNull(selected), factor, note)
+                            savedTradeId = ledger.addShareSplit(requireNotNull(selected), factor, note, tradeDay)
                             savedMessage = "份额拆分已记录；总成本不变，请更新拆分后的报价"
                         } else if (side == TradeSide.ASSET_TRANSFER) {
                             val sourceUnits = units.toBigDecimalOrNull() ?: error("请填写转出份额")
@@ -614,7 +630,7 @@ internal fun RecordScreen(
                             val declaredCost = transferCost.toBigDecimalOrNull() ?: error("请填写转移成本")
                             savedTradeId = ledger.addAssetTransfer(
                                 requireNotNull(selected), requireNotNull(transferTarget) { "请先选择转入标的" },
-                                sourceUnits, destinationUnits, declaredCost, note
+                                sourceUnits, destinationUnits, declaredCost, note, tradeDay
                             )
                             savedMessage = "资产转移已记录；成本已在两个标的间转移，现金余额不变"
                         } else {
@@ -629,7 +645,7 @@ internal fun RecordScreen(
                                 tradeUnits = units.toBigDecimalOrNull() ?: error("填写赎回份额")
                                 tradeAmount = tradePrice?.multiply(tradeUnits) ?: BigDecimal.ZERO
                             }
-                            savedTradeId = ledger.addTrade(requireNotNull(selected), side, tradeAmount, tradeUnits, tradePrice, tradeFee)
+                            savedTradeId = ledger.addTrade(requireNotNull(selected), side, tradeAmount, tradeUnits, tradePrice, tradeFee, tradeDay)
                             savedMessage = if (tradePrice == null) "已记下，净值确认后请补录价格" else "流水已保存"
                         }
                         message = savedMessage
@@ -637,6 +653,8 @@ internal fun RecordScreen(
                         amount = ""; units = ""; price = ""; fee = "0"; showFee = false; note = ""; shareFactor = ""
                         transferSearch = ""; transferTarget = null; transferUnits = ""; transferCost = ""
                         onChanged()
+                        val savedDay = tradeDay
+                        val today = LocalDate.now(ZoneId.of("Asia/Shanghai"))
                         scope.launch {
                             snackbarHostState.currentSnackbarData?.dismiss()
                             val snackbar = async {
@@ -661,6 +679,22 @@ internal fun RecordScreen(
                                     }
                             } else if (result == null) {
                                 snackbarHostState.currentSnackbarData?.dismiss()
+                            }
+                            if (result != SnackbarResult.ActionPerformed && savedDay.isBefore(today)) {
+                                // Reports need the period opening before the edited transaction:
+                                // rebuild at least from the current month start, or earlier if the
+                                // user backdated into a previous month.
+                                val rebuildFrom = minOf(savedDay, today.withDayOfMonth(1).minusDays(1))
+                                val failure = withContext(Dispatchers.IO) {
+                                    runCatching { ledger.rebuildPortfolioSnapshots(rebuildFrom) }.exceptionOrNull()
+                                }
+                                onChanged()
+                                message = if (failure == null) {
+                                    "已重算 $rebuildFrom 起的观察点"
+                                } else {
+                                    "流水已记录，但历史观察点重算失败：${failure.userFacingMessage("请稍后重试")}"
+                                }
+                                messageIsError = failure != null
                             }
                         }
                     } catch (e: Exception) { message = e.message ?: "请检查填写内容"; messageIsError = true }
@@ -694,17 +728,20 @@ internal fun RecordScreen(
                 }
             }
         }
-        if (selected != null) Text(
-            when (side) {
-                TradeSide.OPENING_POSITION -> "录入日期：今天 · 历史收益不追溯"
-                TradeSide.CASH_DIVIDEND -> "到账日期：今天 · 税后金额按分红到账记录"
-                TradeSide.DIVIDEND_REINVESTMENT -> "再投资日期：今天 · 按录入净值换算新增份额"
-                TradeSide.SHARE_SPLIT -> "生效日期：今天 · 记录按 1 份换算的份额倍数"
-                TradeSide.ASSET_TRANSFER -> "转移日期：今天 · 份额和成本作为同一事件提交"
-                else -> "交易时间：今天 · 可稍后补充确认净值"
-            },
-            color = Muted, fontSize = 11.sp
-        )
+        if (selected != null) {
+            val dateLabel = if (tradeDay == LocalDate.now(ZoneId.of("Asia/Shanghai"))) "今天 · $tradeDay" else tradeDay.toString()
+            Text(
+                when (side) {
+                    TradeSide.OPENING_POSITION -> "录入日期：$dateLabel · 历史收益不追溯"
+                    TradeSide.CASH_DIVIDEND -> "到账日期：$dateLabel · 税后金额按分红到账记录"
+                    TradeSide.DIVIDEND_REINVESTMENT -> "再投资日期：$dateLabel · 按录入净值换算新增份额"
+                    TradeSide.SHARE_SPLIT -> "生效日期：$dateLabel · 记录按 1 份换算的份额倍数"
+                    TradeSide.ASSET_TRANSFER -> "转移日期：$dateLabel · 份额和成本作为同一事件提交"
+                    else -> "交易时间：$dateLabel · 可稍后补充确认净值"
+                },
+                color = Muted, fontSize = 11.sp
+            )
+        }
     }
 
     val detailTarget = fundFeatureState.profileTarget
@@ -748,6 +785,24 @@ internal fun RecordScreen(
         }
     }
 
+    if (showDatePicker) {
+        TradeDatePickerDialog(
+            initial = tradeDay,
+            onDismiss = { showDatePicker = false },
+            onSelect = {
+                tradeDay = it
+                showDatePicker = false
+                message = if (it == LocalDate.now(ZoneId.of("Asia/Shanghai"))) "交易日期：今天" else "交易日期：$it"
+                messageIsError = false
+            },
+            onInvalid = {
+                showDatePicker = false
+                message = "交易日期不能晚于今天"
+                messageIsError = true
+            }
+        )
+    }
+
     confirmTarget?.let { trade ->
         AlertDialog(
             onDismissRequest = { confirmTarget = null },
@@ -765,6 +820,64 @@ internal fun RecordScreen(
             }) { Text("确认并计算") } },
             dismissButton = { TextButton(onClick = { confirmTarget = null }) { Text("取消") } }
         )
+    }
+}
+
+@Composable
+private fun TradeDateRow(day: LocalDate, onClick: () -> Unit) {
+    val palette = MarketTheme.colors
+    val geometry = MarketTheme.geometry
+    val today = LocalDate.now(ZoneId.of("Asia/Shanghai"))
+    val shape = RoundedCornerShape(geometry.card)
+    Row(
+        Modifier.fillMaxWidth()
+            .clip(shape)
+            .background(palette.surface)
+            .border(1.dp, palette.line, shape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = geometry.lg, vertical = geometry.md),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        MarketIcon("clock", size = 18.dp, tint = palette.accent)
+        Spacer(Modifier.width(geometry.md))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text("交易日期", color = palette.muted, style = MarketType.caption)
+            Text(
+                if (day == today) "今天 · $day" else day.toString(),
+                color = palette.ink,
+                style = MarketType.numberSmall,
+                fontWeight = FontWeight.Medium
+            )
+        }
+        Text("选择", color = palette.accent, style = MarketType.label)
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TradeDatePickerDialog(
+    initial: LocalDate,
+    onDismiss: () -> Unit,
+    onSelect: (LocalDate) -> Unit,
+    onInvalid: () -> Unit
+) {
+    val today = LocalDate.now(ZoneId.of("Asia/Shanghai"))
+    val state = rememberDatePickerState(initialSelectedDateMillis = datePickerMillis(initial))
+    DatePickerDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(onClick = {
+                val selected = state.selectedDateMillis?.let(::dateFromPickerMillis)
+                when {
+                    selected == null -> Unit
+                    selected.isAfter(today) -> onInvalid()
+                    else -> onSelect(selected)
+                }
+            }) { Text("确定") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
+    ) {
+        DatePicker(state = state, showModeToggle = false)
     }
 }
 

@@ -892,6 +892,13 @@ private fun MarketApp(ledger: Ledger) {
                             snapshotRevision++
                         }
                     },
+                    onRebuildSnapshots = {
+                        scope.launch {
+                            val from = LocalDate.now(java.time.ZoneId.of("Asia/Shanghai")).withDayOfMonth(1).minusDays(1)
+                            withContext(Dispatchers.IO) { ledger.rebuildPortfolioSnapshots(from) }
+                            snapshotRevision++
+                        }
+                    },
                     modifier = Modifier.padding(insets)
                 )
             }
