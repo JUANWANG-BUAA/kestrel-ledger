@@ -160,7 +160,7 @@ class UpdateClient(
         val connection = open(url)
         return try {
             val stream = if (connection.responseCode in 200..299) connection.inputStream else connection.errorStream
-            val body = stream?.bufferedReader()?.use { it.readText() } ?: ""
+            val body = stream?.let { readUpdateText(it) } ?: ""
             if (connection.responseCode !in 200..299) {
                 throw IOException("HTTP ${connection.responseCode}")
             }
@@ -171,6 +171,7 @@ class UpdateClient(
     }
 
     private fun open(url: String): HttpURLConnection {
+        require(url.startsWith("https://")) { "更新源必须使用 HTTPS" }
         val connection = URL(url).openConnection() as HttpURLConnection
         connection.connectTimeout = timeoutMs
         connection.readTimeout = timeoutMs
