@@ -8,6 +8,8 @@ import cn.market.assistant.domain.assistant.AgentToolResult
 import cn.market.assistant.domain.assistant.AssistantFact
 import cn.market.assistant.domain.assistant.FactSensitivity
 import cn.market.assistant.domain.portfolio.AccountCashLedger
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.math.BigDecimal
 import java.math.RoundingMode
 import java.time.Instant
@@ -25,7 +27,10 @@ class LocalPortfolioAgentTool(private val ledger: Ledger) : AgentTool {
         AgentToolParameter("limit", "detail 时最多返回的持仓数量，默认 10")
     )
 
-    override suspend fun execute(request: AgentToolRequest): AgentToolResult {
+    override suspend fun execute(request: AgentToolRequest): AgentToolResult =
+        withContext(Dispatchers.IO) { readPortfolio(request) }
+
+    private fun readPortfolio(request: AgentToolRequest): AgentToolResult {
         val scope = request.arguments["scope"]?.trim()?.lowercase() ?: "summary"
         if (scope !in setOf("summary", "detail")) return AgentToolResult(emptyList(), "INVALID_TOOL_ARGUMENTS")
         val limit = request.arguments["limit"]?.toIntOrNull()?.coerceIn(1, 50) ?: 10

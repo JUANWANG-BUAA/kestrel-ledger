@@ -99,7 +99,7 @@ internal fun MarketDetailScreen(
     LaunchedEffect(quote) { displayedQuote = quote }
     fun load(force: Boolean = false) {
         if (loading) return
-        val ttl = if (period.cacheKey == "m30") 15 * 60 * 1000L else 12 * 60 * 60 * 1000L
+        val ttl = if (period == ChartPeriod.INTRADAY || period == ChartPeriod.FIVE_DAY) 15 * 60 * 1000L else 12 * 60 * 60 * 1000L
         val minimumBars = when (period) {
             ChartPeriod.INTRADAY -> 2
             ChartPeriod.FIVE_DAY -> 5
@@ -213,7 +213,12 @@ internal fun MarketDetailScreen(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text(if (period == ChartPeriod.INTRADAY || period == ChartPeriod.FIVE_DAY) "分时走势" else "${period.label}走势", color = MarketDetailInk, fontWeight = FontWeight.SemiBold)
-                        Text(if (visibleBars.isEmpty()) "等待历史数据" else "${chartDate(visibleBars.first().day)} — ${chartDate(visibleBars.last().day)}  ·  ${if (period == ChartPeriod.INTRADAY || period == ChartPeriod.FIVE_DAY) "30分钟" else "${visibleBars.size} 根"}", color = MarketDetailMuted, fontSize = 10.sp)
+                        val interval = when (period) {
+                            ChartPeriod.INTRADAY -> "5分钟"
+                            ChartPeriod.FIVE_DAY -> "30分钟"
+                            else -> "${visibleBars.size} 根"
+                        }
+                        Text(if (visibleBars.isEmpty()) "等待历史数据" else "${chartDate(visibleBars.first().day)} — ${chartDate(visibleBars.last().day)}  ·  $interval", color = MarketDetailMuted, fontSize = 10.sp)
                     }
                     TextButton(onClick = { load(force = true) }, enabled = !loading) { Text(if (loading) "加载中" else "更新") }
                 }

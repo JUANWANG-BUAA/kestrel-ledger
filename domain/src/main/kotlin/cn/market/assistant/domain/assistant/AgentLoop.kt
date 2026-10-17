@@ -17,7 +17,9 @@ data class AgentRunResult(
     val toolCallIds: List<String>,
     val usage: ChatUsage,
     /** Non-null when the live model failed; the app then falls back to the offline fact engine. */
-    val failureReason: String? = null
+    val failureReason: String? = null,
+    /** The UI must obtain confirmation before applying this proposed local change. */
+    val pendingAction: AssistantActionProposal? = null
 ) {
     val usedLiveModel: Boolean get() = failureReason == null
 }
@@ -117,13 +119,27 @@ class AgentLoop(
             messages += ChatMessage(
                 role = ChatRole.ASSISTANT,
                 content = response.message.content,
-                toolCalls = toolCalls
+                toolCalls = toolCalls,
+                reasoningContent = response.message.reasoningContent
             )
             toolCalls.take(MAX_TOOL_CALLS_PER_ROUND).forEach { call ->
                 val arguments = parseStringArguments(call.argumentsJson)
                 onEvent(AgentEvent.ToolCallStarted(call.name, arguments.entries.joinToString(", ") { "${it.key}=${it.value}" }))
                 val result = registry.execute(call.name, AgentToolRequest(arguments), authorization)
                 onEvent(AgentEvent.ToolCallFinished(call.name, result.errorCode == null, result.facts.size))
+                result.actionProposal?.let { proposal ->
+                    if (call.name !in usedToolIds) usedToolIds += call.name
+                    return AgentRunResult(
+                        reply = AssistantReply(
+                            text = "我整理好了这项本地更改，请核对内容后确认。",
+                            usedToolIds = usedToolIds.distinct()
+                        ),
+                        rounds = rounds,
+                        toolCallIds = usedToolIds.distinct(),
+                        usage = usage,
+                        pendingAction = proposal
+                    )
+                }
                 if (result.errorCode == null && result.facts.isNotEmpty()) {
                     collectedFacts += result.facts
                     if (call.name !in usedToolIds) usedToolIds += call.name

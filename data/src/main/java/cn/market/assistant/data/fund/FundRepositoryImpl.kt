@@ -13,15 +13,17 @@ import cn.market.assistant.domain.market.DataFetchStatus
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
+import java.io.File
 
 class FundRepositoryImpl(
     private val ledger: Ledger,
-    private val ioDispatcher: CoroutineDispatcher
+    private val ioDispatcher: CoroutineDispatcher,
+    private val catalogCacheFile: File? = null
 ) : FundRepository {
     override suspend fun searchFunds(query: String): List<FundSearchResult> = withContext(ioDispatcher) {
         val requestedAt = System.currentTimeMillis() / 1000
         try {
-            EastMoneyFundDataSource.search(query).also { results ->
+            EastMoneyFundDataSource.search(query, catalogCacheFile).also { results ->
                 ledger.recordDataSourceRun(
                     source = "eastmoney-fund-search",
                     dataset = "fund-search",

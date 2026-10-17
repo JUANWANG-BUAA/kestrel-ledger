@@ -24,7 +24,9 @@ data class ChatMessage(
     val content: String,
     val toolCallId: String? = null,
     val toolCalls: List<ChatToolCall> = emptyList(),
-    val attachments: List<ChatAttachment> = emptyList()
+    val attachments: List<ChatAttachment> = emptyList(),
+    /** Provider reasoning that must be echoed for protocols which require tool-call continuity. */
+    val reasoningContent: String? = null
 )
 
 data class ChatToolDefinition(val name: String, val description: String, val parametersJsonSchema: String)

@@ -46,6 +46,13 @@ class AgentLoopTest {
         }
     }
 
+    private class ProposalTool(private val proposal: AssistantActionProposal) : AgentTool {
+        override val id = "portfolio.propose_change"
+        override val description = "propose a local change"
+        override suspend fun execute(request: AgentToolRequest): AgentToolResult =
+            AgentToolResult(emptyList(), actionProposal = proposal)
+    }
+
     private val registry = AgentToolRegistry(
         listOf(
             FakeTool("market.quote", listOf(fact("market.quote.price", "5.12", FactSensitivity.PUBLIC_MARKET))),
@@ -100,6 +107,39 @@ class AgentLoopTest {
         assertTrue(events.any { it is AgentEvent.ToolCallStarted && it.toolId == "market.quote" })
         assertTrue(events.any { it is AgentEvent.ToolCallFinished && it.succeeded })
         assertTrue(events.any { it is AgentEvent.Answer })
+    }
+
+    @Test
+    fun localChangeToolReturnsAProposalWithoutExecutingItOrCallingTheModelAgain() = runTest {
+        val proposal = AssistantActionProposal(
+            id = "proposal-1",
+            kind = AssistantActionKind.ADD_FUND_WATCHLIST,
+            summary = "添加基金到自选",
+            fundCode = "000001",
+            fundName = "测试基金"
+        )
+        val model = FakeModel(
+            listOf(
+                ChatResponse(
+                    ChatMessage(
+                        ChatRole.ASSISTANT,
+                        "",
+                        toolCalls = listOf(ChatToolCall("call-1", "portfolio.propose_change", "{}"))
+                    )
+                )
+            )
+        )
+        val actionRegistry = AgentToolRegistry(listOf(ProposalTool(proposal)))
+
+        val result = AgentLoop(model, actionRegistry).run(
+            "帮我加入自选", emptyList(), emptyList(),
+            AgentToolAuthorization(allowedToolIds = setOf("portfolio.propose_change")), settings
+        )
+
+        assertEquals(proposal, result.pendingAction)
+        assertEquals("portfolio.propose_change", result.toolCallIds.single())
+        assertEquals(1, model.calls)
+        assertTrue(result.reply.text.contains("核对"))
     }
 
     @Test

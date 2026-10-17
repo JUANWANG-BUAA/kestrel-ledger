@@ -1,6 +1,6 @@
 package cn.market.assistant.domain.assistant
 
-enum class MemoryKind { QUESTION, TOOL_USE, SKILL_USE, INSTRUMENT, MODEL }
+enum class MemoryKind { QUESTION, TOOL_USE, SKILL_USE, INSTRUMENT, MODEL, PREFERENCE }
 
 data class MemoryEvent(
     val kind: MemoryKind,
@@ -17,6 +17,7 @@ data class HabitSummary(
     val topTools: List<MemoryCount> = emptyList(),
     val topSkills: List<MemoryCount> = emptyList(),
     val topInstruments: List<MemoryCount> = emptyList(),
+    val preferences: List<MemoryCount> = emptyList(),
     val lastActiveAtMillis: Long? = null
 ) {
     val isEmpty: Boolean get() = totalEvents == 0
@@ -53,6 +54,7 @@ object AssistantMemoryRanker {
             topTools = top(MemoryKind.TOOL_USE, 6),
             topSkills = top(MemoryKind.SKILL_USE, 6),
             topInstruments = top(MemoryKind.INSTRUMENT, 6),
+            preferences = top(MemoryKind.PREFERENCE, 20),
             lastActiveAtMillis = events.maxOfOrNull { it.atMillis }
         )
     }
@@ -99,6 +101,10 @@ object AssistantMemoryRanker {
         }
         if (summary.topInstruments.isNotEmpty()) {
             lines += "- 常看标的：" + summary.topInstruments.take(4).joinToString("、") { it.key }
+        }
+        if (summary.preferences.isNotEmpty()) {
+            lines += "- 用户明确要求记住的方法/偏好（以后分析时优先遵循）：" +
+                summary.preferences.take(8).joinToString("；") { it.key }
         }
         if (retrieved.isNotEmpty()) {
             lines += "- 与本次问题相关的历史：" + retrieved.joinToString("；") { "${it.key}（${it.count}次，最近 " +

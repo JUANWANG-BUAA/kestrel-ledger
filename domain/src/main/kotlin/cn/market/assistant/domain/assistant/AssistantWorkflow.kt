@@ -12,7 +12,8 @@ data class WorkflowTurn(
     val skillId: String? = null,
     val toolIds: List<String> = emptyList(),
     val atMillis: Long = 0L,
-    val failed: Boolean = false
+    val failed: Boolean = false,
+    val attachmentNames: List<String> = emptyList()
 )
 
 /** A durable conversation with a title and a status; resumable after a restart. */
@@ -50,7 +51,8 @@ object WorkflowCodec {
             turn.skillId.orEmpty(),
             turn.toolIds.joinToString(","),
             turn.atMillis.toString(),
-            if (turn.failed) "1" else "0"
+            if (turn.failed) "1" else "0",
+            turn.attachmentNames.joinToString(",") { base64(it) }
         ).joinToString(FIELD_SEPARATOR.toString())
     }
 
@@ -68,7 +70,8 @@ object WorkflowCodec {
                 skillId = fields[2].takeIf { it.isNotBlank() },
                 toolIds = fields[3].split(',').map { it.trim() }.filter { it.isNotBlank() },
                 atMillis = fields[4].toLongOrNull() ?: 0L,
-                failed = fields[5] == "1"
+                failed = fields[5] == "1",
+                attachmentNames = fields.getOrNull(6).orEmpty().split(',').filter { it.isNotBlank() }.mapNotNull(::unbase64)
             )
         }.toList()
     }
@@ -95,6 +98,9 @@ object WorkflowExport {
         workflow.turns.forEachIndexed { index, turn ->
             appendLine("## 第 ${index + 1} 轮")
             appendLine("**我**：${turn.question}")
+            if (turn.attachmentNames.isNotEmpty()) {
+                appendLine("**附件**：${turn.attachmentNames.joinToString("、")}")
+            }
             appendLine()
             val skill = turn.skillId?.takeIf { it.isNotBlank() }?.let { "（技能：$it）" } ?: ""
             val tools = turn.toolIds.takeIf { it.isNotEmpty() }?.let { "（工具：${it.joinToString("、")}）" } ?: ""

@@ -4,6 +4,7 @@ import java.io.IOException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 import javax.net.ssl.SSLException
+import cn.market.assistant.domain.assistant.ChatModelException
 import kotlinx.coroutines.CancellationException
 
 /**
@@ -22,5 +23,12 @@ internal fun Throwable.userFacingMessage(fallback: String): String = when (this)
     is SocketTimeoutException -> "请求超时，请稍后重试"
     is SSLException -> "安全连接失败，请稍后重试"
     is IOException -> "网络连接中断，请稍后重试"
+    is ChatModelException -> message?.safeModelError() ?: fallback
     else -> fallback
 }
+
+private fun String.safeModelError(): String = take(500)
+    .replace(Regex("(?i)(authorization|api[_ -]?key)\\s*[:=]\\s*[^\\s,;]+"), "$1=[已隐藏]")
+    .replace(Regex("(?i)bearer\\s+[^\\s,;]+"), "Bearer [已隐藏]")
+    .replace(Regex("(?i)(?:apisk|sk)-[a-z0-9_-]{12,}"), "[已隐藏 API Key]")
+    .take(240)

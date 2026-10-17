@@ -17,6 +17,10 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -54,6 +58,8 @@ private val FundGrid: Color
 private val FundPaper: Color
     @Composable @ReadOnlyComposable get() = MarketTheme.colors.surface
 
+private const val FUND_SEARCH_PAGE_SIZE = 40
+
 @Composable
 internal fun FundSearchResultsPanel(
     query: String,
@@ -65,18 +71,31 @@ internal fun FundSearchResultsPanel(
     onRetry: () -> Unit,
     onUse: (FundSearchResult) -> Unit
 ) {
+    var visibleResultCount by remember(query) { mutableIntStateOf(FUND_SEARCH_PAGE_SIZE) }
+    val visibleResults = results.take(visibleResultCount)
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         when {
-            query.trim().length < 2 -> Text("输入至少 2 个字或基金代码，搜索全市场基金。", color = FundMuted, style = MarketType.label)
+            query.trim().length < 2 -> Text("输入基金名称、代码或拼音简称，搜索全市场基金。", color = FundMuted, style = MarketType.label)
             isLoading -> Text("正在搜索基金…", color = FundMuted, style = MarketType.label)
             error != null -> Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("基金搜索暂不可用：$error", Modifier.weight(1f), color = FundAccent, style = MarketType.label)
                 TextButton(onClick = onRetry) { Text("重试", color = FundInk, style = MarketType.label) }
             }
             completedQuery == query.trim() && results.isEmpty() -> Text("没有匹配的公募基金，可检查代码或手动添加。", color = FundMuted, style = MarketType.label)
-            results.isNotEmpty() -> Text("全市场基金 · ${results.size} 项 · ${results.first().source} ${results.first().fetchedAt.fundFetchTime()}", color = FundMuted, style = MarketType.label)
+            results.isNotEmpty() -> Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(
+                    "全市场基金 · 返回 ${results.size} 项 · ${results.first().source} ${results.first().fetchedAt.fundFetchTime()}",
+                    color = FundMuted,
+                    style = MarketType.label
+                )
+                if (results.size > visibleResults.size) {
+                    Text("已显示 ${visibleResults.size} / ${results.size} 项", color = FundMuted, style = MarketType.caption)
+                } else if (results.size >= 500) {
+                    Text("当前最多返回 500 项；继续输入名称、代码或拼音可缩小范围。", color = FundMuted, style = MarketType.caption)
+                }
+            }
         }
-        results.forEach { result ->
+        visibleResults.forEach { result ->
             Card(
                 Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(13.dp),
@@ -100,6 +119,15 @@ internal fun FundSearchResultsPanel(
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = FundInk)
                     ) { Text("用于记账", style = MarketType.label) }
                 }
+            }
+        }
+        if (results.size > visibleResults.size && !isLoading && completedQuery == query.trim()) {
+            TextButton(
+                onClick = {
+                    visibleResultCount = (visibleResultCount + FUND_SEARCH_PAGE_SIZE).coerceAtMost(results.size)
+                }
+            ) {
+                Text("加载更多结果 · 已显示 ${visibleResults.size}/${results.size}", color = FundInk, style = MarketType.label)
             }
         }
     }

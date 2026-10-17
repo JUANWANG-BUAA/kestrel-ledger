@@ -1,6 +1,7 @@
 package cn.market.assistant
 
 import androidx.compose.runtime.Stable
+import android.graphics.Bitmap
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -10,6 +11,8 @@ import cn.market.assistant.domain.assistant.AgentEvent
 import cn.market.assistant.domain.assistant.AgentLoop
 import cn.market.assistant.domain.assistant.AgentToolAuthorization
 import cn.market.assistant.domain.assistant.AgentToolRegistry
+import cn.market.assistant.domain.assistant.AssistantActionKind
+import cn.market.assistant.domain.assistant.AssistantActionProposal
 import cn.market.assistant.domain.assistant.AssistantCitation
 import cn.market.assistant.domain.assistant.AssistantEngine
 import cn.market.assistant.domain.assistant.AssistantFact
@@ -32,6 +35,8 @@ import cn.market.assistant.domain.assistant.LlmEndpointCheck
 import cn.market.assistant.domain.assistant.LlmEndpointValidator
 import cn.market.assistant.domain.assistant.MemoryEvent
 import cn.market.assistant.domain.assistant.MemoryKind
+import cn.market.assistant.domain.portfolio.TradeSide
+import java.math.BigDecimal
 import cn.market.assistant.domain.assistant.WorkflowExport
 import cn.market.assistant.domain.assistant.WorkflowStatus
 import cn.market.assistant.domain.assistant.WorkflowTurn
@@ -40,6 +45,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.UUID
 
 internal enum class AssistantTurnStatus { RUNNING, DONE, FAILED }
@@ -61,7 +67,8 @@ internal data class AssistantAttachmentUi(
     val sizeBytes: Long,
     val text: String? = null,
     val base64Image: String? = null,
-    val localUri: String? = null
+    val localUri: String? = null,
+    val thumbnail: Bitmap? = null
 ) {
     val isImage: Boolean get() = base64Image != null
     val sizeLabel: String get() = when {
@@ -88,7 +95,10 @@ internal data class AssistantTurnUi(
     val startedAtMillis: Long = 0L,
     val finishedAtMillis: Long? = null,
     val offlineFallback: Boolean = false,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val pendingAction: AssistantActionProposal? = null,
+    val actionInProgress: Boolean = false,
+    val actionResult: String? = null
 ) {
     val elapsedMillis: Long? get() = finishedAtMillis?.let { it - startedAtMillis }
 }
@@ -109,6 +119,9 @@ internal class AssistantFeatureState(
     private val scope: CoroutineScope,
     private val ioDispatcher: CoroutineDispatcher,
     private val offlineFacts: () -> List<AssistantFact>,
+    private val ledger: Ledger,
+    private val riskFeatureState: PortfolioRiskFeatureState,
+    private val onPortfolioChanged: () -> Unit,
     private val nowMillis: () -> Long = System::currentTimeMillis
 ) {
     var settings by mutableStateOf(settingsStore.load())
@@ -148,12 +161,15 @@ internal class AssistantFeatureState(
 
     /** All registered tools with labels, for the settings extension list. */
     val toolDescriptors get() = registry.descriptors(registry.toolIds)
+    val hasPendingAction: Boolean get() = turns.any { it.pendingAction != null || it.actionInProgress }
 
     fun refresh() {
         scope.launch {
-            skills = skillStore.skills()
-            workflows = workflowStore.workflows()
-            val events = memoryStore.memoryEvents()
+            val (loadedSkills, loadedWorkflows, events) = withContext(ioDispatcher) {
+                Triple(skillStore.skills(), workflowStore.workflows(), memoryStore.memoryEvents())
+            }
+            skills = loadedSkills
+            workflows = loadedWorkflows
             lazyMemoryEvents = events
             habits = AssistantMemoryRanker.summarize(events)
             refreshSecrets()
@@ -162,7 +178,8 @@ internal class AssistantFeatureState(
 
     private fun refreshSecrets() {
         hasApiKey = secretStore.hasApiKey(settings.provider.name.lowercase())
-        enabledToolIds = settingsStore.enabledToolIds() ?: registry.toolIds
+        enabledToolIds = (settingsStore.enabledToolIds() ?: registry.toolIds) +
+            (if (settingsStore.enabledToolIds() != null) setOf("portfolio.propose_change") else emptySet())
     }
 
     fun updateSettings(next: LlmSettings, apiKey: String?) {
@@ -179,6 +196,7 @@ internal class AssistantFeatureState(
     fun clearApiKey() {
         secretStore.clearApiKey(settings.provider.name.lowercase())
         refreshSecrets()
+        connectionCheck = null
         statusMessage = "已清除本机保存的 API Key"
     }
 
@@ -216,10 +234,14 @@ internal class AssistantFeatureState(
                             ChatMessage(ChatRole.SYSTEM, "你是连通性测试，只回复 ok。"),
                             ChatMessage(ChatRole.USER, "ping")
                         ),
-                        maxTokens = 16
+                        maxTokens = 128
                     )
                 )
-                "连接成功：${response.message.content.take(40).ifBlank { "（空回复）" }}"
+                response.message.content.take(40).ifBlank {
+                    "服务已响应，但模型没有返回可见文字；请检查模型名和输出限制。"
+                }.let { reply ->
+                    if (reply.startsWith("服务已响应")) reply else "连接成功：$reply"
+                }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
@@ -230,6 +252,10 @@ internal class AssistantFeatureState(
     }
 
     fun newWorkflow(title: String = "新会话") {
+        if (hasPendingAction) {
+            statusMessage = "先确认或取消待处理的本地更改"
+            return
+        }
         val now = nowMillis()
         val workflow = AssistantWorkflow(
             id = UUID.randomUUID().toString().take(12),
@@ -240,12 +266,12 @@ internal class AssistantFeatureState(
         )
         currentWorkflow = workflow
         turns = emptyList()
-        scope.launch { workflowStore.upsertWorkflow(workflow) }
+        scope.launch { withContext(ioDispatcher) { workflowStore.upsertWorkflow(workflow) } }
     }
 
     fun resumeWorkflow(id: String) {
         scope.launch {
-            val workflow = workflowStore.workflow(id) ?: return@launch
+            val workflow = withContext(ioDispatcher) { workflowStore.workflow(id) } ?: return@launch
             currentWorkflow = workflow
             turns = workflow.turns.map { turn ->
                 AssistantTurnUi(
@@ -267,13 +293,16 @@ internal class AssistantFeatureState(
         val workflow = currentWorkflow ?: return
         val updated = workflow.copy(title = title.take(120).ifBlank { workflow.title })
         currentWorkflow = updated
-        scope.launch { workflowStore.upsertWorkflow(updated) }
+        scope.launch { withContext(ioDispatcher) { workflowStore.upsertWorkflow(updated) } }
     }
 
     fun deleteWorkflow(id: String) {
         scope.launch {
-            workflowStore.deleteWorkflow(id)
-            workflows = workflowStore.workflows()
+            val remaining = withContext(ioDispatcher) {
+                workflowStore.deleteWorkflow(id)
+                workflowStore.workflows()
+            }
+            workflows = remaining
             if (currentWorkflow?.id == id) {
                 currentWorkflow = null
                 turns = emptyList()
@@ -282,8 +311,12 @@ internal class AssistantFeatureState(
     }
 
     fun clearAllWorkflows() {
+        if (hasPendingAction) {
+            statusMessage = "先确认或取消待处理的本地更改"
+            return
+        }
         scope.launch {
-            workflowStore.clearWorkflows()
+            withContext(ioDispatcher) { workflowStore.clearWorkflows() }
             workflows = emptyList()
             currentWorkflow = null
             turns = emptyList()
@@ -292,22 +325,27 @@ internal class AssistantFeatureState(
 
     fun saveSkill(skill: AssistantSkill) {
         scope.launch {
-            val stored = skillStore.upsertSkill(skill)
-            skills = skillStore.skills()
+            val (stored, loaded) = withContext(ioDispatcher) {
+                skillStore.upsertSkill(skill) to skillStore.skills()
+            }
+            skills = loaded
             statusMessage = "已保存技能「${stored.name}」"
         }
     }
 
     fun deleteSkill(id: String) {
         scope.launch {
-            skillStore.deleteSkill(id)
-            skills = skillStore.skills()
+            skills = withContext(ioDispatcher) {
+                skillStore.deleteSkill(id)
+                skillStore.skills()
+            }
         }
     }
 
     fun clearMemory() {
         scope.launch {
-            memoryStore.clearMemory()
+            withContext(ioDispatcher) { memoryStore.clearMemory() }
+            lazyMemoryEvents = emptyList()
             habits = HabitSummary()
             statusMessage = "已清空本机使用习惯"
         }
@@ -327,6 +365,36 @@ internal class AssistantFeatureState(
     fun workflowMarkdown(): String? {
         val workflow = currentWorkflow ?: return null
         return WorkflowExport.toMarkdown(workflow, nowMillis())
+    }
+
+    fun memoryMarkdown(): String = buildString {
+        appendLine("# 使用习惯与分析方法")
+        appendLine()
+        appendLine("导出时间：${java.time.Instant.ofEpochMilli(nowMillis())}")
+        appendLine("以下内容来自本机加密存储，不会随导出自动发送给模型服务。")
+        appendLine()
+        appendLine("## 明确记住的方法与偏好")
+        val preferences = lazyMemoryEvents.asSequence()
+            .filter { it.kind == MemoryKind.PREFERENCE }
+            .sortedByDescending { it.atMillis }
+            .distinctBy { it.key }
+            .take(100)
+            .toList()
+        if (preferences.isEmpty()) appendLine("暂无") else preferences.forEach { appendLine("- ${it.key}") }
+        appendLine()
+        appendLine("## 常看标的")
+        habits.topInstruments.forEach { appendLine("- ${it.key}：${it.count} 次") }
+        appendLine()
+        appendLine("## 自定义技能")
+        if (skills.isEmpty()) appendLine("暂无") else skills.forEach { skill ->
+            appendLine("### ${skill.name}（/${skill.id}）")
+            appendLine(skill.description)
+            appendLine()
+            appendLine(skill.instructions)
+            appendLine()
+        }
+        appendLine("---")
+        appendLine("记录只用于复盘与个性化数据分析，不构成投资建议。")
     }
 
     fun stop() {
@@ -354,6 +422,10 @@ internal class AssistantFeatureState(
 
     fun send(question: String, attachments: List<AssistantAttachmentUi>) {
         if (busy) return
+        if (hasPendingAction) {
+            statusMessage = "先确认或取消待处理的本地更改"
+            return
+        }
         val trimmed = question.trim()
         if (trimmed.isEmpty() && attachments.isEmpty()) return
         val effectiveQuestion = trimmed.ifEmpty { "请分析附件内容" }
@@ -381,6 +453,21 @@ internal class AssistantFeatureState(
         effectiveQuestion.extractInstrumentHints().forEach { recordMemory(MemoryKind.INSTRUMENT, it, startedAt) }
         recordMemory(MemoryKind.MODEL, settings.model.ifBlank { settings.provider.label }, startedAt)
         skill?.let { recordMemory(MemoryKind.SKILL_USE, it.name, startedAt) }
+
+        val rememberedPreference = effectiveQuestion.explicitRememberPreference()
+        if (rememberedPreference != null) {
+            recordMemory(MemoryKind.PREFERENCE, rememberedPreference, startedAt)
+            turns = turns.map { turn ->
+                if (turn.id != turnId) turn else turn.copy(
+                    status = AssistantTurnStatus.DONE,
+                    answer = "好，我已在本机记住这条分析方法：\n\n$rememberedPreference",
+                    offlineFallback = true,
+                    finishedAtMillis = nowMillis()
+                )
+            }
+            scope.launch { persistTurn(turnId) }
+            return
+        }
 
         busy = true
         runJob = scope.launch {
@@ -432,6 +519,7 @@ internal class AssistantFeatureState(
                         answer = result.reply.text,
                         citations = result.reply.citations,
                         usage = result.usage,
+                        pendingAction = result.pendingAction,
                         steps = turn.steps.map { step ->
                             if (step.status == AssistantStepStatus.RUNNING) {
                                 step.copy(status = AssistantStepStatus.DONE, durationMillis = 0L)
@@ -440,7 +528,7 @@ internal class AssistantFeatureState(
                         finishedAtMillis = nowMillis()
                     )
                 }
-                persistTurn(turnId)
+                if (result.pendingAction == null) persistTurn(turnId)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
@@ -455,6 +543,101 @@ internal class AssistantFeatureState(
             } finally {
                 busy = false
             }
+        }
+    }
+
+    fun confirmAction(turnId: String) {
+        val turn = turns.firstOrNull { it.id == turnId } ?: return
+        val action = turn.pendingAction ?: return
+        if (turn.actionInProgress) return
+        turns = turns.map { if (it.id == turnId) it.copy(actionInProgress = true) else it }
+        scope.launch {
+            val applied = runCatching {
+                withContext(ioDispatcher) { applyLocalAction(action) }
+            }
+            applied.onSuccess { message ->
+                turns = turns.map { current ->
+                    if (current.id != turnId) current else current.copy(
+                        pendingAction = null,
+                        actionInProgress = false,
+                        actionResult = message,
+                        answer = current.answer + "\n\n✅ $message"
+                    )
+                }
+                if (action.kind in setOf(
+                        AssistantActionKind.ADD_FUND_WATCHLIST,
+                        AssistantActionKind.REMOVE_FUND_WATCHLIST,
+                        AssistantActionKind.RECORD_FUND_BUY,
+                        AssistantActionKind.RECORD_FUND_SELL
+                    )
+                ) onPortfolioChanged()
+                persistTurn(turnId)
+            }.onFailure { error ->
+                turns = turns.map { current ->
+                    if (current.id != turnId) current else current.copy(
+                        actionInProgress = false,
+                        errorMessage = error.userFacingMessage("本地更改没有保存")
+                    )
+                }
+            }
+        }
+    }
+
+    fun cancelAction(turnId: String) {
+        val turn = turns.firstOrNull { it.id == turnId } ?: return
+        if (turn.pendingAction == null || turn.actionInProgress) return
+        turns = turns.map { current ->
+            if (current.id != turnId) current else current.copy(
+                pendingAction = null,
+                actionResult = "已取消，没有修改本机数据。",
+                answer = current.answer + "\n\n已取消，没有修改本机数据。"
+            )
+        }
+        scope.launch { persistTurn(turnId) }
+    }
+
+    private suspend fun applyLocalAction(action: AssistantActionProposal): String = when (action.kind) {
+        AssistantActionKind.ADD_FUND_WATCHLIST -> {
+            ledger.setFundWatched(
+                requireNotNull(action.fundCode), requireNotNull(action.fundName), true, action.fundCategory
+            )
+            "已将 ${action.fundName}（${action.fundCode}）加入基金自选。"
+        }
+        AssistantActionKind.REMOVE_FUND_WATCHLIST -> {
+            ledger.setFundWatched(
+                requireNotNull(action.fundCode), requireNotNull(action.fundName), false, action.fundCategory
+            )
+            "已将 ${action.fundName}（${action.fundCode}）从基金自选移除；账本流水与持仓记录保留。"
+        }
+        AssistantActionKind.RECORD_FUND_BUY, AssistantActionKind.RECORD_FUND_SELL -> {
+            val code = requireNotNull(action.fundCode)
+            val name = requireNotNull(action.fundName)
+            val asset = ledger.findAsset(code) ?: ledger.addFundAsset(code, name, action.fundCategory)
+            ledger.addTrade(
+                asset = asset,
+                side = if (action.kind == AssistantActionKind.RECORD_FUND_BUY) TradeSide.BUY else TradeSide.SELL,
+                amount = requireNotNull(action.amount),
+                units = requireNotNull(action.units),
+                price = requireNotNull(action.unitPrice),
+                fee = action.fee ?: BigDecimal.ZERO
+            )
+            val label = if (action.kind == AssistantActionKind.RECORD_FUND_BUY) "买入" else "卖出"
+            "已在本机账本记录 $label ${action.fundName}（${action.fundCode}）；没有提交任何交易订单。"
+        }
+        AssistantActionKind.UPDATE_RISK_PARAMETERS -> {
+            riskFeatureState.update(
+                requireNotNull(action.riskFreeAnnualRate),
+                requireNotNull(action.minimumAcceptableAnnualReturn)
+            )
+            "风险分析参数已保存，重新打开分析页后会按新参数重算。"
+        }
+        AssistantActionKind.SAVE_PREFERENCE -> {
+            val preference = requireNotNull(action.preference)
+            require(preference.length in 4..500) { "分析偏好长度无效" }
+            memoryStore.recordMemory(MemoryEvent(MemoryKind.PREFERENCE, preference, nowMillis()))
+            lazyMemoryEvents = memoryStore.memoryEvents(limit = 200)
+            habits = AssistantMemoryRanker.summarize(lazyMemoryEvents)
+            "已在本机记住这条分析方法，后续回答会优先参考。"
         }
     }
 
@@ -542,28 +725,41 @@ internal class AssistantFeatureState(
             createdAtMillis = turn.startedAtMillis,
             updatedAtMillis = turn.startedAtMillis
         ).also { currentWorkflow = it }
+        val storedTurn = WorkflowTurn(
+            question = turn.question,
+            answer = turn.answer,
+            skillId = turn.skillId,
+            toolIds = turn.steps.map { it.toolId }.distinct(),
+            atMillis = turn.startedAtMillis,
+            failed = turn.status == AssistantTurnStatus.FAILED,
+            attachmentNames = turn.attachments.map { it.fileName }
+        )
         val updated = workflow.copy(
             status = WorkflowStatus.ACTIVE,
-            turns = workflow.turns + WorkflowTurn(
-                question = turn.question,
-                answer = turn.answer,
-                skillId = turn.skillId,
-                toolIds = turn.steps.map { it.toolId }.distinct(),
-                atMillis = turn.startedAtMillis,
-                failed = turn.status == AssistantTurnStatus.FAILED
-            )
+            turns = workflow.turns.upsertTurn(storedTurn)
         )
         currentWorkflow = updated
-        workflowStore.upsertWorkflow(updated)
-        workflows = workflowStore.workflows()
+        val loadedWorkflows = withContext(ioDispatcher) {
+            workflowStore.upsertWorkflow(updated)
+            workflowStore.workflows()
+        }
+        workflows = loadedWorkflows
     }
 
     private fun recordMemory(kind: MemoryKind, key: String, atMillis: Long) {
         scope.launch {
-            memoryStore.recordMemory(MemoryEvent(kind, key, atMillis))
-            lazyMemoryEvents = memoryStore.memoryEvents(limit = 200)
+            val events = withContext(ioDispatcher) {
+                memoryStore.recordMemory(MemoryEvent(kind, key, atMillis))
+                memoryStore.memoryEvents(limit = 200)
+            }
+            lazyMemoryEvents = events
             habits = AssistantMemoryRanker.summarize(lazyMemoryEvents)
         }
+    }
+
+    private fun List<WorkflowTurn>.upsertTurn(turn: WorkflowTurn): List<WorkflowTurn> {
+        val index = indexOfLast { it.atMillis == turn.atMillis && it.question == turn.question }
+        return if (index < 0) this + turn else toMutableList().also { it[index] = turn }
     }
 
     private fun List<AssistantTurnUi>.toChatHistory(excludeTurnId: String): List<ChatMessage> = asSequence()
@@ -595,6 +791,18 @@ internal fun String.extractInstrumentHints(): List<String> {
     return hints.distinct().take(4)
 }
 
+/** Explicit memory commands are honored locally, even when no external model is configured. */
+internal fun String.explicitRememberPreference(): String? {
+    val trimmed = trim()
+    val prefix = listOf(
+        "请记住我的分析方法", "记住我的分析方法", "请记住", "记住", "请记一下", "记一下",
+        "以后分析时请", "今后分析时请", "以后请按", "我习惯"
+    ).firstOrNull { trimmed.startsWith(it) } ?: return null
+    val preference = trimmed.removePrefix(prefix).trimStart('：', ':', '，', ',', ' ', '\n', '、')
+        .takeIf { it.length in 4..500 } ?: return null
+    return preference
+}
+
 /** Creates the state wired to the encrypted ledger stores. */
 @androidx.compose.runtime.Composable
 internal fun rememberAssistantFeatureState(
@@ -602,7 +810,9 @@ internal fun rememberAssistantFeatureState(
     registry: AgentToolRegistry,
     scope: CoroutineScope,
     ioDispatcher: CoroutineDispatcher,
-    offlineFacts: () -> List<AssistantFact>
+    offlineFacts: () -> List<AssistantFact>,
+    riskFeatureState: PortfolioRiskFeatureState,
+    onPortfolioChanged: () -> Unit
 ): AssistantFeatureState {
     val context = androidx.compose.ui.platform.LocalContext.current
     val state = androidx.compose.runtime.remember(ledger, registry) {
@@ -615,7 +825,10 @@ internal fun rememberAssistantFeatureState(
             secretStore = LlmSecretStore(context),
             scope = scope,
             ioDispatcher = ioDispatcher,
-            offlineFacts = offlineFacts
+            offlineFacts = offlineFacts,
+            ledger = ledger,
+            riskFeatureState = riskFeatureState,
+            onPortfolioChanged = onPortfolioChanged
         ).also { it.refresh() }
     }
     return state

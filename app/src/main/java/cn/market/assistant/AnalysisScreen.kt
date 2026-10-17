@@ -69,6 +69,7 @@ internal fun AnalysisScreen(
     holding: BigDecimal, realized: BigDecimal,
     snapshots: List<PortfolioSnapshot>, positionSnapshots: Map<LocalDate, List<PositionSnapshot>>,
     invalidatedSnapshotCount: Int, marketRepository: MarketRepository,
+    riskFeatureState: PortfolioRiskFeatureState,
     onRecordSnapshot: () -> Unit, modifier: Modifier = Modifier
 ) {
     val pending = trades.count { !it.confirmed && !it.isReversed }
@@ -82,7 +83,6 @@ internal fun AnalysisScreen(
                 ?.takeIf { calendar -> !calendar.inferred && calendar.days.size >= 20 }
         }
     }
-    val riskFeatureState = rememberPortfolioRiskFeatureState(LocalContext.current)
     val riskParameters = riskFeatureState.parameters
     val benchmarkFeatureState = rememberPortfolioBenchmarkFeatureState(LocalContext.current, marketRepository)
     LaunchedEffect(benchmarkFeatureState.selectedId) { benchmarkFeatureState.load() }

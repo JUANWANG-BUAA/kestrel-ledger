@@ -292,7 +292,7 @@ internal fun RecordScreen(
             OutlinedTextField(
                 search, { search = it; fundFeatureState.search(it) }, modifier = Modifier.fillMaxWidth(), singleLine = true,
                 label = { Text(if (filter == AssetKind.FUND) "搜索基金名称或代码" else "搜索黄金品种") },
-                placeholder = { Text(if (filter == AssetKind.FUND) "例如：易方达蓝筹、110011" else "例如：积存金、Au99.99") },
+                placeholder = { Text(if (filter == AssetKind.FUND) "例如：易方达蓝筹、110011、yfdlc" else "例如：积存金、Au99.99") },
                 leadingIcon = { MarketIcon("search", size = 19.dp, tint = Muted) },
                 trailingIcon = if (search.isNotEmpty()) ({ TextButton(onClick = { search = ""; fundFeatureState.clearSearch() }) { Text("清除") } }) else null,
                 shape = RoundedCornerShape(18.dp), colors = fieldColors()

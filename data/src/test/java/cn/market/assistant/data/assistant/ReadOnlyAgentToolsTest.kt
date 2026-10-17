@@ -75,11 +75,11 @@ class ReadOnlyAgentToolsTest {
     @Test
     fun periodReportToolUsesSharedAnalyticsAndKeepsAccountFactsPrivate() {
         val expectedDate = LocalDate.parse("2026-10-16")
-        var requestedPeriod: ReportPeriod? = null
-        var requestedDate: LocalDate? = null
+        val requestedPeriods = mutableListOf<ReportPeriod>()
+        val requestedDates = mutableListOf<LocalDate>()
         val repository = PortfolioReportRepository { period, asOf ->
-            requestedPeriod = period
-            requestedDate = asOf
+            requestedPeriods += period
+            requestedDates += asOf
             PeriodFacts(
                 period = period, start = LocalDate.parse("2026-10-12"), end = asOf,
                 opening = null, closing = null, profit = BigDecimal("125.50"),
@@ -117,8 +117,8 @@ class ReadOnlyAgentToolsTest {
             )
         }
 
-        assertEquals(ReportPeriod.WEEK, requestedPeriod)
-        assertEquals(expectedDate, requestedDate)
+        assertEquals(ReportPeriod.WEEK, requestedPeriods.first())
+        assertEquals(expectedDate, requestedDates.first())
         assertEquals("125.50", result.facts.first { it.key == "portfolio.report.holdings_profit" }.value)
         assertEquals("2.50", result.facts.first { it.key == "portfolio.report.account_max_drawdown_pct" }.value)
         assertEquals("0.520000", result.facts.first { it.key == "portfolio.report.account_allocation_hhi" }.value)

@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -32,12 +33,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import cn.market.assistant.domain.assistant.AssistantSkill
 import cn.market.assistant.domain.assistant.AssistantWorkflow
 import cn.market.assistant.domain.assistant.HabitSummary
 import cn.market.assistant.domain.assistant.LlmProvider
+import cn.market.assistant.domain.assistant.LlmProtocol
+import cn.market.assistant.domain.assistant.LlmEndpointValidator
 import cn.market.assistant.domain.assistant.LlmSettings
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.ui.graphics.Color
@@ -51,7 +55,9 @@ internal fun AssistantSheets(
     state: AssistantFeatureState,
     editingSkill: AssistantSkill?,
     onDismiss: () -> Unit,
-    onEditSkill: (AssistantSkill?) -> Unit
+    onEditSkill: (AssistantSkill?) -> Unit,
+    onExportWorkflow: (AssistantWorkflow) -> Unit,
+    onExportMemory: () -> Unit
 ) {
     if (sheet == null) return
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = MarketTheme.colors.surfaceAlt) {
@@ -64,8 +70,8 @@ internal fun AssistantSheets(
                 AssistantSheet.SETTINGS -> AssistantSettingsPanel(state)
                 AssistantSheet.SKILLS -> AssistantSkillsPanel(state, onEditSkill)
                 AssistantSheet.SKILL_EDITOR -> AssistantSkillEditor(state, editingSkill)
-                AssistantSheet.WORKFLOWS -> AssistantWorkflowsPanel(state, onDismiss)
-                AssistantSheet.HABITS -> AssistantHabitsPanel(state)
+                AssistantSheet.WORKFLOWS -> AssistantWorkflowsPanel(state, onDismiss, onExportWorkflow)
+                AssistantSheet.HABITS -> AssistantHabitsPanel(state, onExportMemory)
             }
         }
     }
@@ -76,15 +82,17 @@ private fun AssistantSettingsPanel(state: AssistantFeatureState) {
     var provider by remember(state.settings.provider) { mutableStateOf(state.settings.provider) }
     var baseUrl by remember(state.settings.baseUrl) { mutableStateOf(state.settings.baseUrl) }
     var model by remember(state.settings.model) { mutableStateOf(state.settings.model) }
+    var protocol by remember(state.settings.protocol) { mutableStateOf(state.settings.protocol) }
     var apiKey by remember { mutableStateOf("") }
     var temperature by remember(state.settings.temperature) { mutableStateOf(state.settings.temperature) }
     var maxTokens by remember(state.settings.maxTokens) { mutableStateOf(state.settings.maxTokens) }
     var systemPrompt by remember(state.settings.systemPrompt) { mutableStateOf(state.settings.systemPrompt) }
     var sharePrivate by remember(state.settings.sharePrivateDetails) { mutableStateOf(state.settings.sharePrivateDetails) }
+    var imageInputEnabled by remember(state.settings.imageInputEnabled) { mutableStateOf(state.settings.imageInputEnabled) }
 
     Text("模型接入", color = Ink, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
     Text(
-        "支持 OpenAI / Anthropic 两种主流协议；API Key 用 Android Keystore 加密保存在本机，不进入账本备份。",
+        "选择与服务商匹配的接口协议。API Key 使用 Android Keystore 加密保存在本机，不进入账本备份。",
         color = Muted, fontSize = 10.sp, lineHeight = 14.sp
     )
     Row(Modifier.fillMaxWidth().heightIn(max = 132.dp).verticalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -94,9 +102,19 @@ private fun AssistantSettingsPanel(state: AssistantFeatureState) {
                     FilterChip(
                         selected = provider == option,
                         onClick = {
-                            provider = option
-                            baseUrl = option.defaultBaseUrl.ifBlank { baseUrl }
-                            model = option.defaultModel.ifBlank { model }
+                            val next = LlmSettings(
+                                provider = provider,
+                                baseUrl = baseUrl,
+                                model = model,
+                                protocol = protocol
+                            ).withProvider(option)
+                            provider = next.provider
+                            protocol = next.protocol
+                            baseUrl = next.baseUrl
+                            model = next.model
+                            apiKey = ""
+                            imageInputEnabled = cn.market.assistant.domain.assistant.ModelImageCapabilities
+                                .infer(option, next.model)
                         },
                         label = { Text(option.label, fontSize = 10.sp) },
                         colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(
@@ -109,20 +127,72 @@ private fun AssistantSettingsPanel(state: AssistantFeatureState) {
         }
     }
     Text("控制台：${provider.consoleHint}", color = Muted, fontSize = 9.sp)
+    Text("接口协议", color = Ink, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+    Row(
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        LlmProtocol.entries.forEach { option ->
+            FilterChip(
+                selected = protocol == option,
+                onClick = {
+                    val next = LlmSettings(
+                        provider = provider,
+                        baseUrl = baseUrl,
+                        model = model,
+                        protocol = protocol
+                    ).withProtocol(option)
+                    protocol = next.protocol
+                    baseUrl = next.baseUrl
+                },
+                label = { Text(option.label, fontSize = 10.sp) },
+                colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = SoftBlue, selectedLabelColor = Ink,
+                    containerColor = White, labelColor = Muted
+                )
+            )
+        }
+    }
+    val protocolHint = when (protocol) {
+        LlmProtocol.OPENAI_CHAT_COMPLETIONS -> "兼容 OpenAI Chat Completions；使用 Bearer Key。"
+        LlmProtocol.OPENAI_RESPONSES -> "兼容 OpenAI Responses；使用 Bearer Key。"
+        LlmProtocol.ANTHROPIC_MESSAGES -> "兼容 Anthropic Messages；使用 x-api-key。"
+    }
+    val endpointPreview = LlmEndpointValidator.endpointUrl(
+        LlmSettings(provider = provider, baseUrl = baseUrl, model = model, protocol = protocol)
+    )
+    Text(
+        "${protocol.label} · $protocolHint 地址栏填写 Base URL。DeepSeek 支持这三种格式。",
+        color = Muted, fontSize = 9.sp, lineHeight = 13.sp
+    )
+    Text(
+        "完整请求地址：$endpointPreview",
+        color = Muted, fontSize = 9.sp, lineHeight = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis
+    )
+    Text(
+        "若连接失败，请确认当前服务商和模型支持所选协议；切换协议会自动更新默认地址。",
+        color = Muted, fontSize = 9.sp, lineHeight = 13.sp
+    )
     OutlinedTextField(
         value = baseUrl, onValueChange = { baseUrl = it.take(300) },
         label = { Text("接口地址", fontSize = 11.sp) }, modifier = Modifier.fillMaxWidth(),
         textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp)
     )
     OutlinedTextField(
-        value = model, onValueChange = { model = it.take(120) },
+        value = model, onValueChange = {
+            model = it.take(120)
+            imageInputEnabled = cn.market.assistant.domain.assistant.ModelImageCapabilities.infer(provider, model)
+        },
         label = { Text("模型名称", fontSize = 11.sp) }, modifier = Modifier.fillMaxWidth(),
         textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp)
     )
     if (provider.popularModels.isNotEmpty()) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             provider.popularModels.take(4).forEach { option ->
-                TextButton(onClick = { model = option }, contentPadding = PaddingValues(horizontal = 6.dp)) {
+                TextButton(onClick = {
+                    model = option
+                    imageInputEnabled = cn.market.assistant.domain.assistant.ModelImageCapabilities.infer(provider, option)
+                }, contentPadding = PaddingValues(horizontal = 6.dp)) {
                     Text(option, color = Blue, fontSize = 10.sp)
                 }
             }
@@ -130,11 +200,30 @@ private fun AssistantSettingsPanel(state: AssistantFeatureState) {
     }
     OutlinedTextField(
         value = apiKey, onValueChange = { apiKey = it.take(300) },
-        label = { Text(if (state.hasApiKey) "API Key（已保存，留空则不修改）" else "API Key", fontSize = 11.sp) },
+        label = {
+            Text(
+                when {
+                    apiKey.isNotBlank() -> "API Key（保存时加密）"
+                    state.hasApiKey && provider == state.settings.provider -> "API Key（已保存，留空则不修改）"
+                    else -> "API Key"
+                },
+                fontSize = 11.sp
+            )
+        },
         visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
         modifier = Modifier.fillMaxWidth(),
         textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp)
     )
+    if (provider == LlmProvider.DEEPSEEK) {
+        Text("DeepSeek API Key 通常以 sk- 开头。", color = Muted, fontSize = 9.sp)
+    }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text("允许图片输入", color = Ink, fontSize = 12.sp)
+            Text("仅在模型接口支持视觉输入时开启；图片会发送到当前模型服务。", color = Muted, fontSize = 9.sp, lineHeight = 13.sp)
+        }
+        Switch(checked = imageInputEnabled, onCheckedChange = { imageInputEnabled = it })
+    }
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text("温度 ${String.format(java.util.Locale.US, "%.1f", temperature)}", color = Ink, fontSize = 11.sp, modifier = Modifier.width(88.dp))
         androidx.compose.material3.Slider(
@@ -154,8 +243,8 @@ private fun AssistantSettingsPanel(state: AssistantFeatureState) {
     }
     Row(verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
-            Text("允许读取持仓明细", color = Ink, fontSize = 12.sp)
-            Text("关闭时模型只能看到汇总事实与公开行情", color = Muted, fontSize = 9.sp)
+            Text("允许发送持仓明细", color = Ink, fontSize = 12.sp)
+            Text("开启时，单只持仓数据会发给当前模型服务；关闭时只提供汇总事实与公开行情。", color = Muted, fontSize = 9.sp, lineHeight = 13.sp)
         }
         Switch(checked = sharePrivate, onCheckedChange = { sharePrivate = it })
     }
@@ -191,20 +280,55 @@ private fun AssistantSettingsPanel(state: AssistantFeatureState) {
     state.connectionCheck?.let { message ->
         Text(
             message,
-            color = if (message.startsWith("连接成功")) AssistantUp else AssistantDown,
-            fontSize = 11.sp
+            color = if (message.startsWith("连接成功")) AssistantDown else AssistantUp,
+            fontSize = 11.sp,
+            maxLines = 3,
+            overflow = TextOverflow.Ellipsis
         )
     }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         TextButton(
-            onClick = { state.updateSettings(LlmSettings(provider, baseUrl, model, temperature, maxTokens, true, sharePrivate, systemPrompt), apiKey) },
+            onClick = {
+                state.updateSettings(
+                    LlmSettings(
+                        provider = provider,
+                        baseUrl = baseUrl,
+                        model = model,
+                        protocol = protocol,
+                        temperature = temperature,
+                        maxTokens = maxTokens,
+                        toolsEnabled = true,
+                        sharePrivateDetails = sharePrivate,
+                        systemPrompt = systemPrompt,
+                        imageInputEnabled = imageInputEnabled
+                    ),
+                    apiKey
+                )
+            },
             modifier = Modifier.weight(1f)
         ) { Text("保存设置", color = Ink) }
         TextButton(
-            onClick = { state.testConnection() },
+            onClick = {
+                state.updateSettings(
+                    LlmSettings(
+                        provider = provider,
+                        baseUrl = baseUrl,
+                        model = model,
+                        protocol = protocol,
+                        temperature = temperature,
+                        maxTokens = maxTokens,
+                        toolsEnabled = true,
+                        sharePrivateDetails = sharePrivate,
+                        systemPrompt = systemPrompt,
+                        imageInputEnabled = imageInputEnabled
+                    ),
+                    apiKey
+                )
+                state.testConnection()
+            },
             enabled = !state.checkingConnection,
             modifier = Modifier.weight(1f)
-        ) { Text(if (state.checkingConnection) "测试中…" else "测试连接", color = Blue) }
+        ) { Text(if (state.checkingConnection) "测试中…" else "保存并测试", color = Blue) }
     }
     if (state.hasApiKey) {
         TextButton(onClick = { state.clearApiKey() }) { Text("清除本机 API Key", color = AssistantDown, fontSize = 11.sp) }
@@ -332,7 +456,11 @@ private fun AssistantSkillEditor(state: AssistantFeatureState, skill: AssistantS
 }
 
 @Composable
-private fun AssistantWorkflowsPanel(state: AssistantFeatureState, onDismiss: () -> Unit) {
+private fun AssistantWorkflowsPanel(
+    state: AssistantFeatureState,
+    onDismiss: () -> Unit,
+    onExportWorkflow: (AssistantWorkflow) -> Unit
+) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text("会话工作流", color = Ink, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
@@ -362,6 +490,9 @@ private fun AssistantWorkflowsPanel(state: AssistantFeatureState, onDismiss: () 
                     TextButton(onClick = { state.resumeWorkflow(workflow.id); onDismiss() }, contentPadding = PaddingValues(horizontal = 6.dp)) {
                         Text("恢复", color = Blue, fontSize = 10.sp)
                     }
+                    TextButton(onClick = { onExportWorkflow(workflow) }, contentPadding = PaddingValues(horizontal = 6.dp)) {
+                        Text("导出 Markdown", color = Blue, fontSize = 10.sp)
+                    }
                     TextButton(onClick = { state.deleteWorkflow(workflow.id) }, contentPadding = PaddingValues(horizontal = 6.dp)) {
                         Text("删除", color = AssistantDown, fontSize = 10.sp)
                     }
@@ -372,12 +503,13 @@ private fun AssistantWorkflowsPanel(state: AssistantFeatureState, onDismiss: () 
 }
 
 @Composable
-private fun AssistantHabitsPanel(state: AssistantFeatureState) {
+private fun AssistantHabitsPanel(state: AssistantFeatureState, onExportMemory: () -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text("使用习惯", color = Ink, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-            Text("仅记录在本机：问题、常用工具/技能/标的与模型；用于让回答更贴近你的关注点，不作为事实依据。", color = Muted, fontSize = 10.sp, lineHeight = 14.sp)
+            Text("分析方法、常看标的与使用习惯仅保存在本机；你可以随时导出或清空。", color = Muted, fontSize = 10.sp, lineHeight = 14.sp)
         }
+        TextButton(onClick = onExportMemory) { Text("导出", color = Blue, fontSize = 10.sp) }
         TextButton(onClick = { state.clearMemory() }) { Text("清空", color = AssistantDown, fontSize = 10.sp) }
     }
     val summary: HabitSummary = state.habits
@@ -390,6 +522,7 @@ private fun AssistantHabitsPanel(state: AssistantFeatureState) {
     HabitList("常用工具", summary.topTools.map { "${it.key}（${it.count}）" })
     HabitList("常用技能", summary.topSkills.map { "${it.key}（${it.count}）" })
     HabitList("常看标的", summary.topInstruments.map { "${it.key}（${it.count}）" })
+    HabitList("记住的方法", summary.preferences.map { it.key })
     summary.lastActiveAtMillis?.let {
         Text("最近使用：${java.time.Instant.ofEpochMilli(it).toString().take(16)}", color = Muted, fontSize = 9.sp)
     }

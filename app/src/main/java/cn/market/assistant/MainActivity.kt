@@ -46,12 +46,14 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.CutCornerShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -338,8 +340,12 @@ internal fun assetChipColors() = FilterChipDefaults.filterChipColors(
 
 @Composable
 private fun MarketApp(ledger: Ledger) {
+    val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+    val fundCatalogCacheFile = LocalContext.current.applicationContext.cacheDir.resolve("fund-catalog-cache.js")
     val marketRepository = remember(ledger) { MarketRepositoryImpl(ledger, Dispatchers.IO) }
-    val fundRepository = remember(ledger) { FundRepositoryImpl(ledger, Dispatchers.IO) }
+    val fundRepository = remember(ledger, fundCatalogCacheFile) {
+        FundRepositoryImpl(ledger, Dispatchers.IO, fundCatalogCacheFile)
+    }
     val marketBoardState = rememberMarketBoardFeatureState(marketRepository)
     val dataHealthState = rememberDataHealthFeatureState(marketRepository)
     var tab by remember { mutableStateOf(Tab.HOME) }
@@ -369,6 +375,7 @@ private fun MarketApp(ledger: Ledger) {
     var pendingBackupPayload by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val portfolioRiskFeatureState = rememberPortfolioRiskFeatureState(context)
     suspend fun syncLinkedPortfolioQuotes(quotes: Map<String, MarketQuote>) {
         val changed = withContext(Dispatchers.IO) { ledger.syncLinkedMarketQuotes(quotes) }
         if (changed > 0) revision++
@@ -518,14 +525,16 @@ private fun MarketApp(ledger: Ledger) {
     }
     val assistantFactsState = rememberUpdatedState(assistantFacts)
     val assistantRegistry = remember(ledger, marketRepository) {
-        ReadOnlyAgentTools.createRegistry(ledger, marketRepository, Dispatchers.IO)
+        ReadOnlyAgentTools.createRegistry(ledger, marketRepository, Dispatchers.IO, fundRepository)
     }
     val assistantState = rememberAssistantFeatureState(
         ledger = ledger,
         registry = assistantRegistry,
         scope = scope,
         ioDispatcher = Dispatchers.IO,
-        offlineFacts = { assistantFactsState.value }
+        offlineFacts = { assistantFactsState.value },
+        riskFeatureState = portfolioRiskFeatureState,
+        onPortfolioChanged = { revision++ }
     )
     val appContext = LocalContext.current.applicationContext
     val alertState = remember(ledger) {
@@ -765,7 +774,7 @@ private fun MarketApp(ledger: Ledger) {
                     internationalCnyGramQuote = marketQuotes[MarketApi.GOLD_CNY_GRAM_ID],
                     etfQuote = marketQuotes["1.518880"], marketRepository = marketRepository,
                     goldPositions = positions.filter { it.asset.kind == AssetKind.GOLD },
-                    message = goldMessage, loading = goldLoading, onRefresh = ::refreshGoldSpot,
+                    message = goldMessage, quoteLoading = goldLoading, onRefresh = ::refreshGoldSpot,
                     onOpenEtf = { selectedMarket = "1.518880"; showSectors = false; tab = Tab.WATCHLIST },
                     onBack = { selectedMarket = null }, modifier = Modifier.padding(insets)
                 ) else if (route.third) MarketBoardExplorerScreen(
@@ -837,6 +846,7 @@ private fun MarketApp(ledger: Ledger) {
                     positions, trades, cashEvents, totalCost, holding, realized, portfolioSnapshots, positionSnapshots,
                     invalidatedSnapshotCount,
                     marketRepository = marketRepository,
+                    riskFeatureState = portfolioRiskFeatureState,
                     onRecordSnapshot = {
                         scope.launch {
                             withContext(Dispatchers.IO) { ledger.savePortfolioSnapshot(positions) }
@@ -979,19 +989,21 @@ private fun MarketApp(ledger: Ledger) {
 
         }
         // The bar floats above the page so content keeps scrolling underneath the glass material.
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
-            MarketNavBar(
-                items = Tab.entries.map { MarketNavItem(it.label, it.icon) },
-                selectedIndex = Tab.entries.indexOf(tab),
-                onSelect = { index ->
-                    val item = Tab.entries[index]
-                    tab = item
-                    if (item != Tab.WATCHLIST) {
-                        selectedMarket = null
-                        showSectors = false
+        if (!imeVisible && selectedMarket != ASSISTANT_ROUTE) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+                MarketNavBar(
+                    items = Tab.entries.map { MarketNavItem(it.label, it.icon) },
+                    selectedIndex = Tab.entries.indexOf(tab),
+                    onSelect = { index ->
+                        val item = Tab.entries[index]
+                        tab = item
+                        if (item != Tab.WATCHLIST) {
+                            selectedMarket = null
+                            showSectors = false
+                        }
                     }
-                }
-            )
+                )
+            }
         }
       }
       }
@@ -1163,10 +1175,10 @@ private fun AnimatedTicker(value: String, color: Color, fontSize: androidx.compo
 @Composable
 private fun GoldDashboardScreen(
     quote: MarketQuote?, domesticQuote: MarketQuote?, internationalCnyGramQuote: MarketQuote?, etfQuote: MarketQuote?, marketRepository: MarketRepository,
-    goldPositions: List<Position>, message: String, loading: Boolean, onRefresh: () -> Unit,
+    goldPositions: List<Position>, message: String, quoteLoading: Boolean, onRefresh: () -> Unit,
     onOpenEtf: () -> Unit, onBack: () -> Unit, modifier: Modifier = Modifier
 ) {
-    var period by remember { mutableStateOf(ChartPeriod.DAY) }
+    var period by remember { mutableStateOf(ChartPeriod.INTRADAY) }
     var style by remember { mutableStateOf(MarketChartStyle.CANDLE) }
     var showMa5 by remember { mutableStateOf(true) }
     var showMa20 by remember { mutableStateOf(false) }
@@ -1228,7 +1240,9 @@ private fun GoldDashboardScreen(
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             MarketBackButton(label = "总览", onClick = onBack)
             Spacer(Modifier.weight(1f))
-            TextButton(onClick = { onRefresh(); refreshRevision++ }, enabled = !loading) { Text("刷新行情") }
+            TextButton(onClick = { onRefresh(); refreshRevision++ }, enabled = !loading && !quoteLoading) {
+                Text(if (quoteLoading) "更新报价…" else "刷新行情")
+            }
         }
         Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Text("黄金", color = Ink, fontSize = 28.sp, fontWeight = FontWeight.SemiBold)
@@ -1337,7 +1351,10 @@ private fun GoldDashboardScreen(
             border = BorderStroke(1.dp, Color(0xFFD8D8D2))) {
             Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("黄金 ETF K 线", color = Ink, style = MarketType.section, modifier = Modifier.weight(1f))
+                    Text(
+                        if (period == ChartPeriod.INTRADAY) "黄金 ETF 当日分时" else "黄金 ETF K 线",
+                        color = Ink, style = MarketType.section, modifier = Modifier.weight(1f)
+                    )
                     Text(
                         if (loading) "加载中" else "更新",
                         color = if (loading) MarketTheme.colors.muted else MarketTheme.colors.accent,
@@ -1347,7 +1364,11 @@ private fun GoldDashboardScreen(
                     )
                 }
                 Text(
-                    "518880 作为国内黄金交易代理，价格不等同于现货克价",
+                    if (period == ChartPeriod.INTRADAY) {
+                        "默认显示当日 5 分钟分时；黄金报价约每 30 秒刷新，分时约每分钟更新"
+                    } else {
+                        "518880 作为国内黄金交易代理，价格不等同于现货克价"
+                    },
                     color = MarketTheme.colors.muted, style = MarketType.caption
                 )
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {

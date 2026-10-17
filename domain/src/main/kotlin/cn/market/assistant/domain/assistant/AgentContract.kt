@@ -1,5 +1,7 @@
 package cn.market.assistant.domain.assistant
 
+import java.math.BigDecimal
+
 /** Facts are explicit, sourced and timestamped before they may enter an assistant request. */
 enum class FactSensitivity { PUBLIC_MARKET, AGGREGATE_PORTFOLIO, PRIVATE_DETAIL }
 
@@ -35,7 +37,35 @@ data class AgentToolRequest(val arguments: Map<String, String>)
 
 data class AgentToolResult(
     val facts: List<AssistantFact>,
-    val errorCode: String? = null
+    val errorCode: String? = null,
+    /** A local change request for the user to review; tools never apply it themselves. */
+    val actionProposal: AssistantActionProposal? = null
+)
+
+enum class AssistantActionKind {
+    ADD_FUND_WATCHLIST,
+    REMOVE_FUND_WATCHLIST,
+    RECORD_FUND_BUY,
+    RECORD_FUND_SELL,
+    UPDATE_RISK_PARAMETERS,
+    SAVE_PREFERENCE
+}
+
+/** A typed preview of a local change. The app applies it only after an explicit user confirmation. */
+data class AssistantActionProposal(
+    val id: String,
+    val kind: AssistantActionKind,
+    val summary: String,
+    val fundCode: String? = null,
+    val fundName: String? = null,
+    val fundCategory: String = "公募基金",
+    val amount: BigDecimal? = null,
+    val units: BigDecimal? = null,
+    val unitPrice: BigDecimal? = null,
+    val fee: BigDecimal? = null,
+    val riskFreeAnnualRate: BigDecimal? = null,
+    val minimumAcceptableAnnualReturn: BigDecimal? = null,
+    val preference: String? = null
 )
 
 data class AgentToolParameter(
@@ -56,7 +86,7 @@ data class AgentToolAuthorization(
     val sharePrivateDetails: Boolean = false
 )
 
-/** A tool can only return typed facts; it cannot directly alter the ledger or execute trades. */
+/** A tool returns typed facts or a proposed local change; it cannot directly alter data. */
 interface AgentTool {
     val id: String
     val description: String get() = id

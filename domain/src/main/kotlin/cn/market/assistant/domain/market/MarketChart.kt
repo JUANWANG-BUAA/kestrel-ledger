@@ -11,7 +11,7 @@ data class MarketOhlcBar(
 )
 
 enum class ChartPeriod(val label: String, val cacheKey: String) {
-    INTRADAY("实时", "m30"),
+    INTRADAY("实时", "m5"),
     FIVE_DAY("5日", "m30"),
     DAY("日K", "day"),
     WEEK("周K", "week"),

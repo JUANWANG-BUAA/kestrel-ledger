@@ -287,9 +287,11 @@ object MarketApi {
         val price = fields.getOrNull(3)?.toDoubleOrNull()?.takeIf { it > 0 } ?: error("实时价格暂不可用")
         val change = fields.getOrNull(31)?.toDoubleOrNull() ?: 0.0
         val changePct = fields.getOrNull(32)?.toDoubleOrNull() ?: 0.0
-        val name = fields.getOrNull(1)?.takeIf { it.isNotBlank() } ?: fallbackName
+        val name = fallbackName
         val fetchedAt = System.currentTimeMillis() / 1000
-        return MarketQuote(secid, name, price, change, changePct, fetchedAt, fetchedAt, "tencent")
+        val quoteTime = parseTencentQuoteTime(fields.getOrNull(30).orEmpty(), fetchedAt)
+            .takeIf { it <= fetchedAt + 5 * 60 } ?: fetchedAt
+        return MarketQuote(secid, name, price, change, changePct, quoteTime, fetchedAt, "tencent")
     }
 
     /** Resolves `1.000012` / `0.399001` style secids to Tencent codes without a preset entry. */
@@ -387,7 +389,9 @@ object MarketApi {
                 val change = fields.getOrNull(31)?.toDoubleOrNull() ?: continue
                 val pct = fields.getOrNull(32)?.toDoubleOrNull() ?: continue
                 if (price <= 0) continue
-                add(MarketQuote(instrument.secid, instrument.name, price, change, pct, fetchedAt, fetchedAt, "tencent"))
+                val quoteTime = parseTencentQuoteTime(fields.getOrNull(30).orEmpty(), fetchedAt)
+                    .takeIf { it <= fetchedAt + 5 * 60 } ?: fetchedAt
+                add(MarketQuote(instrument.secid, instrument.name, price, change, pct, quoteTime, fetchedAt, "tencent"))
             }
         }
         val byId = live.associateBy { it.secid }.toMutableMap()
@@ -568,10 +572,11 @@ object MarketApi {
             ?: synthesizedTencentCode(secid)
             ?: error("暂不支持该标的走势图")
         val rows = if (period == ChartPeriod.INTRADAY || period == ChartPeriod.FIVE_DAY) {
-            val param = encode("$code,m30,,320")
+            val interval = if (period == ChartPeriod.INTRADAY) "m5" else "m30"
+            val param = encode("$code,$interval,,320")
             val raw = request("https://proxy.finance.qq.com/ifzqgtimg/appstock/app/kline/mkline?param=$param", "https://gu.qq.com/")
             val root = JSONObject(raw)
-            root.optJSONObject("data")?.optJSONObject(code)?.optJSONArray("m30") ?: error("当前市场暂无分时数据")
+            root.optJSONObject("data")?.optJSONObject(code)?.optJSONArray(interval) ?: error("当前市场暂无分时数据")
         } else {
             val param = encode("$code,${period.cacheKey},,,180,qfq")
             val raw = request("https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=$param", "https://gu.qq.com/")
@@ -683,6 +688,13 @@ object MarketApi {
 
     private fun encode(value: String): String = URLEncoder.encode(value, StandardCharsets.UTF_8.name())
 }
+
+internal fun parseTencentQuoteTime(value: String, fallbackEpochSeconds: Long): Long = runCatching {
+    java.time.LocalDateTime.parse(
+        value.trim(),
+        java.time.format.DateTimeFormatter.ofPattern("uuuuMMddHHmmss")
+    ).atZone(java.time.ZoneId.of("Asia/Shanghai")).toEpochSecond()
+}.getOrDefault(fallbackEpochSeconds)
 
 private fun normalizeMarketDay(value: String): String? = runCatching {
     val trimmed = value.trim()

@@ -11,7 +11,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * Pure wire mapping between the neutral chat contract and the two mainstream protocols. Kept free of
+ * Pure wire mapping between the neutral chat contract and the three mainstream protocols. Kept free of
  * Android APIs so the exact request/response shape is unit-testable.
  */
 object OpenAiWire {
@@ -77,7 +77,8 @@ object OpenAiWire {
             message = ChatMessage(
                 role = ChatRole.ASSISTANT,
                 content = message.optString("content"),
-                toolCalls = toolCalls
+                toolCalls = toolCalls,
+                reasoningContent = message.optString("reasoning_content").takeIf { it.isNotBlank() }
             ),
             usage = ChatUsage(
                 promptTokens = usage?.optInt("prompt_tokens", 0) ?: 0,
@@ -92,6 +93,7 @@ object OpenAiWire {
             .put("role", "assistant")
             .put("content", message.content.ifBlank { JSONObject.NULL })
             .apply {
+                message.reasoningContent?.takeIf { it.isNotBlank() }?.let { put("reasoning_content", it) }
                 if (message.toolCalls.isNotEmpty()) {
                     put(
                         "tool_calls",
@@ -152,6 +154,155 @@ object OpenAiWire {
                 append(document.text)
             }
         }.trim()
+    }
+}
+
+/** OpenAI Responses API wire format, including stateless tool-call and image round trips. */
+object OpenAiResponsesWire {
+    fun requestBody(model: String, request: ChatRequest): String {
+        val instructions = request.messages.filter { it.role == ChatRole.SYSTEM }
+            .joinToString("\n\n") { it.content }
+            .takeIf { it.isNotBlank() }
+        val input = JSONArray()
+        request.messages.filter { it.role != ChatRole.SYSTEM }.forEach { message ->
+            when (message.role) {
+                ChatRole.USER -> input.put(userMessage(message))
+                ChatRole.ASSISTANT -> {
+                    message.reasoningContent?.takeIf { it.isNotBlank() }?.let { reasoning ->
+                        input.put(JSONObject().put("type", "reasoning").put("content", reasoning))
+                    }
+                    if (message.content.isNotBlank()) {
+                        input.put(JSONObject().put("role", "assistant").put("content", message.content))
+                    }
+                    message.toolCalls.forEach { call ->
+                        input.put(
+                            JSONObject()
+                                .put("type", "function_call")
+                                .put("call_id", call.id)
+                                .put("name", call.name)
+                                .put("arguments", call.argumentsJson)
+                        )
+                    }
+                }
+                ChatRole.TOOL -> input.put(
+                    JSONObject()
+                        .put("type", "function_call_output")
+                        .put("call_id", message.toolCallId.orEmpty())
+                        .put("output", message.content)
+                )
+                ChatRole.SYSTEM -> Unit
+            }
+        }
+        val root = JSONObject()
+            .put("model", model)
+            .put("input", input)
+            .put("max_output_tokens", request.maxTokens)
+            .put("temperature", request.temperature)
+            .put("stream", false)
+        instructions?.let { root.put("instructions", it) }
+        if (request.tools.isNotEmpty()) {
+            root.put(
+                "tools",
+                JSONArray().apply {
+                    request.tools.forEach { tool ->
+                        put(
+                            JSONObject()
+                                .put("type", "function")
+                                .put("name", tool.name)
+                                .put("description", tool.description)
+                                .put("parameters", JSONObject(tool.parametersJsonSchema))
+                        )
+                    }
+                }
+            )
+            root.put("tool_choice", "auto")
+        }
+        return root.toString()
+    }
+
+    fun parseResponse(body: String): ChatResponse {
+        val root = JSONObject(body)
+        root.optJSONObject("error")?.let { error ->
+            throw cn.market.assistant.domain.assistant.ChatModelException(
+                error.optString("message").ifBlank { "模型服务返回错误" }
+            )
+        }
+        val output = root.optJSONArray("output")
+            ?: throw cn.market.assistant.domain.assistant.ChatModelException("Responses API 没有返回 output")
+        val text = StringBuilder()
+        val reasoning = StringBuilder()
+        val toolCalls = mutableListOf<ChatToolCall>()
+        for (index in 0 until output.length()) {
+            val item = output.optJSONObject(index) ?: continue
+            when (item.optString("type")) {
+                "message" -> {
+                    val content = item.optJSONArray("content") ?: continue
+                    for (partIndex in 0 until content.length()) {
+                        val part = content.optJSONObject(partIndex) ?: continue
+                        if (part.optString("type") == "output_text") text.append(part.optString("text"))
+                    }
+                }
+                "reasoning" -> {
+                    val content = item.optJSONArray("content")
+                    if (content == null) {
+                        reasoning.append(item.optString("content"))
+                    } else {
+                        for (partIndex in 0 until content.length()) {
+                            val part = content.optJSONObject(partIndex) ?: continue
+                            if (part.optString("type") == "reasoning_text") reasoning.append(part.optString("text"))
+                        }
+                    }
+                }
+                "function_call" -> {
+                    val name = item.optString("name").takeIf { it.isNotBlank() } ?: continue
+                    toolCalls += ChatToolCall(
+                        id = item.optString("call_id").ifBlank { item.optString("id").ifBlank { "call-$index" } },
+                        name = name,
+                        argumentsJson = item.optString("arguments").ifBlank { "{}" }
+                    )
+                }
+            }
+        }
+        val usage = root.optJSONObject("usage")
+        val status = root.optString("status")
+        if (status == "failed") {
+            throw cn.market.assistant.domain.assistant.ChatModelException(
+                root.optJSONObject("error")?.optString("message")?.takeIf { it.isNotBlank() } ?: "Responses API 请求失败"
+            )
+        }
+        return ChatResponse(
+            message = ChatMessage(
+                role = ChatRole.ASSISTANT,
+                content = text.toString().trim(),
+                toolCalls = toolCalls,
+                reasoningContent = reasoning.toString().takeIf { it.isNotBlank() }
+            ),
+            usage = ChatUsage(
+                promptTokens = usage?.optInt("input_tokens", 0) ?: 0,
+                completionTokens = usage?.optInt("output_tokens", 0) ?: 0
+            ),
+            finishReason = status.takeIf { it.isNotBlank() }
+        )
+    }
+
+    private fun userMessage(message: ChatMessage): JSONObject {
+        val images = message.attachments.filter { it.isImage }
+        val text = OpenAiWire.messageText(message)
+        val content: Any = if (images.isEmpty()) {
+            text
+        } else {
+            JSONArray().apply {
+                if (text.isNotBlank()) put(JSONObject().put("type", "input_text").put("text", text))
+                images.forEach { image ->
+                    put(
+                        JSONObject()
+                            .put("type", "input_image")
+                            .put("image_url", "data:${image.mimeType};base64,${image.base64Image}")
+                    )
+                }
+            }
+        }
+        return JSONObject().put("role", "user").put("content", content)
     }
 }
 

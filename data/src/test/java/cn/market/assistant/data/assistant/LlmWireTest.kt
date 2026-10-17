@@ -101,6 +101,88 @@ class LlmWireTest {
     }
 
     @Test
+    fun openAiParsesAndEchoesReasoningContentForToolContinuity() {
+        val parsed = OpenAiWire.parseResponse(
+            """
+            {"choices":[{"finish_reason":"tool_calls","message":{"role":"assistant","content":null,
+            "reasoning_content":"需要先查行情","tool_calls":[{"id":"c1","type":"function",
+            "function":{"name":"market.quote","arguments":"{\"query\":\"黄金\"}"}}]}}]}
+            """.trimIndent()
+        )
+
+        assertEquals("需要先查行情", parsed.message.reasoningContent)
+        val continuation = ChatRequest(
+            messages = listOf(
+                parsed.message,
+                ChatMessage(ChatRole.TOOL, "现价 2,900", toolCallId = "c1")
+            ),
+            tools = tools
+        )
+        val assistant = JSONObject(OpenAiWire.requestBody("deepseek-flash", continuation))
+            .getJSONArray("messages").getJSONObject(0)
+        assertEquals("需要先查行情", assistant.getString("reasoning_content"))
+    }
+
+    @Test
+    fun responsesRequestCarriesInstructionsToolsImagesAndStatelessToolHistory() {
+        val request = ChatRequest(
+            messages = listOf(
+                ChatMessage(ChatRole.SYSTEM, "系统提示"),
+                ChatMessage(ChatRole.USER, "分析图片", attachments = listOf(image())),
+                ChatMessage(
+                    ChatRole.ASSISTANT,
+                    "",
+                    reasoningContent = "先检查图表",
+                    toolCalls = listOf(ChatToolCall("call-r1", "market.quote", "{\"query\":\"黄金\"}"))
+                ),
+                ChatMessage(ChatRole.TOOL, "金价 2,900", toolCallId = "call-r1")
+            ),
+            tools = tools,
+            maxTokens = 128
+        )
+
+        val body = JSONObject(OpenAiResponsesWire.requestBody("deepseek-flash", request))
+
+        assertEquals("系统提示", body.getString("instructions"))
+        assertEquals(128, body.getInt("max_output_tokens"))
+        assertEquals(false, body.getBoolean("stream"))
+        val input = body.getJSONArray("input")
+        val userContent = input.getJSONObject(0).getJSONArray("content")
+        assertEquals("input_text", userContent.getJSONObject(0).getString("type"))
+        assertEquals("input_image", userContent.getJSONObject(1).getString("type"))
+        assertTrue(userContent.getJSONObject(1).getString("image_url").startsWith("data:image/png;base64,"))
+        assertEquals("reasoning", input.getJSONObject(1).getString("type"))
+        assertEquals("先检查图表", input.getJSONObject(1).getString("content"))
+        assertEquals("function_call", input.getJSONObject(2).getString("type"))
+        assertEquals("call-r1", input.getJSONObject(2).getString("call_id"))
+        assertEquals("function_call_output", input.getJSONObject(3).getString("type"))
+        assertEquals("call-r1", input.getJSONObject(3).getString("call_id"))
+        assertEquals("market.quote", body.getJSONArray("tools").getJSONObject(0).getString("name"))
+        assertEquals("auto", body.getString("tool_choice"))
+    }
+
+    @Test
+    fun responsesParsesTextReasoningToolCallsAndUsage() {
+        val parsed = OpenAiResponsesWire.parseResponse(
+            """
+            {"status":"completed","output":[
+              {"type":"reasoning","content":[{"type":"reasoning_text","text":"先取证"}]},
+              {"type":"message","content":[{"type":"output_text","text":"黄金报价如下"}]},
+              {"type":"function_call","call_id":"r1","name":"market.quote","arguments":"{\"query\":\"黄金\"}"}
+            ],"usage":{"input_tokens":40,"output_tokens":12}}
+            """.trimIndent()
+        )
+
+        assertEquals("黄金报价如下", parsed.message.content)
+        assertEquals("先取证", parsed.message.reasoningContent)
+        assertEquals("r1", parsed.message.toolCalls.single().id)
+        assertEquals("market.quote", parsed.message.toolCalls.single().name)
+        assertEquals(40, parsed.usage.promptTokens)
+        assertEquals(12, parsed.usage.completionTokens)
+        assertEquals("completed", parsed.finishReason)
+    }
+
+    @Test
     fun anthropicRequestSeparatesSystemAndMergesToolResults() {
         val request = ChatRequest(
             messages = listOf(
