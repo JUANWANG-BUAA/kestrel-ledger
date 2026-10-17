@@ -173,6 +173,8 @@ internal fun RecordScreen(
     var cashEventType by draft.cashEventType
     var tradeDay by draft.tradeDay
     var isSaving by draft.saving
+    var cashBusy by remember { mutableStateOf(false) }
+    var confirmBusy by remember { mutableStateOf(false) }
     var showDatePicker by remember { mutableStateOf(false) }
     var fundDetailOpen by remember { mutableStateOf(false) }
     LaunchedEffect(fundFeatureState.profileTarget?.code) {
@@ -263,11 +265,27 @@ internal fun RecordScreen(
                     NumericField(cashAmount, { cashAmount = it }, "从今天开始的期初可用现金（元）", Modifier.fillMaxWidth())
                     Text("既有基金和黄金持仓继续保留；历史买卖不会改写。从起点后的新买卖和现金分红会自动记入现金。", color = cashPalette.muted, style = MarketType.caption)
                     Button(onClick = {
-                        runCatching { ledger.initializeAccountCash(cashAmount.toBigDecimalOrNull() ?: error("请填写期初现金")) }
-                            .onSuccess { cashAmount = ""; message = "现金跟踪已启用"; messageIsError = false; onChanged() }
-                            .onFailure { message = it.message ?: "设置失败"; messageIsError = true }
-                    }, enabled = cashAmount.isNotBlank(), modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(13.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Blue)) { Text("开始跟踪现金") }
+                        if (cashBusy) return@Button
+                        val amount = cashAmount.toBigDecimalOrNull()
+                        if (amount == null) {
+                            message = "请填写期初现金"; messageIsError = true; return@Button
+                        }
+                        cashBusy = true
+                        scope.launch {
+                            val result = runCatching {
+                                withContext(Dispatchers.IO) { ledger.initializeAccountCash(amount) }
+                            }
+                            result.onSuccess {
+                                cashAmount = ""; message = "现金跟踪已启用"; messageIsError = false; onChanged()
+                            }.onFailure {
+                                message = it.message ?: "设置失败"; messageIsError = true
+                            }
+                            cashBusy = false
+                        }
+                    }, enabled = cashAmount.isNotBlank() && !cashBusy, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(13.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Blue)) {
+                        Text(if (cashBusy) "启用中…" else "开始跟踪现金")
+                    }
                 }
                 // Cash movements only make sense once tracking has a starting point.
                 if (cashBalance != null) {
@@ -280,11 +298,35 @@ internal fun RecordScreen(
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         NumericField(cashAmount, { cashAmount = it }, "金额（元）", Modifier.weight(1f))
                         Button(onClick = {
-                            runCatching { ledger.addExternalCashMovement(cashEventType, cashAmount.toBigDecimalOrNull() ?: error("请填写金额"), cashMemo, tradeDay) }
-                                .onSuccess { cashAmount = ""; cashMemo = ""; message = if (cashEventType == AccountCashEventType.DEPOSIT) "入金已记录" else "出金已记录"; messageIsError = false; onChanged() }
-                                .onFailure { message = it.message ?: "保存失败"; messageIsError = true }
-                        }, enabled = cashAmount.isNotBlank(), shape = RoundedCornerShape(13.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Blue)) { Text(if (cashEventType == AccountCashEventType.DEPOSIT) "记入金" else "记出金") }
+                            if (cashBusy) return@Button
+                            val amount = cashAmount.toBigDecimalOrNull()
+                            if (amount == null) {
+                                message = "请填写金额"; messageIsError = true; return@Button
+                            }
+                            val type = cashEventType
+                            val memo = cashMemo
+                            val day = tradeDay
+                            cashBusy = true
+                            scope.launch {
+                                val result = runCatching {
+                                    withContext(Dispatchers.IO) {
+                                        ledger.addExternalCashMovement(type, amount, memo, day)
+                                    }
+                                }
+                                result.onSuccess {
+                                    cashAmount = ""; cashMemo = ""
+                                    message = if (type == AccountCashEventType.DEPOSIT) "入金已记录" else "出金已记录"
+                                    messageIsError = false
+                                    onChanged()
+                                }.onFailure {
+                                    message = it.message ?: "保存失败"; messageIsError = true
+                                }
+                                cashBusy = false
+                            }
+                        }, enabled = cashAmount.isNotBlank() && !cashBusy, shape = RoundedCornerShape(13.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Blue)) {
+                            Text(if (cashBusy) "保存中…" else if (cashEventType == AccountCashEventType.DEPOSIT) "记入金" else "记出金")
+                        }
                     }
                     OutlinedTextField(cashMemo, { cashMemo = it }, modifier = Modifier.fillMaxWidth(),
                         label = { Text("备注（选填）") }, singleLine = true, shape = RoundedCornerShape(13.dp), colors = fieldColors())
@@ -832,10 +874,21 @@ internal fun RecordScreen(
                 }
             },
             confirmButton = { TextButton(onClick = {
-                runCatching { ledger.confirmTrade(trade.id, BigDecimal(confirmPrice)) }
-                    .onSuccess { onChanged(); confirmTarget = null }
-                    .onFailure { message = it.message ?: "确认失败"; messageIsError = true; confirmTarget = null }
-            }) { Text("确认并计算") } },
+                if (confirmBusy) return@TextButton
+                val price = runCatching { BigDecimal(confirmPrice) }.getOrNull()
+                if (price == null) {
+                    message = "请填写有效净值"; messageIsError = true; return@TextButton
+                }
+                confirmBusy = true
+                scope.launch {
+                    val result = runCatching {
+                        withContext(Dispatchers.IO) { ledger.confirmTrade(trade.id, price) }
+                    }
+                    result.onSuccess { onChanged(); confirmTarget = null }
+                        .onFailure { message = it.message ?: "确认失败"; messageIsError = true; confirmTarget = null }
+                    confirmBusy = false
+                }
+            }, enabled = !confirmBusy) { Text(if (confirmBusy) "确认中…" else "确认并计算") } },
             dismissButton = { TextButton(onClick = { confirmTarget = null }) { Text("取消") } }
         )
     }
