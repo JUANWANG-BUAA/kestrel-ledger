@@ -254,7 +254,7 @@ internal fun OverviewScreen(
                     Modifier.weight(1f)
                 )
             }
-            positions.take(5).forEach { PositionCard(it, concealAmounts) }
+            PositionTable(positions.take(5), concealAmounts)
         }
         if (pendingCount > 0) InfoCard("有 $pendingCount 笔交易待确认", "净值公布后补录确认净值，即可计入持仓。", Blue)
         if (positions.isNotEmpty()) {

@@ -77,8 +77,8 @@ internal fun AssetsScreen(
                 onAction = onRecord
             )
         }
+        PositionTable(positions)
         positions.forEach { position ->
-            PositionCard(position)
             QuoteEditor(position, marketQuotes, ledger, marketRepository, onMarketQuoteFetched) { onChanged() }
         }
         MarketCard {
