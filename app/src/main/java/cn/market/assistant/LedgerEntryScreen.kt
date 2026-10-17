@@ -402,13 +402,17 @@ internal fun RecordScreen(
                         Button(onClick = {
                             val displayName = customName.ifBlank { search.trim() }
                             val identifier = customCode.ifBlank { "LOCAL_${displayName.hashCode().toUInt().toString(16)}" }
-                            runCatching { ledger.addCustomAsset(identifier, displayName, filter) }
-                                .onSuccess {
+                            val kind = filter
+                            scope.launch {
+                                val result = runCatching {
+                                    withContext(Dispatchers.IO) { ledger.addCustomAsset(identifier, displayName, kind) }
+                                }
+                                result.onSuccess {
                                     selected = it; search = ""; customName = ""; customCode = ""
                                     transferTarget = null; transferSearch = ""
                                     it.toFundSearchResult()?.let(fundFeatureState::openProfile) ?: fundFeatureState.clearProfile()
-                                }
-                                .onFailure { message = it.message ?: "添加失败"; messageIsError = true }
+                                }.onFailure { message = it.message ?: "添加失败"; messageIsError = true }
+                            }
                         }) { Text("使用这个标的") }
                     }
                 }
@@ -426,11 +430,17 @@ internal fun RecordScreen(
                             label = asset.name.take(9),
                             selected = false,
                             onClick = {
-                                val chosen = if (asset.symbol == "GOLD.SGE.AU9999") {
-                                    ledger.findAsset(asset.symbol) ?: ledger.addCustomAsset(asset.symbol, asset.name, asset.kind)
-                                } else asset
-                                selected = chosen; transferTarget = null; transferSearch = ""
-                                chosen.toFundSearchResult()?.let(fundFeatureState::openProfile) ?: fundFeatureState.clearProfile()
+                                val quickAsset = asset
+                                scope.launch {
+                                    val chosen = if (quickAsset.symbol == "GOLD.SGE.AU9999") {
+                                        withContext(Dispatchers.IO) {
+                                            ledger.findAsset(quickAsset.symbol)
+                                                ?: ledger.addCustomAsset(quickAsset.symbol, quickAsset.name, quickAsset.kind)
+                                        }
+                                    } else quickAsset
+                                    selected = chosen; transferTarget = null; transferSearch = ""
+                                    chosen.toFundSearchResult()?.let(fundFeatureState::openProfile) ?: fundFeatureState.clearProfile()
+                                }
                             }
                         )
                     }
@@ -463,8 +473,13 @@ internal fun RecordScreen(
                     },
                     onRetry = fundFeatureState::retrySearch,
                     onUse = { result ->
-                        runCatching { ledger.addFundAsset(result.code, result.name, result.category) }
-                            .onSuccess { asset ->
+                        scope.launch {
+                            val added = runCatching {
+                                withContext(Dispatchers.IO) {
+                                    ledger.addFundAsset(result.code, result.name, result.category)
+                                }
+                            }
+                            added.onSuccess { asset ->
                                 selected = asset
                                 if (fundFeatureState.profileTarget?.code != result.code ||
                                     fundFeatureState.profile == null && !fundFeatureState.isProfileLoading) {
@@ -474,8 +489,8 @@ internal fun RecordScreen(
                                 transferTarget = null
                                 transferSearch = ""
                                 onChanged()
-                            }
-                            .onFailure { error -> message = error.message ?: "无法添加该基金"; messageIsError = true }
+                            }.onFailure { error -> message = error.message ?: "无法添加该基金"; messageIsError = true }
+                        }
                     }
                 )
             }
@@ -812,15 +827,16 @@ internal fun RecordScreen(
                 isLoading = fundFeatureState.isProfileLoading,
                 error = fundFeatureState.profileError,
                 onUse = if (selected == null) ({
-                    runCatching {
-                        ledger.addFundAsset(
-                            detailTarget.code,
-                            detailTarget.name,
-                            fundFeatureState.profile?.fundType ?: detailTarget.category
-                        )
+                    val category = fundFeatureState.profile?.fundType ?: detailTarget.category
+                    scope.launch {
+                        val added = runCatching {
+                            withContext(Dispatchers.IO) {
+                                ledger.addFundAsset(detailTarget.code, detailTarget.name, category)
+                            }
+                        }
+                        added.onSuccess { asset -> selected = asset; search = ""; onChanged() }
+                            .onFailure { error -> message = error.message ?: "无法添加该基金"; messageIsError = true }
                     }
-                        .onSuccess { asset -> selected = asset; search = ""; onChanged() }
-                        .onFailure { error -> message = error.message ?: "无法添加该基金"; messageIsError = true }
                 }) else null,
                 onRetry = fundFeatureState::retryProfile,
                 historyCache = fundFeatureState.navHistoryCache,
