@@ -118,8 +118,10 @@ class PortfolioChangeProposalAgentTool(private val ledger: Ledger) : AgentTool {
         val fee = args.decimal("fee") ?: BigDecimal.ZERO
         if (fee < BigDecimal.ZERO) return null
         val sideIsBuy = action == "record_buy"
-        val amount = args.decimal("amount") ?: if (!sideIsBuy) units.multiply(unitPrice) else return null
+        val expectedAmount = units.multiply(unitPrice).add(if (sideIsBuy) fee else BigDecimal.ZERO)
+        val amount = args.decimal("amount") ?: expectedAmount
         if (amount <= BigDecimal.ZERO || (sideIsBuy && fee >= amount)) return null
+        if (!isConsistentTradeProposal(amount, units, unitPrice, fee, sideIsBuy)) return null
         if (!sideIsBuy) {
             val position = ledger.positions().firstOrNull { it.asset.symbol == code } ?: return null
             if (position.units < units) return null
