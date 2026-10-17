@@ -452,7 +452,7 @@ private fun AssistantSettingsPanel(state: AssistantFeatureState, modifier: Modif
                         SettingsGroupTitle("数据权限", "可随时调整；设置保存在本机")
                         AssistantSettingSwitch(
                             title = "允许发送持仓明细",
-                            detail = if (sharePrivate) "单只持仓数据会发给当前模型" else "仅发送汇总事实与公开行情",
+                            detail = if (sharePrivate) "单只持仓与最近 6 轮历史会发给当前模型" else "仅发送当前问题与已授权事实，不发送历史对话",
                             checked = sharePrivate,
                             onCheckedChange = { sharePrivate = it }
                         )

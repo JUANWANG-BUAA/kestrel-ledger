@@ -642,7 +642,7 @@ internal class AssistantFeatureState(
                     answerOffline(turnId, effectiveQuestion, attachments, "未配置模型，使用离线事实回答")
                     return@launch
                 }
-                val history = turns.toChatHistory(turnId)
+                val history = assistantChatHistory(turns, turnId, settings.sharePrivateDetails)
                 val loop = AgentLoop(model, registry, maxToolRounds = AgentLoop.DEFAULT_MAX_TOOL_ROUNDS, nowMillis = nowMillis)
                 val allowed = (skill?.toolIds?.takeIf { it.isNotEmpty() }?.toSet() ?: enabledToolIds)
                     .intersect(enabledToolIds.ifEmpty { registry.toolIds })
@@ -1027,16 +1027,7 @@ internal class AssistantFeatureState(
         return if (index < 0) this + turn else toMutableList().also { it[index] = turn }
     }
 
-    private fun List<AssistantTurnUi>.toChatHistory(excludeTurnId: String): List<ChatMessage> = asSequence()
-        .filter { it.id != excludeTurnId && it.answer.isNotBlank() }
-        .toList()
-        .takeLast(6)
-        .flatMap { turn ->
-            listOf(
-                ChatMessage(ChatRole.USER, turn.question),
-                ChatMessage(ChatRole.ASSISTANT, turn.answer)
-            )
-        }
+
 }
 
 internal fun AssistantAttachmentUi.toChatAttachment(): ChatAttachment = ChatAttachment(
