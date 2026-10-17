@@ -68,6 +68,8 @@ data class AlertOutcome(val rule: AlertRule, val decision: AlertDecision)
  */
 object AlertEngine {
     private val zone = ZoneId.of("Asia/Shanghai")
+    private const val MAX_OBSERVATION_AGE_MILLIS = 72L * 60 * 60 * 1000
+    private const val MAX_FUTURE_SKEW_MILLIS = 5L * 60 * 1000
 
     fun evaluate(
         rule: AlertRule,
@@ -79,6 +81,15 @@ object AlertEngine {
         val value = observation.value
         if (value == null || !value.isFinite()) {
             return AlertOutcome(rule.copy(consecutiveBreaches = 0), AlertDecision.Suppressed("缺少可用数值，未触发"))
+        }
+        val observedAt = observation.observedAtMillis
+        if (rule.kind != AlertRuleKind.QUOTE_STALE && observedAt != null &&
+            (observedAt > nowMillis + MAX_FUTURE_SKEW_MILLIS || nowMillis - observedAt > MAX_OBSERVATION_AGE_MILLIS)
+        ) {
+            return AlertOutcome(
+                rule.copy(consecutiveBreaches = 0),
+                AlertDecision.Suppressed("观测时间来自未来或已超过 72 小时，未触发")
+            )
         }
         if (!breaches(rule, value)) {
             return AlertOutcome(rule.copy(consecutiveBreaches = 0), AlertDecision.Stay)

@@ -163,4 +163,35 @@ class AlertEngineTest {
         assertEquals(2, account.requiredBreaches)
         assertEquals("静默 22:00–8:00", account.quietWindow)
     }
+
+    @Test
+    fun staleObservationIsSuppressedButStalenessRuleStillFires() {
+        val staleAt = morning.toEpochMilli() - 73L * 60 * 60 * 1000
+        val stalePrice = AlertEngine.evaluate(
+            rule(AlertRuleKind.PRICE_ABOVE, 4_000.0),
+            AlertObservation(value = 4_166.01, observedAtMillis = staleAt),
+            nowMillis = morning.toEpochMilli()
+        )
+        assertTrue(stalePrice.decision is AlertDecision.Suppressed)
+        assertTrue((stalePrice.decision as AlertDecision.Suppressed).reason.contains("72 小时"))
+        assertEquals(0, stalePrice.rule.consecutiveBreaches)
+
+        val stalenessRule = AlertEngine.evaluate(
+            rule(AlertRuleKind.QUOTE_STALE, 72.0, null, "关键报价"),
+            AlertObservation(value = 80.0, observedAtMillis = staleAt),
+            nowMillis = morning.toEpochMilli()
+        )
+        assertTrue(stalenessRule.decision is AlertDecision.Fire)
+    }
+
+    @Test
+    fun futureObservationIsSuppressed() {
+        val future = AlertEngine.evaluate(
+            rule(AlertRuleKind.PRICE_ABOVE, 4_000.0),
+            AlertObservation(value = 4_166.01, observedAtMillis = morning.toEpochMilli() + 10 * 60_000),
+            nowMillis = morning.toEpochMilli()
+        )
+        assertTrue(future.decision is AlertDecision.Suppressed)
+        assertTrue((future.decision as AlertDecision.Suppressed).reason.contains("来自未来"))
+    }
 }
