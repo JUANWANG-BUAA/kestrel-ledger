@@ -1009,11 +1009,14 @@ private fun MarketApp(ledger: Ledger, alertRequestId: Int = 0) {
                                 restoringBackup = true
                                 scope.launch {
                                     val result = withContext(Dispatchers.IO) {
-                                        runCatching { ledger.restoreBackup(payload) }
+                                        runCatching {
+                                            ledger.restoreBackup(payload)
+                                            ledger.trades().size
+                                        }
                                     }
-                                    result.onSuccess {
+                                    result.onSuccess { restoredTradeCount ->
                                         revision++
-                                        dataMessage = "账本已恢复"
+                                        dataMessage = "账本已恢复 · $restoredTradeCount 笔流水"
                                         dataMessageIsError = false
                                     }.onFailure { error ->
                                         dataMessage = error.message ?: "恢复失败"
