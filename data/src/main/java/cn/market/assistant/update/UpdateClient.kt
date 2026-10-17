@@ -68,6 +68,9 @@ class UpdateClient(
         destinationDir: File,
         onProgress: (downloaded: Long, total: Long) -> Unit
     ): Result<File> = withContext(Dispatchers.IO) {
+        if (!isAllowedApkSize(release.sizeBytes)) {
+            return@withContext Result.failure(IOException("APK 大小异常，已阻止下载"))
+        }
         destinationDir.mkdirs()
         val target = File(destinationDir, "market-${release.version}.apk")
         if (target.exists() && target.length() == release.sizeBytes && sha256(target) == release.sha256) {
@@ -140,6 +143,7 @@ class UpdateClient(
                     while (true) {
                         val read = input.read(buffer)
                         if (read <= 0) break
+                        require(downloaded + read <= maxOf(expectedSize, 1L)) { "APK 实际大小超过发布信息" }
                         output.write(buffer, 0, read)
                         downloaded += read
                         onProgress(downloaded, total)
@@ -177,6 +181,10 @@ class UpdateClient(
     }
 
     companion object {
+        const val MAX_APK_BYTES = 100L * 1024 * 1024
+
+        fun isAllowedApkSize(sizeBytes: Long): Boolean = sizeBytes in 1..MAX_APK_BYTES
+
         private val REPO = Regex("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
 
         /** Official first, then public accelerators; every failure falls through to the next one. */
