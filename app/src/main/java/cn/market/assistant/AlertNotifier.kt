@@ -22,6 +22,7 @@ import cn.market.assistant.domain.alert.AlertEvent
  */
 object AlertNotifier {
     const val CHANNEL_ID = "market_alerts"
+    const val EXTRA_OPEN_ALERTS = "cn.market.assistant.OPEN_ALERTS"
     const val CHANNEL_NAME = "行情与持仓提醒"
 
     fun ensureChannel(context: Context) {
@@ -72,7 +73,9 @@ object AlertNotifier {
         ongoing: Boolean
     ): Notification {
         val intent = Intent(context, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                Intent.FLAG_ACTIVITY_SINGLE_TOP
+            putExtra(EXTRA_OPEN_ALERTS, true)
         }
         val pendingIntent = PendingIntent.getActivity(
             context,

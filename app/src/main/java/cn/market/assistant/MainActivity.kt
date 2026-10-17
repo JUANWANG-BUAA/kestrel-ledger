@@ -23,6 +23,7 @@ import cn.market.assistant.data.assistant.ReadOnlyAgentTools
 import cn.market.assistant.alert.AlertEvaluationScheduler
 import cn.market.assistant.domain.portfolio.Trade
 
+import android.content.Intent
 import android.os.Bundle
 import android.os.SystemClock
 import android.util.Log
@@ -233,8 +234,11 @@ private data class DrawerEntry(
 
 
 class MainActivity : ComponentActivity() {
+    private val alertRequestId = androidx.compose.runtime.mutableIntStateOf(0)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        consumeAlertIntent(intent)
         // Scheduling starts after the first frame: WorkManager opens the encrypted ledger on its own
         // thread and used to compete with the splash screen's database open.
         @Suppress("DEPRECATION")
@@ -286,9 +290,21 @@ class MainActivity : ComponentActivity() {
                     surfaceVariant = colors.surfaceAlt, outline = colors.line
                 )
                 MaterialTheme(colorScheme = scheme) {
-                    LedgerStartup { ledger -> MarketApp(ledger) }
+                    LedgerStartup { ledger -> MarketApp(ledger, alertRequestId.intValue) }
                 }
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        consumeAlertIntent(intent)
+    }
+
+    private fun consumeAlertIntent(intent: Intent?) {
+        if (intent?.getBooleanExtra(AlertNotifier.EXTRA_OPEN_ALERTS, false) == true) {
+            alertRequestId.intValue++
         }
     }
 }
@@ -345,7 +361,7 @@ internal fun assetChipColors() = FilterChipDefaults.filterChipColors(
 )
 
 @Composable
-private fun MarketApp(ledger: Ledger) {
+private fun MarketApp(ledger: Ledger, alertRequestId: Int = 0) {
     val appContext = LocalContext.current.applicationContext
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) {
@@ -372,6 +388,13 @@ private fun MarketApp(ledger: Ledger) {
     var goldLoading by remember { mutableStateOf(false) }
     var selectedMarket by remember { mutableStateOf<String?>(null) }
     var showSectors by remember { mutableStateOf(false) }
+    LaunchedEffect(alertRequestId) {
+        if (alertRequestId > 0) {
+            tab = Tab.HOME
+            selectedMarket = ALERT_ROUTE
+            showSectors = false
+        }
+    }
     var dataMessage by remember { mutableStateOf("") }
     var dataMessageIsError by remember { mutableStateOf(false) }
     var restorePayload by remember { mutableStateOf<String?>(null) }
