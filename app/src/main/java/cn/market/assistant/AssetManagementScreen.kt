@@ -1,12 +1,15 @@
 package cn.market.assistant
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.horizontalScroll
@@ -89,11 +92,19 @@ internal fun AssetsScreen(
                 if (trades.isEmpty()) {
                     Text("记下买入、赎回或期初持仓后，会在这里保留记录。", color = Muted, fontSize = 12.sp, lineHeight = 18.sp)
                 } else {
-                    trades.take(if (showAllTrades) trades.size else 5).forEach { trade ->
+                    val visibleTrades = trades.take(if (showAllTrades) trades.size else 5)
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp)) {
+                        Text("日期 · 操作 · 份额", color = Muted, style = MarketType.caption, modifier = Modifier.weight(1f))
+                        Text("金额", color = Muted, style = MarketType.caption)
+                    }
+                    visibleTrades.forEachIndexed { index, trade ->
                         TradeHistoryRow(trade) {
                             reversalTarget = trade
                             reversalReason = ""
                             reversalError = null
+                        }
+                        if (index < visibleTrades.lastIndex) {
+                            Box(Modifier.fillMaxWidth().height(1.dp).background(MarketTheme.colors.line.copy(alpha = 0.65f)))
                         }
                     }
                     if (trades.size > 5) {
