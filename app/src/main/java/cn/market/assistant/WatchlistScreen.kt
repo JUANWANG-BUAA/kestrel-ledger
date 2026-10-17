@@ -8,6 +8,8 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -208,64 +210,65 @@ internal fun WatchlistScreen(
             ) { visibleInstruments ->
                 val palette = MarketTheme.colors
                 val geometry = MarketTheme.geometry
-                Column(verticalArrangement = Arrangement.spacedBy(geometry.sm)) {
-                    visibleInstruments.forEach { instrument ->
+                val shape = RoundedCornerShape(geometry.card)
+                Column(
+                    Modifier.fillMaxWidth()
+                        .clip(shape)
+                        .background(palette.surface)
+                        .border(1.dp, palette.line.copy(alpha = 0.85f), shape)
+                ) {
+                    visibleInstruments.forEachIndexed { index, instrument ->
                         val quote = quotes[instrument.secid]
-                        Card(
-                            onClick = { onOpen(instrument.secid) },
-                            modifier = Modifier.fillMaxWidth()
-                                .marketShadow(RoundedCornerShape(geometry.card), MarketElevation.card),
-                            shape = RoundedCornerShape(geometry.card),
-                            colors = CardDefaults.cardColors(containerColor = palette.surface),
-                            border = BorderStroke(1.dp, palette.line.copy(alpha = 0.85f))
+                        Row(
+                            Modifier.fillMaxWidth()
+                                .clickable { onOpen(instrument.secid) }
+                                .padding(start = geometry.lg, end = geometry.sm, top = geometry.md, bottom = geometry.md),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(
-                                Modifier.padding(start = geometry.lg, end = geometry.sm, top = geometry.md, bottom = geometry.md),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(geometry.sm)
-                                    ) {
-                                        Text(instrument.name, color = palette.ink, style = MarketType.number)
-                                        Text(instrument.market, color = palette.accent, style = MarketType.caption)
-                                    }
-                                    Text(
-                                        quote?.let {
-                                            if (it.source == "daily-close") "近收 ${it.displayTime()}"
-                                            else "行情 ${it.displayTime()}"
-                                        } ?: "暂无报价",
-                                        color = palette.muted, style = MarketType.caption
-                                    )
-                                }
-                                Column(
-                                    horizontalAlignment = Alignment.End,
-                                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(geometry.sm)
                                 ) {
-                                    Text(
-                                        quote?.let { String.format("%.2f", it.price) } ?: "—",
-                                        color = palette.ink, style = MarketType.numberLarge
-                                    )
-                                    Text(
-                                        quote?.let {
-                                            "${if (it.changePct > 0) "+" else ""}" +
-                                                "${String.format("%.2f", it.changePct)}%"
-                                        } ?: "等待行情",
-                                        color = quote?.let { plColor(BigDecimal.valueOf(it.changePct)) } ?: palette.muted,
-                                        style = MarketType.numberSmall
-                                    )
+                                    Text(instrument.name, color = palette.ink, style = MarketType.number)
+                                    Text(instrument.market, color = palette.accent, style = MarketType.caption)
                                 }
                                 Text(
-                                    "移除",
-                                    color = palette.muted.copy(alpha = 0.85f),
-                                    fontSize = 11.5.sp,
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(geometry.chip))
-                                        .marketPressable { onToggle(instrument.secid, false) }
-                                        .padding(horizontal = geometry.sm, vertical = geometry.sm)
+                                    quote?.let {
+                                        if (it.source == "daily-close") "近收 ${it.displayTime()}"
+                                        else "行情 ${it.displayTime()}"
+                                    } ?: "暂无报价",
+                                    color = palette.muted, style = MarketType.caption
                                 )
                             }
+                            Column(
+                                horizontalAlignment = Alignment.End,
+                                verticalArrangement = Arrangement.spacedBy(2.dp)
+                            ) {
+                                Text(
+                                    quote?.let { String.format("%.2f", it.price) } ?: "—",
+                                    color = palette.ink, style = MarketType.numberLarge
+                                )
+                                Text(
+                                    quote?.let {
+                                        "${if (it.changePct > 0) "+" else ""}" +
+                                            "${String.format("%.2f", it.changePct)}%"
+                                    } ?: "等待行情",
+                                    color = quote?.let { plColor(BigDecimal.valueOf(it.changePct)) } ?: palette.muted,
+                                    style = MarketType.numberSmall
+                                )
+                            }
+                            Box(
+                                Modifier.size(34.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .marketPressable { onToggle(instrument.secid, false) },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                MarketIcon("close", size = 14.dp, tint = palette.muted)
+                            }
+                        }
+                        if (index < visibleInstruments.lastIndex) {
+                            Box(Modifier.fillMaxWidth().height(1.dp).background(palette.line.copy(alpha = 0.65f)))
                         }
                     }
                 }
