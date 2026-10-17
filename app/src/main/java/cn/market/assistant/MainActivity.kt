@@ -358,6 +358,10 @@ private fun MarketApp(ledger: Ledger, alertRequestId: Int = 0) {
     var tab by rememberSaveable { mutableStateOf(Tab.HOME) }
     var concealOverviewAmounts by rememberSaveable { mutableStateOf(false) }
     var revision by remember { mutableStateOf(0) }
+    var watchlistIds by remember { mutableStateOf<List<String>>(emptyList()) }
+    LaunchedEffect(revision) {
+        watchlistIds = withContext(Dispatchers.IO) { ledger.watchlist() }
+    }
     var marketQuotes by remember { mutableStateOf(emptyMap<String, MarketQuote>()) }
     var marketLoading by remember { mutableStateOf(false) }
     var marketMessage by remember { mutableStateOf("") }
@@ -844,22 +848,28 @@ private fun MarketApp(ledger: Ledger, alertRequestId: Int = 0) {
                 Tab.WATCHLIST -> {
                     val secid = route.second
                     if (secid == null) WatchlistScreen(
-                        ledger.watchlist(), fundRepository, marketQuotes, marketLoading, marketMessage, ::refreshMarket,
+                        watchlistIds, fundRepository, marketQuotes, marketLoading, marketMessage, ::refreshMarket,
                         onToggle = { id, watched ->
-                            runCatching { ledger.setWatched(id, watched) }
-                                .onSuccess { revision++ }
-                                .onFailure { marketMessage = it.userFacingMessage("自选保存失败") }
+                            scope.launch {
+                                runCatching {
+                                    withContext(Dispatchers.IO) { ledger.setWatched(id, watched) }
+                                }.onSuccess { revision++ }
+                                    .onFailure { marketMessage = it.userFacingMessage("自选保存失败") }
+                            }
                         },
                         onOpen = { selectedMarket = it; showSectors = false }, modifier = Modifier.padding(insets)
                     ) else MarketDetailScreen(
                         secid, marketQuotes[secid], marketRepository,
                         onBack = { selectedMarket = null },
                         onToggle = { watched ->
-                            runCatching { ledger.setWatched(secid, watched) }
-                                .onSuccess { revision++ }
-                                .onFailure { marketMessage = it.userFacingMessage("自选保存失败") }
+                            scope.launch {
+                                runCatching {
+                                    withContext(Dispatchers.IO) { ledger.setWatched(secid, watched) }
+                                }.onSuccess { revision++ }
+                                    .onFailure { marketMessage = it.userFacingMessage("自选保存失败") }
+                            }
                         },
-                        isWatched = ledger.watchlist().contains(secid), modifier = Modifier.padding(insets)
+                        isWatched = watchlistIds.contains(secid), modifier = Modifier.padding(insets)
                     )
                 }
                 Tab.RECORD -> RecordScreen(
