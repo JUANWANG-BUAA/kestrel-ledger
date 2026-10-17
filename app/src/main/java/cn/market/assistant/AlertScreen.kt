@@ -216,6 +216,9 @@ private fun AlertRuleCard(rule: AlertRule, state: AlertFeatureState, onEdit: () 
                         color = Ink, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold
                     )
                     Text(rule.kind.explanation, color = Muted, fontSize = 11.sp)
+                    if (!rule.kind.supported) {
+                        Text("当前版本未接入基金盘中估算；此规则不会触发", color = AssistantDown, fontSize = 11.sp)
+                    }
                 }
                 Switch(checked = rule.enabled, onCheckedChange = { state.toggleRule(rule, it) })
             }
@@ -267,7 +270,7 @@ private fun AlertRuleEditor(
         ) {
             Text(if (initial == null) "新建提醒规则" else "编辑提醒规则", color = Ink, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                AlertRuleKind.entries.forEach { option ->
+                AlertRuleKind.entries.filter { it.supported }.forEach { option ->
                     FilterChip(
                         selected = kind == option,
                         onClick = { kind = option },

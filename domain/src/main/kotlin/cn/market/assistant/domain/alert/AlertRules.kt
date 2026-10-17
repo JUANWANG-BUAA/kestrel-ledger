@@ -8,7 +8,8 @@ enum class AlertRuleKind(
     val label: String,
     val unit: String,
     val requiresTarget: Boolean,
-    val explanation: String
+    val explanation: String,
+    val supported: Boolean = true
 ) {
     PRICE_ABOVE("价格高于", "元/点", true, "标的最新价高于阈值时提醒"),
     PRICE_BELOW("价格低于", "元/点", true, "标的最新价低于阈值时提醒"),
@@ -16,7 +17,11 @@ enum class AlertRuleKind(
     DAILY_CHANGE_BELOW("单日跌幅超过", "%", true, "标的当日跌幅超过阈值时提醒"),
     HOLDING_PROFIT_ABOVE("持仓收益率高于", "%", false, "账户或持仓累计收益率高于阈值时提醒"),
     HOLDING_LOSS_BELOW("持仓亏损超过", "%", false, "账户或持仓累计亏损超过阈值时提醒"),
-    FUND_ESTIMATE_ABOVE("基金估算涨幅超过", "%", true, "已接入路由的盘中估算涨幅超过阈值时提醒"),
+    FUND_ESTIMATE_ABOVE(
+        "基金估算涨幅超过", "%", true,
+        "已接入路由的盘中估算涨幅超过阈值时提醒",
+        supported = false
+    ),
     GOLD_PREMIUM_ABOVE("内外盘溢价超过", "%", false, "境内金价相对国际折算价的溢价超过阈值时提醒"),
     QUOTE_STALE("报价超过", "小时未更新", false, "关键报价超过阈值小时没有更新时提醒")
 }

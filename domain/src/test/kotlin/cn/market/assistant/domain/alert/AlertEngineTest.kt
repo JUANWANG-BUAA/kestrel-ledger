@@ -194,4 +194,10 @@ class AlertEngineTest {
         assertTrue(future.decision is AlertDecision.Suppressed)
         assertTrue((future.decision as AlertDecision.Suppressed).reason.contains("来自未来"))
     }
+
+    @Test
+    fun unsupportedFundEstimateRuleIsNotOffered() {
+        assertFalse(AlertRuleKind.FUND_ESTIMATE_ABOVE.supported)
+        assertTrue(AlertRuleKind.PRICE_ABOVE.supported)
+    }
 }

@@ -87,7 +87,7 @@ internal object AlertObservations {
                     value = null,
                     source = null,
                     observedAtMillis = nowMillis,
-                    description = "需要先在基金详情页生成盘中估算"
+                    description = "当前版本未接入基金盘中估算，规则不会触发"
                 )
                 AlertRuleKind.GOLD_PREMIUM_ABOVE -> AlertObservation(
                     value = goldPremiumPct,
