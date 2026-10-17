@@ -1253,6 +1253,14 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
         } finally { endSerializedTransaction(db) }
     }
 
+    private fun requireNotFuture(day: LocalDate) {
+        require(!day.isAfter(LocalDate.now(ZoneId.of("Asia/Shanghai")))) { "交易日期不能晚于今天" }
+    }
+
+    private fun occurredAtFor(day: LocalDate): Instant =
+        if (day == LocalDate.now(ZoneId.of("Asia/Shanghai"))) Instant.now()
+        else day.atTime(15, 0).atZone(ZoneId.of("Asia/Shanghai")).toInstant()
+
     /** Store one replaceable observation per Shanghai calendar day, including explicit quote gaps. */
     fun savePortfolioSnapshot(positions: List<Position>, day: LocalDate = LocalDate.now(ZoneId.of("Asia/Shanghai"))): PortfolioSnapshot {
         val observedAt = Instant.now().toString()
@@ -1264,6 +1272,11 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
             .fold(BigDecimal.ZERO) { sum, event -> sum + event.balanceDelta }
             .takeIf { cashBalance != null }
         val (snapshot, rows) = PortfolioAnalytics.capture(day, observedAt, positions, cashBalance, externalNetFlow, valuationFresh)
+        writePortfolioSnapshot(snapshot, rows)
+        return snapshot
+    }
+
+    private fun writePortfolioSnapshot(snapshot: PortfolioSnapshot, rows: List<PositionSnapshot>) {
         val db = writableDatabase
         beginSerializedTransaction(db)
         try {
@@ -1285,7 +1298,102 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
             }) }
             db.setTransactionSuccessful()
         } finally { endSerializedTransaction(db) }
-        return snapshot
+    }
+
+    /**
+     * Rebuilds observation snapshots after a backdated trade or correction. Historical positions are
+     * replayed from confirmed transactions at [from] and priced with the newest quote available on or
+     * before each day; days without a usable quote stay explicitly incomplete instead of being zeroed.
+     */
+    fun rebuildPortfolioSnapshots(
+        from: LocalDate,
+        through: LocalDate = LocalDate.now(ZoneId.of("Asia/Shanghai"))
+    ): Int {
+        val today = LocalDate.now(ZoneId.of("Asia/Shanghai"))
+        require(!from.isAfter(through)) { "重建起始日不能晚于结束日" }
+        require(!through.isAfter(today)) { "不能重建未来日期" }
+        val allTrades = trades()
+        val cashEvents = accountCashEvents()
+        var written = 0
+        for (day in snapshotRebuildDays(from, through)) {
+            val positions = computePositions(allTrades, historicalQuotes(day), day)
+            val cashBalance = AccountCashLedger.balance(cashEvents, day)?.amount
+            val externalNetFlow = cashEvents.asSequence().filter { it.day == day }
+                .filter { it.type == AccountCashEventType.DEPOSIT || it.type == AccountCashEventType.WITHDRAWAL }
+                .fold(BigDecimal.ZERO) { sum, event -> sum + event.balanceDelta }
+                .takeIf { cashBalance != null }
+            val observedAt = Instant.now().toString()
+            val valuationFresh = day == today && quotesFreshAt(positions, Instant.parse(observedAt))
+            val (snapshot, rows) = PortfolioAnalytics.capture(
+                day, observedAt, positions, cashBalance, externalNetFlow, valuationFresh
+            )
+            writePortfolioSnapshot(snapshot, rows)
+            written++
+        }
+        return written
+    }
+
+    /** Latest quote known on or before the day, with local fund NAV / daily bars as fallbacks. */
+    private fun historicalQuotes(day: LocalDate): Map<String, Triple<BigDecimal, String, String>> {
+        val result = linkedMapOf<String, Triple<BigDecimal, String, String>>()
+        val endOfDay = day.atTime(23, 59, 59).atZone(ZoneId.of("Asia/Shanghai")).toInstant().toString()
+        fun putLatest(assetId: String, price: BigDecimal, observedAt: String, source: String) {
+            val previous = result[assetId]
+            if (previous == null || (runCatching { Instant.parse(observedAt) > Instant.parse(previous.second) }.getOrDefault(false))) {
+                result[assetId] = Triple(price, observedAt, source)
+            }
+        }
+        readableDatabase.rawQuery(
+            "SELECT asset_id,price,observed_at,source FROM quote_history WHERE observed_at<=? ORDER BY observed_at",
+            arrayOf(endOfDay)
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                putLatest(cursor.getString(0), BigDecimal(cursor.getString(1)), cursor.getString(2), cursor.getString(3))
+            }
+        }
+        readableDatabase.rawQuery("SELECT asset_id,price,observed_at,source FROM quotes", null).use { cursor ->
+            while (cursor.moveToNext()) {
+                val observedAt = cursor.getString(2)
+                if (observedAt <= endOfDay) {
+                    putLatest(cursor.getString(0), BigDecimal(cursor.getString(1)), observedAt, cursor.getString(3))
+                }
+            }
+        }
+        val assets = assets()
+        for (asset in assets) {
+            if (asset.kind == AssetKind.FUND) {
+                readableDatabase.rawQuery(
+                    "SELECT nav_date,unit_nav FROM fund_nav_points WHERE fund_code=? AND nav_date<=? ORDER BY nav_date DESC LIMIT 1",
+                    arrayOf(asset.symbol, day.toString())
+                ).use { cursor ->
+                    if (cursor.moveToFirst()) {
+                        val navDay = cursor.getString(0)
+                        val observedAt = fundNavQuoteObservedAt(navDay)
+                        if (observedAt != null) {
+                            putLatest(asset.symbol, BigDecimal.valueOf(cursor.getDouble(1)), observedAt.toString(), "FUND_NAV")
+                        }
+                    }
+                }
+            }
+            val secid = asset.marketQuoteSecid ?: asset.symbol.takeIf { it.contains('.') }
+            if (secid != null) {
+                readableDatabase.rawQuery(
+                    "SELECT trade_date,close FROM market_daily_bars WHERE secid=? AND trade_date<=? ORDER BY trade_date DESC LIMIT 1",
+                    arrayOf(secid, day.toString())
+                ).use { cursor ->
+                    if (cursor.moveToFirst()) {
+                        val barDay = cursor.getString(0)
+                        val observedAt = runCatching {
+                            LocalDate.parse(barDay).atTime(15, 0).atZone(ZoneId.of("Asia/Shanghai")).toInstant()
+                        }.getOrNull()
+                        if (observedAt != null) {
+                            putLatest(asset.symbol, BigDecimal.valueOf(cursor.getDouble(1)), observedAt.toString(), "daily-close")
+                        }
+                    }
+                }
+            }
+        }
+        return result
     }
 
     fun portfolioSnapshots(): List<PortfolioSnapshot> = buildList {
@@ -1475,6 +1583,7 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
     ) {
         require(type == AccountCashEventType.DEPOSIT || type == AccountCashEventType.WITHDRAWAL) { "这里只能记录入金或出金" }
         require(amount > BigDecimal.ZERO) { "金额必须大于零" }
+        requireNotFuture(day)
         val db = writableDatabase
         beginSerializedTransaction(db)
         try {
@@ -1540,7 +1649,8 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
     }
 
     fun addTrade(asset: AssetInfo, side: TradeSide, amount: BigDecimal, units: BigDecimal?,
-                 price: BigDecimal?, fee: BigDecimal): Long {
+                 price: BigDecimal?, fee: BigDecimal,
+                 day: LocalDate = LocalDate.now(ZoneId.of("Asia/Shanghai"))): Long {
         require(side == TradeSide.BUY || side == TradeSide.SELL) { "该账本事件不能按买卖交易录入" }
         require(fee >= BigDecimal.ZERO)
         require(units == null || units > BigDecimal.ZERO)
@@ -1550,9 +1660,10 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
             val position = positions().firstOrNull { it.asset.symbol == asset.symbol }
             require(units != null && position != null && position.units >= units) { "卖出份额超过当前持仓" }
         }
+        requireNotFuture(day)
         val sellAmount = if (side == TradeSide.SELL && price != null) requireNotNull(units).multiply(price) else amount
         val confirmed = units != null && price != null
-        val tradeDay = LocalDate.now(ZoneId.of("Asia/Shanghai"))
+        val tradeDay = day
         val values = ContentValues().apply {
             put("asset_id", asset.symbol); put("side", side.name); put("day", tradeDay.toString())
             put("amount", sellAmount.toPlainString()); put("units", units?.toPlainString())
@@ -1587,14 +1698,15 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
         asset: AssetInfo,
         grossAmount: BigDecimal,
         withholdingTax: BigDecimal = BigDecimal.ZERO,
-        memo: String = ""
+        memo: String = "",
+        day: LocalDate = LocalDate.now(ZoneId.of("Asia/Shanghai"))
     ): Long {
         require(grossAmount > BigDecimal.ZERO) { "分红金额必须大于零" }
         require(withholdingTax >= BigDecimal.ZERO && withholdingTax < grossAmount) { "税费必须为正数或零，且小于分红金额" }
         val note = memo.trim()
         require(note.length <= 120) { "备注不能超过 120 个字符" }
-        val day = LocalDate.now(ZoneId.of("Asia/Shanghai"))
-        val occurredAt = Instant.now()
+        requireNotFuture(day)
+        val occurredAt = occurredAtFor(day)
         val db = writableDatabase
         beginSerializedTransaction(db)
         return try {
@@ -1622,7 +1734,8 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
         grossAmount: BigDecimal,
         withholdingTax: BigDecimal,
         reinvestmentPrice: BigDecimal,
-        memo: String = ""
+        memo: String = "",
+        day: LocalDate = LocalDate.now(ZoneId.of("Asia/Shanghai"))
     ): Long {
         require(grossAmount > BigDecimal.ZERO) { "分红金额必须大于零" }
         require(withholdingTax >= BigDecimal.ZERO && withholdingTax < grossAmount) { "税费必须小于分红金额" }
@@ -1632,7 +1745,7 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
         val netAmount = grossAmount - withholdingTax
         val units = netAmount.divide(reinvestmentPrice, 8, RoundingMode.DOWN)
         require(units > BigDecimal.ZERO) { "税后分红不足以换算为最小份额" }
-        val day = LocalDate.now(ZoneId.of("Asia/Shanghai"))
+        requireNotFuture(day)
         val db = writableDatabase
         beginSerializedTransaction(db)
         return try {
@@ -1655,14 +1768,19 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
     }
 
     /** Applies a pure share ratio while preserving total cost and invalidating the old per-unit quote. */
-    fun addShareSplit(asset: AssetInfo, shareFactor: BigDecimal, memo: String = ""): Long {
+    fun addShareSplit(
+        asset: AssetInfo,
+        shareFactor: BigDecimal,
+        memo: String = "",
+        day: LocalDate = LocalDate.now(ZoneId.of("Asia/Shanghai"))
+    ): Long {
         require(shareFactor > BigDecimal.ZERO && shareFactor.compareTo(BigDecimal.ONE) != 0) {
             "份额换算比例必须大于零且不能为 1"
         }
         require(shareFactor.precision() <= 24 && shareFactor.scale() <= 12) { "份额换算比例精度过高" }
         val note = memo.trim()
         require(note.length <= 120) { "备注不能超过 120 个字符" }
-        val day = LocalDate.now(ZoneId.of("Asia/Shanghai"))
+        requireNotFuture(day)
         val db = writableDatabase
         beginSerializedTransaction(db)
         return try {
@@ -1695,14 +1813,15 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
         sourceUnits: BigDecimal,
         destinationUnits: BigDecimal,
         declaredCost: BigDecimal,
-        memo: String = ""
+        memo: String = "",
+        day: LocalDate = LocalDate.now(ZoneId.of("Asia/Shanghai"))
     ): Long {
         require(sourceAsset.symbol != destinationAsset.symbol) { "转出和转入标的不能相同" }
         require(sourceUnits > BigDecimal.ZERO && destinationUnits > BigDecimal.ZERO) { "转入和转出份额必须大于零" }
         require(declaredCost > BigDecimal.ZERO) { "请输入转移成本以供核对" }
         val note = memo.trim()
         require(note.length <= 120) { "备注不能超过 120 个字符" }
-        val day = LocalDate.now(ZoneId.of("Asia/Shanghai"))
+        requireNotFuture(day)
         val db = writableDatabase
         beginSerializedTransaction(db)
         return try {
@@ -1756,26 +1875,31 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
     }
 
     /** Records an existing holding at the user's cost basis without inventing a past purchase or cash flow. */
-    fun addOpeningPosition(asset: AssetInfo, units: BigDecimal, totalCost: BigDecimal): Long {
+    fun addOpeningPosition(
+        asset: AssetInfo,
+        units: BigDecimal,
+        totalCost: BigDecimal,
+        day: LocalDate = LocalDate.now(ZoneId.of("Asia/Shanghai"))
+    ): Long {
         require(units > BigDecimal.ZERO) { "持有份额必须大于零" }
         require(totalCost > BigDecimal.ZERO) { "历史成本必须大于零" }
         val averageCost = totalCost.divide(units, 12, RoundingMode.HALF_UP)
         require(averageCost > BigDecimal.ZERO) { "平均成本过小，无法精确保存" }
-        val day = LocalDate.now(ZoneId.of("Asia/Shanghai")).toString()
+        requireNotFuture(day)
         val db = writableDatabase
         beginSerializedTransaction(db)
         return try {
             val transactionId = db.insertOrThrow("transactions", null, ContentValues().apply {
                 put("asset_id", asset.symbol)
                 put("side", TradeSide.OPENING_POSITION.name)
-                put("day", day)
+                put("day", day.toString())
                 put("amount", totalCost.toPlainString())
                 put("units", units.toPlainString())
                 put("unit_price", averageCost.toPlainString())
                 put("fee", BigDecimal.ZERO.toPlainString())
                 put("status", "CONFIRMED")
             })
-            invalidatePortfolioFactsFrom(db, LocalDate.parse(day))
+            invalidatePortfolioFactsFrom(db, day)
             db.setTransactionSuccessful()
             transactionId
         } finally { endSerializedTransaction(db) }
@@ -2504,7 +2628,9 @@ private fun JSONObject.nullableDecimal(key: String): BigDecimal? =
     if (!has(key) || isNull(key)) null else BigDecimal(getString(key))
 
 private fun computePositions(
-    trades: List<Trade>, quotes: Map<String, Triple<BigDecimal,String,String>>
+    trades: List<Trade>,
+    quotes: Map<String, Triple<BigDecimal, String, String>>,
+    throughDay: LocalDate? = null
 ): List<Position> {
     data class State(
         val asset: AssetInfo, var units: BigDecimal = BigDecimal.ZERO,
@@ -2513,6 +2639,7 @@ private fun computePositions(
     val states = linkedMapOf<String, State>()
     for (trade in trades.asReversed()) {
         if (!trade.confirmed || trade.isReversed) continue
+        if (throughDay != null && LocalDate.parse(trade.day).isAfter(throughDay)) continue
         val p = states.getOrPut(trade.asset.symbol) { State(trade.asset) }
         when (trade.side) {
             TradeSide.BUY, TradeSide.OPENING_POSITION -> {
