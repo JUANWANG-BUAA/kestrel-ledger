@@ -234,6 +234,23 @@ object MarketApi {
             quoteTime, fetchedAt, "gold-api-xau-cny")
     }
 
+    /** Official SGE daily closes for Au99.99, used once to backfill the app's own daily series. */
+    fun fetchSgeDailyCloses(limit: Int = 250): List<Pair<String, Double>> {
+        val referer = "https://www.sge.com.cn/sjzx/mrhq"
+        val rows = JSONObject(request("https://www.sge.com.cn/graph/Dailyhq?instid=Au99.99", referer))
+            .optJSONArray("time") ?: return emptyList()
+        return buildList {
+            for (index in 0 until rows.length()) {
+                val row = rows.optJSONArray(index) ?: continue
+                if (row.length() < 3) continue
+                val day = row.optString(0)
+                val close = row.optString(2).toDoubleOrNull()?.takeIf { it.isFinite() && it > 0 } ?: continue
+                if (!day.matches(Regex("\\d{4}-\\d{2}-\\d{2}"))) continue
+                add(day to close)
+            }
+        }.sortedBy { it.first }.takeLast(limit.coerceIn(2, 2_000))
+    }
+
     /** Shanghai Gold Exchange Au99.99 spot quote. */
     fun fetchSgeAu9999Quote(): MarketQuote {
         val referer = "https://www.sge.com.cn/sjzx/mrhq"

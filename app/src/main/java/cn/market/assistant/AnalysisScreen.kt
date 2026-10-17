@@ -202,7 +202,7 @@ internal fun AnalysisScreen(
             MarketCompactStat("待确认", "$pending 笔", Modifier.weight(1f))
         }
         if (pending > 0) InfoCard("$pending 笔交易待确认", "待确认交易暂不计入份额和已确认周期统计。", Blue)
-        Text("资产走势", color = MarketTheme.colors.ink, style = MarketType.title)
+        MarketSectionHeader("资产走势", caption = "按已记录快照，拖动曲线查看单日")
         PortfolioTrendCard(
             points = trendPoints,
             metric = trendMetric,
@@ -215,15 +215,13 @@ internal fun AnalysisScreen(
         )
         Text("资产规模变化会受到入金和出金影响；累计盈亏来自已记录的持仓快照。", color = Muted, fontSize = 10.sp, lineHeight = 15.sp)
         PortfolioRiskCard(accountRisk, riskParameters, riskFeatureState::update)
-        Text("周期基准对比", color = Ink, fontSize = 19.sp, fontWeight = FontWeight.SemiBold)
+        MarketSectionHeader("周期基准对比", caption = "通用参考指数，不含股息")
         PortfolioBenchmarkCard(benchmarkFeatureState)
 
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text("资产配置", color = Ink, fontSize = 19.sp, fontWeight = FontWeight.SemiBold)
-                Text(if (cashBalance == null) "当前持仓 · 不含现金" else "账户持仓与现金", color = Muted, fontSize = 10.sp)
-            }
-        }
+        MarketSectionHeader(
+            "资产配置",
+            caption = if (cashBalance == null) "当前持仓 · 不含现金" else "账户持仓与现金"
+        )
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
             AllocationBasis.entries.forEach { basis ->
                 FilterChip(
@@ -301,14 +299,17 @@ private fun PortfolioTrendCard(
         TrendMetric.ASSET -> if (accountValueMode) "账户总资产 · 含现金" else "持仓市值 · 不含现金"
     }
 
+    val trendPalette = MarketTheme.colors
+    val trendGeometry = MarketTheme.geometry
     Card(
-        Modifier.fillMaxWidth().animateContentSize(tween(260)),
-        shape = TacticalPanel,
-        colors = CardDefaults.cardColors(containerColor = White),
-        border = BorderStroke(1.dp, Color(0xFFD8D8D2)),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        Modifier.fillMaxWidth()
+            .marketShadow(RoundedCornerShape(trendGeometry.card), MarketElevation.card)
+            .animateContentSize(tween(260)),
+        shape = RoundedCornerShape(trendGeometry.card),
+        colors = CardDefaults.cardColors(containerColor = trendPalette.surface),
+        border = BorderStroke(1.dp, trendPalette.line)
     ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.padding(trendGeometry.lg), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Text(scopeLabel, color = Muted, fontSize = 11.sp)
@@ -326,23 +327,16 @@ private fun PortfolioTrendCard(
             }
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 TrendMetric.entries.forEach { item ->
-                    FilterChip(
-                        selected = metric == item,
-                        onClick = { onMetricChange(item) },
-                        label = { Text(item.label) }, colors = assetChipColors()
-                    )
+                    MarketChoiceChip(label = item.label, selected = metric == item) { onMetricChange(item) }
                 }
             }
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 TrendRange.entries.forEach { item ->
-                    FilterChip(
-                        selected = range == item,
-                        onClick = { onRangeChange(item) },
-                        label = { Text(item.label) }, colors = assetChipColors()
-                    )
+                    MarketChoiceChip(label = item.label, selected = range == item) { onRangeChange(item) }
                 }
             }
-            if (points.size >= 2) {
+            val chartSpan = if (points.size >= 2) (points.maxOf { it.value } - points.minOf { it.value }).toDouble() else 0.0
+            if (points.size >= 2 && chartSpan > 0.005) {
                 PortfolioTrendChart(points, activeIndex, onPointSelected, Modifier.fillMaxWidth().height(154.dp))
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text(first?.day?.toString() ?: "", Modifier.weight(1f), color = Muted, fontSize = 9.sp)
@@ -352,14 +346,26 @@ private fun PortfolioTrendCard(
                 Text("拖动曲线查看单日记录；缺少价格的观察点不会补零。", color = Muted, fontSize = 10.sp)
             } else {
                 Column(
-                    Modifier.fillMaxWidth().height(118.dp).background(AnalysisPaper, RoundedCornerShape(14.dp)).padding(15.dp),
-                    verticalArrangement = Arrangement.Center
+                    Modifier.fillMaxWidth()
+                        .background(trendPalette.surfaceAlt, RoundedCornerShape(trendGeometry.chip))
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Text(if (points.isEmpty()) "暂无可绘制的观察数据" else "已记录 1 个观察点", color = Ink, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                    Spacer(Modifier.height(5.dp))
                     Text(
-                        if (points.isEmpty()) "记下交易并补充价格后，曲线会从有效快照开始。" else "再积累一个有效观察日即可查看变化曲线。",
-                        color = Muted, fontSize = 11.sp, lineHeight = 16.sp
+                        when {
+                            points.isEmpty() -> "暂无可绘制的观察数据"
+                            points.size == 1 -> "已记录 1 个观察点"
+                            else -> "两个观察点金额相同"
+                        },
+                        color = trendPalette.ink, style = MarketType.numberSmall, fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        when {
+                            points.isEmpty() -> "记下交易并补充价格后，曲线会从有效快照开始。"
+                            points.size == 1 -> "再积累一个有效观察日即可查看变化曲线。"
+                            else -> "金额出现变化后，这里会画出走势；没有变化时不画一条假的平线。"
+                        },
+                        color = trendPalette.muted, style = MarketType.caption, lineHeight = 16.sp
                     )
                 }
             }
@@ -790,10 +796,10 @@ private fun PeriodReportCard(
     }
 }
 
-@Composable
-internal fun PortfolioProfitSparkline(snapshots: List<PortfolioSnapshot>, modifier: Modifier = Modifier) {
+/** Cumulative investor profit for each observation day; shared by the chart and the empty gate. */
+internal fun sparklineValues(snapshots: List<PortfolioSnapshot>): List<Double> {
     val accountBased = snapshots.all { it.accountComplete }
-    val values = if (accountBased && snapshots.isNotEmpty()) {
+    return if (accountBased && snapshots.isNotEmpty()) {
         val firstValue = requireNotNull(snapshots.first().totalValue)
         var cumulativeExternalFlow = BigDecimal.ZERO
         snapshots.mapIndexedNotNull { index, snapshot ->
@@ -801,19 +807,51 @@ internal fun PortfolioProfitSparkline(snapshots: List<PortfolioSnapshot>, modifi
             (requireNotNull(snapshot.totalValue) - firstValue - cumulativeExternalFlow).toDouble()
         }
     } else snapshots.mapNotNull { it.totalProfit?.toDouble() }
+}
+
+/** True when the recorded snapshots actually move, so a flat month is not drawn as a fake trend. */
+internal fun hasSparklineVariation(snapshots: List<PortfolioSnapshot>): Boolean {
+    val values = sparklineValues(snapshots)
+    return values.size >= 2 && (values.max() - values.min()) > 0.005
+}
+
+@Composable
+internal fun PortfolioProfitSparkline(snapshots: List<PortfolioSnapshot>, modifier: Modifier = Modifier) {
+    val values = sparklineValues(snapshots)
     if (values.size < 2) return
+    val palette = MarketTheme.colors
     val min = minOf(0.0, values.minOrNull() ?: 0.0)
     val max = maxOf(0.0, values.maxOrNull() ?: 0.0)
     val range = (max - min).coerceAtLeast(0.01)
-    val color = if ((values.lastOrNull() ?: 0.0) >= (values.firstOrNull() ?: 0.0)) MarketUp else MarketDown
+    val moving = (max - min) > 0.005
+    val color = when {
+        !moving -> palette.muted
+        (values.lastOrNull() ?: 0.0) >= (values.firstOrNull() ?: 0.0) -> palette.up
+        else -> palette.down
+    }
     Canvas(modifier) {
         val zeroY = size.height - ((0.0 - min) / range).toFloat() * size.height
-        drawLine(Color(0xFFE8E5DE), Offset(0f, zeroY), Offset(size.width, zeroY), 1.dp.toPx())
+        drawLine(palette.line, Offset(0f, zeroY), Offset(size.width, zeroY), 1.dp.toPx())
         val path = Path()
         values.forEachIndexed { index, value ->
             val x = size.width * index / (values.lastIndex).coerceAtLeast(1)
             val y = size.height - ((value - min) / range).toFloat() * size.height
             if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
+        }
+        if (moving) {
+            val area = Path().apply {
+                addPath(path)
+                lineTo(size.width, size.height)
+                lineTo(0f, size.height)
+                close()
+            }
+            drawPath(
+                area,
+                androidx.compose.ui.graphics.Brush.verticalGradient(
+                    listOf(color.copy(alpha = 0.22f), color.copy(alpha = 0.01f))
+                ),
+                style = androidx.compose.ui.graphics.drawscope.Fill
+            )
         }
         drawPath(path, color, style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round))
         val lastY = size.height - ((values.last() - min) / range).toFloat() * size.height

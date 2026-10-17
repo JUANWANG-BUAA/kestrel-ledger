@@ -48,6 +48,45 @@ class AgentLoopTest {
         }
     }
 
+    private class ChartTool(private val chart: AssistantChart) : AgentTool {
+        override val id = "market.chart"
+        override val description = "draw a local series"
+        override val parameters = listOf(AgentToolParameter("symbol", "series id", required = true))
+
+        override suspend fun execute(request: AgentToolRequest): AgentToolResult =
+            AgentToolResult(
+                facts = listOf(
+                    AssistantFact(
+                        key = "chart.latest",
+                        value = "1.23",
+                        unit = null,
+                        source = "test",
+                        observedAt = "2026-10-17T14:00:00Z",
+                        sensitivity = FactSensitivity.PUBLIC_MARKET
+                    )
+                ),
+                charts = listOf(chart)
+            )
+    }
+
+    private fun chart() = AssistantChart(
+        title = "国内 Au99.99 · 近 3 个记录日",
+        unit = "CNY / 克",
+        kind = AssistantChartKind.AREA,
+        series = listOf(
+            AssistantChartSeries(
+                name = "国内 Au99.99",
+                points = listOf(
+                    AssistantChartPoint("10-15", 880.0),
+                    AssistantChartPoint("10-16", 886.5),
+                    AssistantChartPoint("10-17", 892.0)
+                )
+            )
+        ),
+        source = "本机每日记录",
+        observedAt = "2026-10-17T14:00:00Z"
+    )
+
     private class ProposalTool(private val proposal: AssistantActionProposal) : AgentTool {
         override val id = "portfolio.propose_change"
         override val description = "propose a local change"
@@ -67,6 +106,53 @@ class AgentLoopTest {
         sharePrivateDetails = false
     )
     private val settings = LlmSettings(toolsEnabled = true)
+
+    @Test
+    fun chartFromToolIsEmittedAndReturned() = runTest {
+        val chartRegistry = AgentToolRegistry(listOf(ChartTool(chart())))
+        val model = FakeModel(
+            listOf(
+                ChatResponse(
+                    ChatMessage(
+                        ChatRole.ASSISTANT,
+                        "",
+                        toolCalls = listOf(ChatToolCall("call-1", "market_chart", """{"symbol":"gold.domestic"}"""))
+                    )
+                ),
+                ChatResponse(ChatMessage(ChatRole.ASSISTANT, "近三日金价上行。"))
+            )
+        )
+        val events = mutableListOf<AgentEvent>()
+        val result = AgentLoop(model, chartRegistry).run(
+            "画一下国内金价",
+            emptyList(),
+            emptyList(),
+            AgentToolAuthorization(allowedToolIds = setOf("market.chart")),
+            LlmSettings(toolsEnabled = true)
+        ) { events += it }
+
+        assertEquals(1, result.charts.size)
+        assertEquals("国内 Au99.99 · 近 3 个记录日", result.charts.single().title)
+        assertTrue(events.any { it is AgentEvent.ChartReady })
+    }
+
+    @Test
+    fun chartWithoutEnoughPointsIsRejectedByTheRegistry() = runTest {
+        val invalid = AssistantChart(
+            title = "空图",
+            series = listOf(AssistantChartSeries("x", listOf(AssistantChartPoint("10-17", 1.0)))),
+            source = "test",
+            observedAt = "2026-10-17T14:00:00Z"
+        )
+        val registryUnderTest = AgentToolRegistry(listOf(ChartTool(invalid)))
+        val result = registryUnderTest.execute(
+            "market.chart",
+            AgentToolRequest(mapOf("symbol" to "gold.domestic")),
+            AgentToolAuthorization(allowedToolIds = setOf("market.chart"))
+        )
+        assertEquals("INVALID_TOOL_RESULT", result.errorCode)
+        assertTrue(result.charts.isEmpty())
+    }
 
     @Test
     fun answersDirectlyWithoutCallingAnyTool() = runTest {

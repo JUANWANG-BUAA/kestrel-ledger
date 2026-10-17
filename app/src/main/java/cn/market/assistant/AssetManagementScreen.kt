@@ -52,7 +52,8 @@ internal fun AssetsScreen(
     positions: List<Position>, trades: List<Trade>, ledger: Ledger, marketRepository: MarketRepository,
     marketQuotes: Map<String, MarketQuote>, onMarketQuoteFetched: (MarketQuote) -> Unit,
     onChanged: () -> Unit,
-    onExport: () -> Unit, onImport: () -> Unit, dataMessage: String, dataMessageIsError: Boolean,
+    onExport: () -> Unit, onImport: () -> Unit, onRecord: () -> Unit,
+    dataMessage: String, dataMessageIsError: Boolean,
     modifier: Modifier = Modifier
 ) {
     var showAllTrades by remember { mutableStateOf(false) }
@@ -61,27 +62,29 @@ internal fun AssetsScreen(
     var reversalError by remember { mutableStateOf<String?>(null) }
     var reversalMessage by remember { mutableStateOf("") }
     ScreenColumn(modifier) {
-        BrandHeader("资产")
+        BrandHeader("持仓")
         Text("持仓按确认流水计算。补充当前净值或克价后，账面市值与盈亏会同步更新。", color = Muted, fontSize = 13.sp, lineHeight = 20.sp)
         if (positions.isEmpty()) {
             // Right after the first purchase the list is still empty, so point at confirmation
             // instead of telling the user to do what they just did.
             val pendingTrades = trades.count { !it.confirmed && !it.isReversed }
-            EmptyCard(
-                if (pendingTrades > 0) "有 $pendingTrades 笔交易待确认" else "这里还没有资产",
-                if (pendingTrades > 0) "补录确认净值后就会生成持仓；确认前不计入份额和盈亏。"
-                else "先到“记账”页搜索基金名称，按买入金额记下申购。"
+            MarketEmptyState(
+                icon = "assets",
+                title = if (pendingTrades > 0) "有 $pendingTrades 笔交易待确认" else "还没有持仓",
+                body = if (pendingTrades > 0) "补录确认净值后就会生成持仓；确认前不计入份额和盈亏。"
+                else "记下第一笔买入或期初持仓，份额、成本与盈亏会在这里汇总。",
+                actionLabel = if (pendingTrades > 0) null else "去记一笔",
+                onAction = onRecord
             )
         }
         positions.forEach { position ->
             PositionCard(position)
             QuoteEditor(position, marketQuotes, ledger, marketRepository, onMarketQuoteFetched) { onChanged() }
         }
-        Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(19.dp), colors = CardDefaults.cardColors(containerColor = White)) {
-            Column(Modifier.padding(17.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("交易流水", Modifier.weight(1f), color = Ink, fontWeight = FontWeight.SemiBold)
-                    Text("${trades.size} 笔", color = Muted, fontSize = 11.sp)
+        MarketCard {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                MarketSectionHeader("交易流水", caption = if (trades.isEmpty()) "暂无记录" else "共 ${trades.size} 笔") {
+                    Text("${trades.size} 笔", color = Muted, style = MarketType.label)
                 }
                 if (trades.isEmpty()) {
                     Text("记下买入、赎回或期初持仓后，会在这里保留记录。", color = Muted, fontSize = 12.sp, lineHeight = 18.sp)
@@ -102,10 +105,9 @@ internal fun AssetsScreen(
                 if (reversalMessage.isNotBlank()) Text(reversalMessage, color = Muted, fontSize = 11.sp, lineHeight = 15.sp)
             }
         }
-        Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(19.dp), colors = CardDefaults.cardColors(containerColor = White)) {
-            Column(Modifier.padding(17.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("账本数据与备份", color = Ink, fontWeight = FontWeight.SemiBold)
-                Text("${trades.size} 笔交易 · ${ledger.assets().size} 个可选标的", color = Muted, fontSize = 12.sp)
+        MarketCard {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                MarketSectionHeader("账本数据与备份", caption = "${trades.size} 笔交易 · ${ledger.assets().size} 个可选标的")
                 Text(
                     "数据保存在本机。新备份使用密码加密，可用于换机或恢复；请自行保存密码。旧版未加密备份仍可导入。",
                     color = Muted, fontSize = 11.sp, lineHeight = 16.sp
@@ -194,7 +196,7 @@ private fun TradeHistoryRow(trade: Trade, onReverse: () -> Unit) {
             append(" · 成本 ¥${trade.amount.portfolioMoney()}")
         }
         else -> buildString {
-            append("${trade.units?.portfolioQty() ?: "—"} $unit")
+            append("${trade.units?.portfolioQtyDisplay() ?: "—"} $unit")
             trade.price?.let { append(" × ${it.setScale(4, RoundingMode.HALF_UP).toPlainString()}") }
             if (trade.fee.signum() > 0) append(" · 手续费 ¥${trade.fee.portfolioMoney()}")
         }
@@ -223,7 +225,7 @@ private fun TradeHistoryRow(trade: Trade, onReverse: () -> Unit) {
                 val displayedAmount = if (
                     trade.side == TradeSide.CASH_DIVIDEND || trade.side == TradeSide.DIVIDEND_REINVESTMENT
                 ) trade.amount - trade.fee else trade.amount
-                Text("¥${displayedAmount.portfolioMoney()}", color = Ink, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Text("¥${displayedAmount.portfolioMoneyGrouped()}", color = Ink, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             }
             if (!trade.isReversed) TextButton(
                 onClick = onReverse,

@@ -138,6 +138,8 @@ data class LlmSettings(
     val modelCapabilities: LlmModelCapabilities? = null,
     val toolsEnabled: Boolean = true,
     val sharePrivateDetails: Boolean = false,
+    /** Master switch for tools that propose local changes (ledger writes, risk parameters, skills). */
+    val allowLocalChanges: Boolean = false,
     val systemPrompt: String = DEFAULT_SYSTEM_PROMPT,
     /** Explicit capability switch; unknown/custom endpoints default to text-only. */
     val imageInputEnabled: Boolean = false
@@ -182,12 +184,14 @@ data class LlmSettings(
                 "1. 只依据用户消息、工具返回的事实和附件内容回答，不得编造数值；缺数据就直说缺什么。\n" +
                 "2. 每个数值都要带来源与时点；估算值必须标注「估算，非官方净值」。\n" +
                 "3. 不提供买卖建议、不预测涨跌、不承诺收益；可以描述事实、口径、风险与历史表现。\n" +
-            "4. 需要行情、基金目录、持仓或报告时可调用工具；一次最多调用两个工具，拿不到就说明原因。\n" +
+                "4. 回答涉及本机持仓、行情、黄金、风险或提醒前，先调用对应工具核对，不要凭印象回答；一次最多调用两个工具，拿不到就说明原因。\n" +
                 "5. 用简体中文回答，先给结论再给依据，控制在 400 字以内；涉及金额保留两位小数。\n" +
-            "6. 用户如果问该不该买卖，直接说明本应用不做投资建议，并改为提供相关事实。\n" +
-            "7. 用户明确要求记住分析方法时，可调用 portfolio.propose_change 的 save_preference 生成待确认记录；不要声称已经记住。\n" +
+                "6. 用户如果问该不该买卖，直接说明本应用不做投资建议，并改为提供相关事实。\n" +
+                "7. 用户要求记住分析方法时：单条偏好用 portfolio.propose_change 的 save_preference；成套流程用 save_skill 并填写 skill_name、skill_instruction、skill_trigger。只生成待确认记录，不要声称已经记住。\n" +
                 "8. 用户请求修改自选、记录基金流水或调整风险参数时，只能调用 portfolio.propose_change 生成预览；说明这是本机记录，不会提交交易。必须等用户在界面确认后才能说已保存。\n" +
-                "9. 用户要求图表且已有至少两条真实时点数值时，可用 ```chart 区块生成折线图：首行 title=标题，第二行 unit=单位，其余每行 标签,数值；只能画已有数据，不补造点。数据不足时明确说明不能画趋势图。"
+                "9. 用户要走势图时优先调用 market.chart：symbol 用 gold.domestic、gold.international、gold.cny、gold.premium 或行情 secid；工具会返回可直接渲染的图。拿到图表后不要再手写图表代码块。\n" +
+                "10. 工具没有返回图表但已有至少两条真实时点数值时，才用 ```chart 区块：首行 title=标题，第二行 unit=单位，其余每行 标签,数值；只能画已有数据，不补造点。\n" +
+                "11. 用户已开启「允许修改本机数据」时你仍只能提议；未开启时不要提议写入类操作，改为说明需要到设置里授权。"
     }
 }
 

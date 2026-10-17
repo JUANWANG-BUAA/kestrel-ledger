@@ -68,10 +68,10 @@ internal fun AlertScreen(
     }
 
     Column(modifier.fillMaxSize().padding(horizontal = 16.dp)) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             MarketBackButton(label = "总览", onClick = onBack)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text("提醒", color = Ink, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
+                Text("提醒", color = Ink, style = MarketType.title)
                 Text("阈值规则 · 只陈述事实与来源时点 · 不提供买卖建议", color = Muted, fontSize = 10.sp)
             }
             TextButton(onClick = { state.checkNow(quotes, positions) }) { Text("立即检查", color = Blue, fontSize = 12.sp) }

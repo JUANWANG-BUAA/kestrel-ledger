@@ -37,7 +37,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.foundation.background
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -280,22 +282,21 @@ internal fun RecordScreen(
             }
         }
 
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(selected = filter == AssetKind.FUND, onClick = {
-                filter = AssetKind.FUND; selected = null; search = ""; fundFeatureState.clearSearch()
-            }, label = { Text("基金") }, colors = assetChipColors())
-            FilterChip(selected = filter == AssetKind.GOLD, onClick = {
-                filter = AssetKind.GOLD; selected = null; search = ""; fundFeatureState.clearSearch()
-            }, label = { Text("黄金") }, colors = assetChipColors())
+        MarketSegmentedControl(
+            options = listOf("基金", "黄金"),
+            selectedIndex = if (filter == AssetKind.FUND) 0 else 1,
+            modifier = Modifier.fillMaxWidth()
+        ) { index ->
+            filter = if (index == 0) AssetKind.FUND else AssetKind.GOLD
+            selected = null; search = ""; fundFeatureState.clearSearch()
         }
         if (selected == null) {
-            OutlinedTextField(
-                search, { search = it; fundFeatureState.search(it) }, modifier = Modifier.fillMaxWidth(), singleLine = true,
-                label = { Text(if (filter == AssetKind.FUND) "搜索基金名称或代码" else "搜索黄金品种") },
-                placeholder = { Text(if (filter == AssetKind.FUND) "例如：易方达蓝筹、110011、yfdlc" else "例如：积存金、Au99.99") },
-                leadingIcon = { MarketIcon("search", size = 19.dp, tint = Muted) },
-                trailingIcon = if (search.isNotEmpty()) ({ TextButton(onClick = { search = ""; fundFeatureState.clearSearch() }) { Text("清除") } }) else null,
-                shape = RoundedCornerShape(18.dp), colors = fieldColors()
+            MarketSearchField(
+                value = search,
+                onValueChange = { search = it; fundFeatureState.search(it) },
+                placeholder = if (filter == AssetKind.FUND) "搜索基金名称或代码，例如 110011" else "搜索黄金品种，例如 Au99.99",
+                modifier = Modifier.fillMaxWidth(),
+                onClear = { search = ""; fundFeatureState.clearSearch() }
             )
             // The market search returns the same code the local catalogue already knows about; keep the
             // richer market row and only surface local-only assets here.
@@ -352,16 +353,37 @@ internal fun RecordScreen(
                     Text(if (filter == AssetKind.FUND) "常用基金" else "常用黄金", Modifier.weight(1f), color = Muted, fontSize = 12.sp, fontWeight = FontWeight.Medium)
                     Text(if (filter == AssetKind.GOLD) "Au99.99 可联动上金所" else "名称可搜简称", color = Muted, fontSize = 10.sp)
                 }
-                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                     quickPicks.forEach { asset ->
-                        FilterChip(selected = false, onClick = {
-                            val chosen = if (asset.symbol == "GOLD.SGE.AU9999") {
-                                ledger.findAsset(asset.symbol) ?: ledger.addCustomAsset(asset.symbol, asset.name, asset.kind)
-                            } else asset
-                            selected = chosen; transferTarget = null; transferSearch = ""
-                            chosen.toFundSearchResult()?.let(fundFeatureState::openProfile) ?: fundFeatureState.clearProfile()
-                        }, label = { Text(asset.name.take(8)) }, colors = assetChipColors())
+                        MarketChoiceChip(
+                            label = asset.name.take(9),
+                            selected = false,
+                            onClick = {
+                                val chosen = if (asset.symbol == "GOLD.SGE.AU9999") {
+                                    ledger.findAsset(asset.symbol) ?: ledger.addCustomAsset(asset.symbol, asset.name, asset.kind)
+                                } else asset
+                                selected = chosen; transferTarget = null; transferSearch = ""
+                                chosen.toFundSearchResult()?.let(fundFeatureState::openProfile) ?: fundFeatureState.clearProfile()
+                            }
+                        )
                     }
+                }
+            }
+            if (selected == null && search.isBlank()) {
+                MarketCard {
+                    MarketSectionHeader("记一笔的三步", caption = "份额与成本按确认流水重算")
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        LedgerStep("1", "选标的", "搜索或常用", Modifier.weight(1f))
+                        LedgerStep("2", "填金额", "净值可后补", Modifier.weight(1f))
+                        LedgerStep("3", "保存", "5 秒内撤销", Modifier.weight(1f))
+                    }
+                    Text(
+                        "已有持仓可切到「期初持仓」，只登记份额与历史成本，不补造过去的买入流水。",
+                        color = Muted, fontSize = 10.sp, lineHeight = 15.sp
+                    )
                 }
             }
             if (filter == AssetKind.FUND && search.isNotBlank()) {
@@ -459,29 +481,28 @@ internal fun RecordScreen(
                     }
                 )
             }
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(selected = side == TradeSide.BUY, onClick = {
-                    side = TradeSide.BUY; amount = ""; units = ""; price = ""; fee = "0"; note = ""; showFee = false
-                }, label = { Text("买入") }, colors = assetChipColors())
-                FilterChip(selected = side == TradeSide.SELL, onClick = {
-                    side = TradeSide.SELL; amount = ""; units = ""; price = ""; fee = "0"; note = ""; showFee = false
-                }, label = { Text("卖出 / 赎回") }, colors = assetChipColors())
-                FilterChip(selected = side == TradeSide.OPENING_POSITION, onClick = {
-                    side = TradeSide.OPENING_POSITION; amount = ""; units = ""; price = ""; fee = "0"; note = ""; showFee = false
-                }, label = { Text("期初持仓") }, colors = assetChipColors())
-                FilterChip(selected = side == TradeSide.CASH_DIVIDEND, onClick = {
-                    side = TradeSide.CASH_DIVIDEND; amount = ""; units = ""; price = ""; fee = "0"; note = ""; showFee = false
-                }, label = { Text("现金分红") }, colors = assetChipColors())
-                FilterChip(selected = side == TradeSide.DIVIDEND_REINVESTMENT, onClick = {
-                    side = TradeSide.DIVIDEND_REINVESTMENT; amount = ""; units = ""; price = ""; fee = "0"; note = ""; showFee = false
-                }, label = { Text("红利再投") }, colors = assetChipColors())
-                FilterChip(selected = side == TradeSide.SHARE_SPLIT, onClick = {
-                    side = TradeSide.SHARE_SPLIT; amount = ""; units = ""; price = ""; fee = "0"; note = ""; shareFactor = ""; showFee = false
-                }, label = { Text("份额拆分") }, colors = assetChipColors())
-                FilterChip(selected = side == TradeSide.ASSET_TRANSFER, onClick = {
-                    side = TradeSide.ASSET_TRANSFER; amount = ""; units = ""; price = ""; fee = "0"; note = ""
-                    transferSearch = ""; transferTarget = null; transferUnits = ""; transferCost = ""; showFee = false
-                }, label = { Text("资产转移") }, colors = assetChipColors())
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(7.dp)
+            ) {
+                fun chooseTrade(next: TradeSide) {
+                    side = next; amount = ""; units = ""; price = ""; fee = "0"; note = ""; showFee = false
+                    if (next == TradeSide.SHARE_SPLIT) shareFactor = ""
+                    if (next == TradeSide.ASSET_TRANSFER) {
+                        transferSearch = ""; transferTarget = null; transferUnits = ""; transferCost = ""
+                    }
+                }
+                listOf(
+                    TradeSide.BUY to "买入",
+                    TradeSide.SELL to "卖出 / 赎回",
+                    TradeSide.OPENING_POSITION to "期初持仓",
+                    TradeSide.CASH_DIVIDEND to "现金分红",
+                    TradeSide.DIVIDEND_REINVESTMENT to "红利再投",
+                    TradeSide.SHARE_SPLIT to "份额拆分",
+                    TradeSide.ASSET_TRANSFER to "资产转移"
+                ).forEach { (kind, label) ->
+                    MarketChoiceChip(label = label, selected = side == kind) { chooseTrade(kind) }
+                }
             }
             if (side == TradeSide.OPENING_POSITION) {
                 NumericField(units, { units = it }, if (selected!!.kind == AssetKind.GOLD) "当前持有克数 · 必填" else "当前持有份额 · 必填", Modifier.fillMaxWidth())
@@ -705,11 +726,32 @@ internal fun RecordScreen(
     }
 }
 
+/** One numbered step in the "how to record" card; keeps the empty form from being a dead page. */
+@Composable
+private fun LedgerStep(number: String, title: String, hint: String, modifier: Modifier = Modifier) {
+    val palette = MarketTheme.colors
+    val geometry = MarketTheme.geometry
+    Column(
+        modifier
+            .clip(RoundedCornerShape(geometry.chip))
+            .background(palette.surfaceAlt)
+            .padding(horizontal = geometry.md, vertical = geometry.sm),
+        verticalArrangement = Arrangement.spacedBy(3.dp)
+    ) {
+        Text(number, color = palette.accent, style = MarketType.numberSmall, fontWeight = FontWeight.Bold)
+        Text(title, color = palette.ink, style = MarketType.label, fontWeight = FontWeight.Medium)
+        Text(hint, color = palette.muted, style = MarketType.caption, maxLines = 1)
+    }
+}
+
 @Composable
 internal fun NumericField(value: String, onValueChange: (String) -> Unit, label: String, modifier: Modifier = Modifier) {
+    val geometry = MarketTheme.geometry
     OutlinedTextField(
-        value, onValueChange, modifier = modifier, label = { Text(label) }, singleLine = true,
+        value, onValueChange, modifier = modifier, singleLine = true,
+        label = { Text(label, style = MarketType.caption) },
+        textStyle = MarketType.numberLarge.copy(fontWeight = FontWeight.Medium),
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-        shape = RoundedCornerShape(15.dp), colors = fieldColors()
+        shape = RoundedCornerShape(geometry.card), colors = fieldColors()
     )
 }

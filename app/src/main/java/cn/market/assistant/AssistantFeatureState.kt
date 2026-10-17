@@ -14,6 +14,7 @@ import cn.market.assistant.domain.assistant.AgentToolAuthorization
 import cn.market.assistant.domain.assistant.AgentToolRegistry
 import cn.market.assistant.domain.assistant.AssistantActionKind
 import cn.market.assistant.domain.assistant.AssistantActionProposal
+import cn.market.assistant.domain.assistant.AssistantChart
 import cn.market.assistant.domain.assistant.AssistantCitation
 import cn.market.assistant.domain.assistant.AssistantEngine
 import cn.market.assistant.domain.assistant.AssistantFact
@@ -100,7 +101,8 @@ internal data class AssistantTurnUi(
     val errorMessage: String? = null,
     val pendingAction: AssistantActionProposal? = null,
     val actionInProgress: Boolean = false,
-    val actionResult: String? = null
+    val actionResult: String? = null,
+    val charts: List<AssistantChart> = emptyList()
 ) {
     val elapsedMillis: Long? get() = finishedAtMillis?.let { it - startedAtMillis }
 }
@@ -172,6 +174,9 @@ internal class AssistantFeatureState(
 
     /** All registered tools with labels, for the settings extension list. */
     val toolDescriptors get() = registry.descriptors(registry.toolIds)
+
+    /** Tools that only work after the "allow local changes" switch is on. */
+    val localChangeToolIds: Set<String> get() = LOCAL_CHANGE_TOOLS
     val hasPendingAction: Boolean get() = turns.any { it.pendingAction != null || it.actionInProgress }
 
     fun refresh() {
@@ -253,6 +258,8 @@ internal class AssistantFeatureState(
         apiKey?.takeIf { it.isNotBlank() }?.let { key ->
             runCatching { secretStore.saveApiKey(settings.provider.name.lowercase(), key) }
                 .onFailure { statusMessage = it.userFacingMessage("API Key 保存失败") }
+            // A new key replaces the old one, so a previous "key cleared" notice is no longer true.
+            if (statusMessage?.contains("API Key") == true) statusMessage = null
         }
         refreshSecrets()
         connectionCheck = null
@@ -630,6 +637,11 @@ internal class AssistantFeatureState(
                 val loop = AgentLoop(model, registry, maxToolRounds = AgentLoop.DEFAULT_MAX_TOOL_ROUNDS, nowMillis = nowMillis)
                 val allowed = (skill?.toolIds?.takeIf { it.isNotEmpty() }?.toSet() ?: enabledToolIds)
                     .intersect(enabledToolIds.ifEmpty { registry.toolIds })
+                    .let { ids ->
+                        // The master switch is separate from the per-tool list: turning it off removes
+                        // every tool that can propose a local write, even if the tool stayed enabled.
+                        if (settings.allowLocalChanges) ids else ids - LOCAL_CHANGE_TOOLS
+                    }
                 val authorization = AgentToolAuthorization(
                     allowedToolIds = allowed,
                     sharePrivateDetails = settings.sharePrivateDetails
@@ -697,12 +709,15 @@ internal class AssistantFeatureState(
                 withContext(ioDispatcher) { applyLocalAction(action) }
             }
             applied.onSuccess { message ->
+                memoryStore.recordMemory(MemoryEvent(MemoryKind.ACTION, action.summary.take(200), nowMillis()))
+                lazyMemoryEvents = memoryStore.memoryEvents(limit = 200)
+                habits = AssistantMemoryRanker.summarize(lazyMemoryEvents)
                 turns = turns.map { current ->
                     if (current.id != turnId) current else current.copy(
                         pendingAction = null,
                         actionInProgress = false,
                         actionResult = message,
-                        answer = current.answer + "\n\n✅ $message"
+                        answer = current.answer
                     )
                 }
                 if (action.kind in setOf(
@@ -780,6 +795,39 @@ internal class AssistantFeatureState(
             habits = AssistantMemoryRanker.summarize(lazyMemoryEvents)
             "已在本机记住这条分析方法，后续回答会优先参考。"
         }
+        AssistantActionKind.SAVE_SKILL -> {
+            val name = requireNotNull(action.skillName)
+            val instructions = requireNotNull(action.skillInstruction)
+            val existing = skills.firstOrNull { it.name == name }
+            val skill = AssistantSkill(
+                id = existing?.id ?: newSkillId(),
+                name = name,
+                description = action.skillTrigger?.takeIf { it.isNotBlank() }?.let { "触发词：$it" } ?: "由助手创建的技能",
+                instructions = instructions,
+                triggerWords = action.skillTrigger.orEmpty()
+                    .split('、', ',', '，', ' ')
+                    .map { it.trim() }
+                    .filter { it.isNotEmpty() }
+                    .take(6),
+                createdAtMillis = existing?.createdAtMillis ?: nowMillis(),
+                updatedAtMillis = nowMillis()
+            )
+            val stored = skillStore.upsertSkill(skill)
+            skills = skillStore.skills()
+            "已保存技能「${stored.name}」，可以用 /技能ID 或触发词调用。"
+        }
+    }
+
+    private fun newSkillId(): String {
+        val existing = skills.map { it.id }.toSet()
+        var index = skills.size + 1
+        while ("skill$index" in existing) index++
+        return "skill$index"
+    }
+
+    private companion object {
+        /** Tools that can propose a local change and therefore require the permission switch. */
+        val LOCAL_CHANGE_TOOLS = setOf("portfolio.propose_change")
     }
 
     private var lazyMemoryEvents: List<MemoryEvent> = emptyList()
@@ -810,6 +858,11 @@ internal class AssistantFeatureState(
                     }
                 )
                 is AgentEvent.Answer -> turn.copy(answer = event.text)
+                is AgentEvent.ChartReady -> if (turn.charts.any { it.title == event.chart.title }) {
+                    turn
+                } else {
+                    turn.copy(charts = (turn.charts + event.chart).take(3))
+                }
                 is AgentEvent.Failed -> turn.copy(errorMessage = event.reason)
             }
         }

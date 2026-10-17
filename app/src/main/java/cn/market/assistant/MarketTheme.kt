@@ -109,17 +109,27 @@ internal data class MarketGeometry(
  * columns, which is what makes a finance layout feel precise instead of hand-placed.
  */
 internal object MarketType {
-    val amount = TextStyle(fontSize = 31.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.9).sp, fontFeatureSettings = "tnum")
-    val title = TextStyle(fontSize = 21.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.4).sp)
-    val section = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.1).sp)
+    val heroAmount = TextStyle(fontSize = 36.sp, fontWeight = FontWeight.Bold, letterSpacing = (-1.2).sp, fontFeatureSettings = "tnum")
+    val amount = TextStyle(fontSize = 32.sp, fontWeight = FontWeight.Bold, letterSpacing = (-1.0).sp, fontFeatureSettings = "tnum")
+    val title = TextStyle(fontSize = 22.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.5).sp)
+    val section = TextStyle(fontSize = 15.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.2).sp)
     val numberLarge = TextStyle(fontSize = 19.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.3).sp, fontFeatureSettings = "tnum")
     val number = TextStyle(fontSize = 15.sp, fontWeight = FontWeight.SemiBold, fontFeatureSettings = "tnum")
     val numberSmall = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.Medium, fontFeatureSettings = "tnum")
     val nav = TextStyle(fontSize = 14.5.sp, fontWeight = FontWeight.Medium)
     val body = TextStyle(fontSize = 13.sp, lineHeight = 19.sp)
     val label = TextStyle(fontSize = 11.5.sp, fontWeight = FontWeight.Medium)
-    val caption = TextStyle(fontSize = 10.sp, lineHeight = 14.sp)
+    val caption = TextStyle(fontSize = 10.5.sp, lineHeight = 15.sp)
+    val heroLabel = TextStyle(fontSize = 11.5.sp, fontWeight = FontWeight.Medium, letterSpacing = 0.4.sp)
 }
+
+/** Darker (factor < 1) or lighter (factor > 1) version of a colour, used for the hero gradient. */
+internal fun Color.shade(factor: Float): Color = Color(
+    red = (red * factor).coerceIn(0f, 1f),
+    green = (green * factor).coerceIn(0f, 1f),
+    blue = (blue * factor).coerceIn(0f, 1f),
+    alpha = alpha
+)
 
 @Stable
 internal class MarketThemeState(
@@ -127,8 +137,7 @@ internal class MarketThemeState(
     mode: MarketThemeMode = MarketThemeMode.SYSTEM,
     density: MarketDensity = MarketDensity.STANDARD,
     fontScale: MarketFontScale = MarketFontScale.STANDARD,
-    corner: MarketCorner = MarketCorner.STANDARD,
-    blurEnabled: Boolean = true
+    corner: MarketCorner = MarketCorner.STANDARD
 ) {
     var accent by mutableStateOf(accent)
     var mode by mutableStateOf(mode)
@@ -136,16 +145,12 @@ internal class MarketThemeState(
     var fontScale by mutableStateOf(fontScale)
     var corner by mutableStateOf(corner)
 
-    /** Real backdrop blur costs one extra full-screen layer pass; slower devices can drop it. */
-    var blurEnabled by mutableStateOf(blurEnabled)
-
     fun reset() {
         accent = MarketAccent.BLUE
         mode = MarketThemeMode.SYSTEM
         density = MarketDensity.STANDARD
         fontScale = MarketFontScale.STANDARD
         corner = MarketCorner.STANDARD
-        blurEnabled = true
     }
 }
 
@@ -157,8 +162,7 @@ internal class MarketThemeStore(context: Context) {
         mode = enumOf(preferences.getString(KEY_MODE, null), MarketThemeMode.SYSTEM),
         density = enumOf(preferences.getString(KEY_DENSITY, null), MarketDensity.STANDARD),
         fontScale = enumOf(preferences.getString(KEY_FONT_SCALE, null), MarketFontScale.STANDARD),
-        corner = enumOf(preferences.getString(KEY_CORNER, null), MarketCorner.STANDARD),
-        blurEnabled = preferences.getBoolean(KEY_BLUR, true)
+        corner = enumOf(preferences.getString(KEY_CORNER, null), MarketCorner.STANDARD)
     )
 
     fun save(state: MarketThemeState) {
@@ -168,7 +172,6 @@ internal class MarketThemeStore(context: Context) {
             .putString(KEY_DENSITY, state.density.name)
             .putString(KEY_FONT_SCALE, state.fontScale.name)
             .putString(KEY_CORNER, state.corner.name)
-            .putBoolean(KEY_BLUR, state.blurEnabled)
             .apply()
     }
 
@@ -182,7 +185,6 @@ internal class MarketThemeStore(context: Context) {
         const val KEY_DENSITY = "density"
         const val KEY_FONT_SCALE = "font_scale"
         const val KEY_CORNER = "corner"
-        const val KEY_BLUR = "blur"
     }
 }
 
@@ -215,10 +217,10 @@ internal fun lightColors(accent: MarketAccent) = MarketColors(
     muted = Color(0xFF7C8794),
     accent = accent.seed,
     accentSoft = accent.softLight,
-    paper = Color(0xFFF4F5F7),
+    paper = Color(0xFFF2F4F8),
     surface = Color(0xFFFFFFFF),
-    surfaceAlt = Color(0xFFEDF0F4),
-    line = Color(0xFFE4E8EE),
+    surfaceAlt = Color(0xFFEDF1F7),
+    line = Color(0xFFE3E8F0),
     up = Color(0xFFE5484D),
     down = Color(0xFF12A150),
     warn = Color(0xFFD97706),

@@ -40,11 +40,35 @@ data class AssistantReply(
 
 data class AgentToolRequest(val arguments: Map<String, String>)
 
+/** A chart a tool asks the UI to draw; values stay in the tool's own unit and are never re-derived. */
+enum class AssistantChartKind { LINE, AREA, BAR }
+
+data class AssistantChartPoint(val label: String, val value: Double)
+
+data class AssistantChartSeries(
+    val name: String,
+    val points: List<AssistantChartPoint>,
+    /** 0 = accent, 1 = warning, 2 = success, 3 = neutral. The UI maps indices to theme colors. */
+    val colorIndex: Int = 0
+)
+
+data class AssistantChart(
+    val title: String,
+    val subtitle: String? = null,
+    val unit: String? = null,
+    val kind: AssistantChartKind = AssistantChartKind.LINE,
+    val series: List<AssistantChartSeries>,
+    val source: String,
+    val observedAt: String
+)
+
 data class AgentToolResult(
     val facts: List<AssistantFact>,
     val errorCode: String? = null,
     /** A local change request for the user to review; tools never apply it themselves. */
-    val actionProposal: AssistantActionProposal? = null
+    val actionProposal: AssistantActionProposal? = null,
+    /** Optional inline visualisation the assistant may render in the conversation. */
+    val charts: List<AssistantChart> = emptyList()
 )
 
 enum class AssistantActionKind {
@@ -53,7 +77,8 @@ enum class AssistantActionKind {
     RECORD_FUND_BUY,
     RECORD_FUND_SELL,
     UPDATE_RISK_PARAMETERS,
-    SAVE_PREFERENCE
+    SAVE_PREFERENCE,
+    SAVE_SKILL
 }
 
 /** A typed preview of a local change. The app applies it only after an explicit user confirmation. */
@@ -70,7 +95,10 @@ data class AssistantActionProposal(
     val fee: BigDecimal? = null,
     val riskFreeAnnualRate: BigDecimal? = null,
     val minimumAcceptableAnnualReturn: BigDecimal? = null,
-    val preference: String? = null
+    val preference: String? = null,
+    val skillName: String? = null,
+    val skillInstruction: String? = null,
+    val skillTrigger: String? = null
 )
 
 data class AgentToolParameter(
@@ -147,6 +175,19 @@ class AgentToolRegistry(tools: Collection<AgentTool>) {
             }) {
             return AgentToolResult(emptyList(), INVALID_TOOL_RESULT)
         }
+        if (result.charts.size > MAX_CHARTS_PER_TOOL || result.charts.any { chart ->
+                chart.title.isBlank() || chart.source.isBlank() || chart.observedAt.isBlank() ||
+                    chart.series.isEmpty() || chart.series.size > MAX_SERIES_PER_CHART ||
+                    chart.series.any { series ->
+                        series.name.isBlank() || series.points.size !in 2..MAX_POINTS_PER_SERIES ||
+                            series.points.any { point ->
+                                point.label.isBlank() || !point.value.isFinite() ||
+                                    point.value > MAX_CHART_ABSOLUTE_VALUE
+                            }
+                    }
+            }) {
+            return AgentToolResult(emptyList(), INVALID_TOOL_RESULT)
+        }
         val permittedFacts = if (authorization.sharePrivateDetails) result.facts else {
             result.facts.filter { it.sensitivity != FactSensitivity.PRIVATE_DETAIL }
         }
@@ -157,6 +198,10 @@ class AgentToolRegistry(tools: Collection<AgentTool>) {
         val TOOL_ID = Regex("[a-z][a-z0-9_.-]{0,63}")
         val PARAMETER_NAME = Regex("[a-z][a-zA-Z0-9_]{0,63}")
         const val MAX_FACTS_PER_TOOL = 100
+        const val MAX_CHARTS_PER_TOOL = 3
+        const val MAX_SERIES_PER_CHART = 4
+        const val MAX_POINTS_PER_SERIES = 240
+        const val MAX_CHART_ABSOLUTE_VALUE = 1e15
         const val TOOL_NOT_ALLOWED = "TOOL_NOT_ALLOWED"
         const val TOOL_NOT_FOUND = "TOOL_NOT_FOUND"
         const val TOOL_FAILED = "TOOL_FAILED"

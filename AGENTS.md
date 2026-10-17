@@ -25,7 +25,7 @@ Tests use JUnit 4 and live under each module's `src/test/` tree, mirroring produ
 
 ## Commits and Pull Requests
 
-Git history is unavailable in this checkout, so no existing commit convention could be verified. Use a short imperative subject scoped by module, for example `domain: handle empty cash flows`. PRs should describe user-visible and data-model changes, list validation commands and results, link related work, and include screenshots for UI changes.
+Commit history is available (see `git log`); follow the existing convention: a short imperative subject scoped by module, for example `domain: handle empty cash flows`, `docs: align status with code`, or `app: rebuild the visual system`. PRs should describe user-visible and data-model changes, list validation commands and results, link related work, and include screenshots for UI changes.
 
 ## Configuration and Data Safety
 

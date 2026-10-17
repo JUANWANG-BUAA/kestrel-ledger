@@ -57,8 +57,16 @@ import java.time.ZoneId
 
 data class MarketBar(val day: String, val close: Double)
 
+/** One day of an accumulated gold series. */
+data class GoldDailyPoint(val day: String, val value: Double)
+
 class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, AssistantMemoryStore,
     AssistantWorkflowStore, AlertRuleStore {
+    private companion object {
+        /** Shared by every Ledger instance so the UI, workers and repositories never write concurrently. */
+        val writeLock = java.util.concurrent.locks.ReentrantLock()
+    }
+
     private val appContext = context.applicationContext
     private val helper = LedgerOpenHelper(
         appContext,
@@ -74,12 +82,66 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
 
     fun close() = helper.close()
 
+    /**
+     * Serializes every write in this process. SQLCipher opens one connection per writer thread; two
+     * concurrent write transactions fail with "database is locked" because the connection pool has no
+     * busy handler. The daily snapshot worker, market refresh and UI all write through this lock.
+     */
+    private inline fun <T> serializedWrite(block: () -> T): T {
+        writeLock.lock()
+        try {
+            return block()
+        } finally {
+            writeLock.unlock()
+        }
+    }
+
+    private fun beginSerializedTransaction(db: SQLiteDatabase) {
+        writeLock.lock()
+        try {
+            db.beginTransaction()
+        } catch (error: Throwable) {
+            writeLock.unlock()
+            throw error
+        }
+    }
+
+    private fun endSerializedTransaction(db: SQLiteDatabase) {
+        try {
+            db.endTransaction()
+        } finally {
+            writeLock.unlock()
+        }
+    }
+
+    private val writes = object {
+        fun insert(table: String, columnHack: String?, values: ContentValues): Long =
+            serializedWrite { writableDatabase.insert(table, columnHack, values) }
+
+        fun insertOrThrow(table: String, columnHack: String?, values: ContentValues): Long =
+            serializedWrite { writableDatabase.insertOrThrow(table, columnHack, values) }
+
+        fun insertWithOnConflict(table: String, columnHack: String?, values: ContentValues, conflict: Int): Long =
+            serializedWrite { writableDatabase.insertWithOnConflict(table, columnHack, values, conflict) }
+
+        fun delete(table: String, whereClause: String?, whereArgs: Array<String>?): Int =
+            serializedWrite { writableDatabase.delete(table, whereClause, whereArgs) }
+
+        fun update(
+            table: String,
+            values: ContentValues,
+            whereClause: String?,
+            whereArgs: Array<String>?
+        ): Int = serializedWrite { writableDatabase.update(table, values, whereClause, whereArgs) }
+
+    }
+
     private inner class LedgerOpenHelper(context: Context, passphrase: ByteArray) : SQLiteOpenHelper(
         context,
         LedgerDatabaseEncryption.DATABASE_NAME,
         passphrase,
         null,
-        24,
+        25,
         0,
         LedgerDatabaseEncryption.errorHandler(),
         null,
@@ -168,6 +230,7 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
             seedAssistantSkills(db)
         }
         if (oldVersion < 24) createAlertSchema(db)
+        if (oldVersion < 25) createGoldHistorySchema(db)
     }
 
     private fun createSchema(db: SQLiteDatabase) {
@@ -186,6 +249,7 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
         createQuoteHistory(db)
         createManualGoldQuoteSchema(db)
         createMarketSchema(db)
+        createGoldHistorySchema(db)
         createMarketBoardSchema(db)
         createMarketBoardMemberSchema(db)
         createMarketChartSchema(db)
@@ -359,26 +423,28 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
         require(skill.id.isNotBlank() && skill.id.matches(Regex("[a-z][a-z0-9_-]{1,48}"))) { "技能 ID 需为小写字母开头" }
         require(skill.name.isNotBlank()) { "技能名称不能为空" }
         val stored = skill.copy(updatedAtMillis = System.currentTimeMillis())
-        writableDatabase.insertWithOnConflict(
+        writes.insertWithOnConflict(
             "assistant_skills", null, assistantSkillValues(stored), SQLiteDatabase.CONFLICT_REPLACE
         )
         return stored
     }
 
     override suspend fun deleteSkill(id: String) {
-        writableDatabase.delete("assistant_skills", "id=?", arrayOf(id))
+        writes.delete("assistant_skills", "id=?", arrayOf(id))
     }
 
     override suspend fun recordSkillUse(id: String, atMillis: Long) {
-        writableDatabase.execSQL(
-            "UPDATE assistant_skills SET usage_count=usage_count+1, updated_at=? WHERE id=?",
-            arrayOf<Any>(atMillis, id)
-        )
+        serializedWrite {
+            writableDatabase.execSQL(
+                "UPDATE assistant_skills SET usage_count=usage_count+1, updated_at=? WHERE id=?",
+                arrayOf<Any>(atMillis, id)
+            )
+        }
     }
 
     override suspend fun recordMemory(event: MemoryEvent) {
         if (event.key.isBlank()) return
-        writableDatabase.insert("assistant_memory_events", null, ContentValues().apply {
+        writes.insert("assistant_memory_events", null, ContentValues().apply {
             put("kind", event.kind.name)
             put("key", event.key.take(200))
             put("at_millis", event.atMillis)
@@ -399,7 +465,7 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
     }
 
     override suspend fun clearMemory() {
-        writableDatabase.delete("assistant_memory_events", null, null)
+        writes.delete("assistant_memory_events", null, null)
     }
 
     override suspend fun workflows(limit: Int): List<AssistantWorkflow> = buildList {
@@ -424,7 +490,7 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
             title = workflow.title.take(120).ifBlank { "未命名会话" },
             updatedAtMillis = System.currentTimeMillis()
         )
-        writableDatabase.insertWithOnConflict("assistant_workflows", null, ContentValues().apply {
+        writes.insertWithOnConflict("assistant_workflows", null, ContentValues().apply {
             put("id", stored.id)
             put("title", stored.title)
             put("status", stored.status.name)
@@ -435,11 +501,11 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
     }
 
     override suspend fun deleteWorkflow(id: String) {
-        writableDatabase.delete("assistant_workflows", "id=?", arrayOf(id))
+        writes.delete("assistant_workflows", "id=?", arrayOf(id))
     }
 
     override suspend fun clearWorkflows() {
-        writableDatabase.delete("assistant_workflows", null, null)
+        writes.delete("assistant_workflows", null, null)
     }
 
     private fun readWorkflow(cursor: android.database.Cursor): AssistantWorkflow = AssistantWorkflow(
@@ -450,6 +516,19 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
         createdAtMillis = cursor.getLong(4),
         updatedAtMillis = cursor.getLong(5)
     )
+
+    /**
+     * One observation per Shanghai day for each gold metric. Gold providers only publish a latest
+     * quote, so this table is the app's own daily record and is what the trend chart and the
+     * assistant read; nothing here is presented as an exchange-provided history.
+     */
+    private fun createGoldHistorySchema(db: SQLiteDatabase) {
+        db.execSQL("""CREATE TABLE IF NOT EXISTS gold_daily_history (
+            day TEXT NOT NULL, metric TEXT NOT NULL, value REAL NOT NULL,
+            source TEXT NOT NULL, observed_at TEXT NOT NULL,
+            PRIMARY KEY(day, metric))""")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_gold_history_metric ON gold_daily_history(metric, day)")
+    }
 
     private fun createAlertSchema(db: SQLiteDatabase) {
         db.execSQL("""CREATE TABLE IF NOT EXISTS alert_rules (
@@ -501,7 +580,7 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
     override suspend fun upsertAlertRule(rule: AlertRule) {
         require(rule.id.isNotBlank()) { "提醒规则 ID 不能为空" }
         require(rule.threshold.isFinite()) { "提醒阈值必须是有限数" }
-        writableDatabase.insertWithOnConflict("alert_rules", null, ContentValues().apply {
+        writes.insertWithOnConflict("alert_rules", null, ContentValues().apply {
             put("id", rule.id)
             put("kind", rule.kind.name)
             rule.targetId?.let { put("target_id", it) } ?: putNull("target_id")
@@ -522,7 +601,7 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
     }
 
     override suspend fun deleteAlertRule(id: String) {
-        writableDatabase.delete("alert_rules", "id=?", arrayOf(id))
+        writes.delete("alert_rules", "id=?", arrayOf(id))
     }
 
     override suspend fun alertEvents(limit: Int): List<AlertEvent> = buildList {
@@ -549,7 +628,7 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
     }
 
     override suspend fun recordAlertEvent(event: AlertEvent) {
-        writableDatabase.insert("alert_events", null, ContentValues().apply {
+        writes.insert("alert_events", null, ContentValues().apply {
             put("rule_id", event.ruleId)
             put("rule_kind", event.ruleKind.name)
             put("title", event.title)
@@ -560,7 +639,7 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
     }
 
     override suspend fun clearAlertEvents() {
-        writableDatabase.delete("alert_events", null, null)
+        writes.delete("alert_events", null, null)
     }
 
     private fun createMarketBoardMemberSchema(db: SQLiteDatabase) {
@@ -748,7 +827,7 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
         source: String = ""
     ) {
         val db = writableDatabase
-        db.beginTransaction()
+        beginSerializedTransaction(db)
         try {
             bars.forEach { bar -> db.insertWithOnConflict("market_chart_bars", null, ContentValues().apply {
                 put("secid", secid); put("period", period.cacheKey)
@@ -756,19 +835,19 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
                 put("open", bar.open); put("high", bar.high); put("low", bar.low); put("close", bar.close); put("volume", bar.volume); put("cached_at", cachedAt); put("source", source)
             }, SQLiteDatabase.CONFLICT_REPLACE) }
             db.setTransactionSuccessful()
-        } finally { db.endTransaction() }
+        } finally { endSerializedTransaction(db) }
     }
 
     private fun seedWatchlist(db: SQLiteDatabase) {
         if (db.rawQuery("SELECT COUNT(*) FROM watchlist", null).use { it.moveToFirst() && it.getInt(0) > 0 }) return
         val initial = listOf("1.000001", "0.399001", "100.NDX", "100.SPX", "100.N225", "100.HSI")
-        db.beginTransaction()
+        beginSerializedTransaction(db)
         try {
             initial.forEach { secid -> db.insertWithOnConflict("watchlist", null, ContentValues().apply {
                 put("secid", secid); put("added_at", Instant.now().toString())
             }, SQLiteDatabase.CONFLICT_IGNORE) }
             db.setTransactionSuccessful()
-        } finally { db.endTransaction() }
+        } finally { endSerializedTransaction(db) }
     }
 
     fun watchlist(): List<String> = buildList {
@@ -779,9 +858,9 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
 
     fun setWatched(secid: String, watched: Boolean) {
         require(MarketInstrumentCatalog.byId.containsKey(secid)) { "暂不支持这个自选标的" }
-        if (watched) writableDatabase.insertWithOnConflict("watchlist", null, ContentValues().apply {
+        if (watched) writes.insertWithOnConflict("watchlist", null, ContentValues().apply {
             put("secid", secid); put("added_at", Instant.now().toString())
-        }, SQLiteDatabase.CONFLICT_IGNORE) else writableDatabase.delete("watchlist", "secid=?", arrayOf(secid))
+        }, SQLiteDatabase.CONFLICT_IGNORE) else writes.delete("watchlist", "secid=?", arrayOf(secid))
     }
 
     fun fundWatchlist(): List<AssetInfo> {
@@ -796,11 +875,11 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
         require(normalizedCode.matches(Regex("\\d{6}"))) { "基金代码格式无效" }
         if (watched) {
             addFundAsset(normalizedCode, name, category)
-            writableDatabase.insertWithOnConflict("watchlist", null, ContentValues().apply {
+            writes.insertWithOnConflict("watchlist", null, ContentValues().apply {
                 put("secid", normalizedCode); put("added_at", Instant.now().toString())
             }, SQLiteDatabase.CONFLICT_IGNORE)
         } else {
-            writableDatabase.delete("watchlist", "secid=?", arrayOf(normalizedCode))
+            writes.delete("watchlist", "secid=?", arrayOf(normalizedCode))
         }
     }
 
@@ -818,7 +897,7 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
                 point.accumulatedNav?.isFinite() != false && point.changePct?.isFinite() != false
         }) { "基金净值数据无效" }
         val db = writableDatabase
-        db.beginTransaction()
+        beginSerializedTransaction(db)
         try {
             uniquePoints.forEach { point ->
                 db.insertWithOnConflict("fund_nav_points", null, ContentValues().apply {
@@ -832,7 +911,7 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
             }
             db.setTransactionSuccessful()
         } finally {
-            db.endTransaction()
+            endSerializedTransaction(db)
         }
         return uniquePoints.size
     }
@@ -894,7 +973,7 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
         }) { "基金估值误差样本无效" }
 
         val db = writableDatabase
-        db.beginTransaction()
+        beginSerializedTransaction(db)
         try {
             val storedAt = System.currentTimeMillis() / 1000
             normalizedSamples.forEach { sample ->
@@ -918,7 +997,7 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
             }
             db.setTransactionSuccessful()
         } finally {
-            db.endTransaction()
+            endSerializedTransaction(db)
         }
         return normalizedSamples.size
     }
@@ -971,7 +1050,7 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
         require(itemCount >= 0 && (expectedCount == null || expectedCount >= 0)) { "数据覆盖数量无效" }
         val safeErrorCode = errorCode?.filter { it.isLetterOrDigit() || it == '_' }?.take(48)
         val db = writableDatabase
-        db.beginTransaction()
+        beginSerializedTransaction(db)
         try {
             db.insertOrThrow("data_source_runs", null, ContentValues().apply {
                 put("source", source)
@@ -984,7 +1063,7 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
             })
             db.execSQL("DELETE FROM data_source_runs WHERE id NOT IN (SELECT id FROM data_source_runs ORDER BY id DESC LIMIT 500)")
             db.setTransactionSuccessful()
-        } finally { db.endTransaction() }
+        } finally { endSerializedTransaction(db) }
     }
 
     fun dataSourceRuns(limit: Int = 40): List<DataSourceRun> {
@@ -1007,7 +1086,7 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
 
     fun saveMarketQuotes(quotes: List<MarketQuote>) {
         val db = writableDatabase
-        db.beginTransaction()
+        beginSerializedTransaction(db)
         try {
             quotes.forEach { quote -> db.insertWithOnConflict("market_quotes", null, ContentValues().apply {
                 put("secid", quote.secid); put("name", quote.name); put("price", quote.price)
@@ -1015,8 +1094,76 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
                 put("quote_time", quote.quoteTime); put("fetched_at", quote.fetchedAt); put("source", quote.source)
             }, SQLiteDatabase.CONFLICT_REPLACE) }
             db.setTransactionSuccessful()
-        } finally { db.endTransaction() }
+        } finally { endSerializedTransaction(db) }
     }
+
+    /**
+     * Records today's gold observations. Gold providers publish only a latest quote, so this is the
+     * app's own forward-accumulating daily series (one row per metric per Shanghai day).
+     */
+    fun recordGoldDailyHistory(quotes: List<MarketQuote>, now: Instant = Instant.now()): Int {
+        val day = now.atZone(ZoneId.of("Asia/Shanghai")).toLocalDate().toString()
+        val observedAt = now.toString()
+        val sge = quotes.firstOrNull { it.secid == "GOLD.SGE.AU9999" }
+        val intl = quotes.firstOrNull { it.secid == "GOLD.XAU.USD.OZ" }
+        val converted = quotes.firstOrNull { it.secid == "GOLD.XAU.CNY.GRAM" }
+        val rows = buildList {
+            sge?.takeIf { it.price.isFinite() && it.price > 0 }?.let { add(Triple("sge_cny_gram", it.price, it.source)) }
+            intl?.takeIf { it.price.isFinite() && it.price > 0 }?.let { add(Triple("xau_usd_oz", it.price, it.source)) }
+            converted?.takeIf { it.price.isFinite() && it.price > 0 }?.let { add(Triple("xau_cny_gram", it.price, it.source)) }
+            val domestic = sge?.price
+            val international = converted?.price
+            if (domestic != null && international != null && domestic.isFinite() && international.isFinite()) {
+                add(Triple("premium_cny_gram", domestic - international, "derived"))
+            }
+        }
+        if (rows.isEmpty()) return 0
+        val db = writableDatabase
+        beginSerializedTransaction(db)
+        try {
+            rows.forEach { (metric, value, source) ->
+                db.insertWithOnConflict("gold_daily_history", null, ContentValues().apply {
+                    put("day", day); put("metric", metric); put("value", value)
+                    put("source", source); put("observed_at", observedAt)
+                }, SQLiteDatabase.CONFLICT_REPLACE)
+            }
+            db.setTransactionSuccessful()
+        } finally { endSerializedTransaction(db) }
+        return rows.size
+    }
+
+    /** Batch import used by the one-time SGE backfill; never overwrites a richer same-day value. */
+    fun importGoldDailyHistory(metric: String, source: String, points: List<Pair<String, Double>>): Int {
+        if (points.isEmpty()) return 0
+        val observedAt = Instant.now().toString()
+        val db = writableDatabase
+        beginSerializedTransaction(db)
+        try {
+            points.forEach { (day, value) ->
+                if (!value.isFinite() || value <= 0) return@forEach
+                db.insertWithOnConflict("gold_daily_history", null, ContentValues().apply {
+                    put("day", day); put("metric", metric); put("value", value)
+                    put("source", source); put("observed_at", observedAt)
+                }, SQLiteDatabase.CONFLICT_IGNORE)
+            }
+            db.setTransactionSuccessful()
+        } finally { endSerializedTransaction(db) }
+        return points.size
+    }
+
+    /** Ascending daily points for one gold metric; the chart and the assistant both read this. */
+    fun goldDailyHistory(metric: String, limit: Int = 400): List<GoldDailyPoint> = buildList {
+        readableDatabase.rawQuery(
+            "SELECT day, value FROM gold_daily_history WHERE metric=? ORDER BY day DESC LIMIT ?",
+            arrayOf(metric, limit.coerceIn(1, 2_000).toString())
+        ).use { cursor ->
+            while (cursor.moveToNext()) add(GoldDailyPoint(cursor.getString(0), cursor.getDouble(1)))
+        }
+    }.asReversed()
+
+    fun goldDailyHistoryDays(): Int = readableDatabase.rawQuery(
+        "SELECT COUNT(DISTINCT day) FROM gold_daily_history", null
+    ).use { if (it.moveToFirst()) it.getInt(0) else 0 }
 
     fun marketBoardSnapshot(type: MarketBoardType): MarketBoardSnapshot? {
         val metadata = readableDatabase.rawQuery(
@@ -1057,7 +1204,7 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
     fun saveMarketBoardSnapshot(snapshot: MarketBoardSnapshot) {
         require(snapshot.isComplete) { "不完整的板块列表不能覆盖本地缓存" }
         val db = writableDatabase
-        db.beginTransaction()
+        beginSerializedTransaction(db)
         try {
             db.delete("market_boards", "board_type=?", arrayOf(snapshot.type.name))
             snapshot.boards.forEach { board ->
@@ -1086,7 +1233,7 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
             }, SQLiteDatabase.CONFLICT_REPLACE)
             db.setTransactionSuccessful()
         } finally {
-            db.endTransaction()
+            endSerializedTransaction(db)
         }
     }
 
@@ -1133,7 +1280,7 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
     fun saveMarketBoardMemberSnapshot(snapshot: MarketBoardMemberSnapshot) {
         require(snapshot.members.isNotEmpty()) { "空的板块成分不能覆盖本地缓存" }
         val db = writableDatabase
-        db.beginTransaction()
+        beginSerializedTransaction(db)
         try {
             db.delete("market_board_members", "board_id=?", arrayOf(snapshot.boardId))
             snapshot.members.forEach { member ->
@@ -1160,7 +1307,7 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
             }, SQLiteDatabase.CONFLICT_REPLACE)
             db.setTransactionSuccessful()
         } finally {
-            db.endTransaction()
+            endSerializedTransaction(db)
         }
     }
 
@@ -1176,13 +1323,13 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
 
     fun saveMarketBars(secid: String, bars: List<MarketBar>, cachedAt: Long = System.currentTimeMillis()) {
         val db = writableDatabase
-        db.beginTransaction()
+        beginSerializedTransaction(db)
         try {
             bars.forEach { bar -> db.insertWithOnConflict("market_daily_bars", null, ContentValues().apply {
                 put("secid", secid); put("trade_date", bar.day); put("close", bar.close); put("cached_at", cachedAt)
             }, SQLiteDatabase.CONFLICT_REPLACE) }
             db.setTransactionSuccessful()
-        } finally { db.endTransaction() }
+        } finally { endSerializedTransaction(db) }
     }
 
     /** Store one replaceable observation per Shanghai calendar day, including explicit quote gaps. */
@@ -1197,7 +1344,7 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
             .takeIf { cashBalance != null }
         val (snapshot, rows) = PortfolioAnalytics.capture(day, observedAt, positions, cashBalance, externalNetFlow, valuationFresh)
         val db = writableDatabase
-        db.beginTransaction()
+        beginSerializedTransaction(db)
         try {
             db.insertWithOnConflict("portfolio_snapshots", null, ContentValues().apply {
                 put("day", snapshot.day.toString()); put("observed_at", snapshot.observedAt)
@@ -1216,7 +1363,7 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
                 put("quote_observed_at", row.quoteObservedAt); put("quote_source", row.quoteSource)
             }) }
             db.setTransactionSuccessful()
-        } finally { db.endTransaction() }
+        } finally { endSerializedTransaction(db) }
         return snapshot
     }
 
@@ -1256,7 +1403,7 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
 
     private fun seedCatalog(db: SQLiteDatabase) {
         val items = JSONArray(appContext.assets.open("asset_catalog.json").bufferedReader().use { it.readText() })
-        db.beginTransaction()
+        beginSerializedTransaction(db)
         try {
             for (i in 0 until items.length()) {
                 val item = items.getJSONObject(i)
@@ -1272,7 +1419,7 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
                 db.insertWithOnConflict("assets", null, values, SQLiteDatabase.CONFLICT_IGNORE)
             }
             db.setTransactionSuccessful()
-        } finally { db.endTransaction() }
+        } finally { endSerializedTransaction(db) }
     }
 
     fun assets(kind: AssetKind? = null): List<AssetInfo> {
@@ -1294,7 +1441,7 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
         val base = AssetInfo(symbol.trim().uppercase(), name.trim(), kind, if (kind == AssetKind.FUND) "自定义基金" else "黄金")
         val asset = base.copy(marketQuoteSecid = PortfolioQuoteRouter.defaultQuoteSecid(base))
         require(asset.symbol.isNotBlank() && asset.name.isNotBlank()) { "请填写名称和代码" }
-        writableDatabase.insertOrThrow("assets", null, ContentValues().apply {
+        writes.insertOrThrow("assets", null, ContentValues().apply {
             put("id",asset.symbol); put("name",asset.name); put("kind",asset.kind.name); put("category",asset.category)
             put("market_quote_secid", asset.marketQuoteSecid)
         })
@@ -1308,7 +1455,7 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
         val normalizedCategory = category.trim().ifBlank { "公募基金" }
         findAsset(normalizedCode)?.let { existing ->
             if (existing.category == "公募基金" && normalizedCategory != "公募基金") {
-                writableDatabase.update(
+                writes.update(
                     "assets",
                     ContentValues().apply { put("category", normalizedCategory) },
                     "id=? AND kind=?",
@@ -1320,7 +1467,7 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
         }
         val base = AssetInfo(normalizedCode, normalizedName, AssetKind.FUND, normalizedCategory)
         val asset = base.copy(marketQuoteSecid = PortfolioQuoteRouter.defaultQuoteSecid(base))
-        writableDatabase.insertWithOnConflict("assets", null, ContentValues().apply {
+        writes.insertWithOnConflict("assets", null, ContentValues().apply {
             put("id", asset.symbol); put("name", asset.name); put("kind", asset.kind.name); put("category", asset.category)
             put("market_quote_secid", asset.marketQuoteSecid)
         }, SQLiteDatabase.CONFLICT_IGNORE)
@@ -1387,7 +1534,7 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
     override fun initializeAccountCash(openingBalance: BigDecimal, day: LocalDate) {
         require(openingBalance >= BigDecimal.ZERO) { "期初现金不能小于零" }
         val db = writableDatabase
-        db.beginTransaction()
+        beginSerializedTransaction(db)
         try {
             require(accountCashEvents().isEmpty()) { "现金账本已有流水" }
             db.insertOrThrow("account_cash_events", null, ContentValues().apply {
@@ -1395,7 +1542,7 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
                 put("amount", openingBalance.toPlainString()); put("memo", "期初现金")
             })
             db.setTransactionSuccessful()
-        } finally { db.endTransaction() }
+        } finally { endSerializedTransaction(db) }
     }
 
     /** Records an external deposit or withdrawal. Withdrawals cannot exceed available cash. */
@@ -1408,7 +1555,7 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
         require(type == AccountCashEventType.DEPOSIT || type == AccountCashEventType.WITHDRAWAL) { "这里只能记录入金或出金" }
         require(amount > BigDecimal.ZERO) { "金额必须大于零" }
         val db = writableDatabase
-        db.beginTransaction()
+        beginSerializedTransaction(db)
         try {
             val events = accountCashEvents()
             val balance = requireNotNull(AccountCashLedger.balance(events)) { "请先设置现金跟踪的期初余额" }
@@ -1431,7 +1578,7 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
                 put("valuation_complete", if (valuationComplete) 1 else 0)
             })
             db.setTransactionSuccessful()
-        } finally { db.endTransaction() }
+        } finally { endSerializedTransaction(db) }
     }
 
     private fun recordTradeCashEvent(db: SQLiteDatabase, transactionId: Long, day: String, side: TradeSide,
@@ -1492,7 +1639,7 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
             put("status", if (confirmed) "CONFIRMED" else "PENDING")
         }
         val db = writableDatabase
-        db.beginTransaction()
+        beginSerializedTransaction(db)
         return try {
             val transactionId = db.insertOrThrow("transactions", null, values)
             if (confirmed) recordTradeCashEvent(
@@ -1501,7 +1648,17 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
             invalidatePortfolioFactsFrom(db, tradeDay)
             db.setTransactionSuccessful()
             transactionId
-        } finally { db.endTransaction() }
+        } finally { endSerializedTransaction(db) }
+        // Long-term habit memory: the assistant later sees which instruments and actions the user
+        // actually records, not just which questions were asked. Best effort; never fails the trade.
+        runCatching {
+            writes.insert("assistant_memory_events", null, ContentValues().apply {
+                put("kind", "ACTION")
+                put("key", "账本 · ${if (side == TradeSide.BUY) "买入" else "卖出"} ${asset.name}(${asset.symbol})".take(120))
+                put("at_millis", System.currentTimeMillis())
+                put("weight", 1.0)
+            })
+        }
     }
 
     /** Records a dividend's gross amount, withholding tax and net cash receipt as one atomic event. */
@@ -1518,7 +1675,7 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
         val day = LocalDate.now(ZoneId.of("Asia/Shanghai"))
         val occurredAt = Instant.now()
         val db = writableDatabase
-        db.beginTransaction()
+        beginSerializedTransaction(db)
         return try {
             val transactionId = db.insertOrThrow("transactions", null, ContentValues().apply {
                 put("asset_id", asset.symbol)
@@ -1535,7 +1692,7 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
             invalidatePortfolioFactsFrom(db, day, occurredAt)
             db.setTransactionSuccessful()
             transactionId
-        } finally { db.endTransaction() }
+        } finally { endSerializedTransaction(db) }
     }
 
     /** Records a taxed dividend reinvested into new units without adding a cash-ledger receipt. */
@@ -1556,7 +1713,7 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
         require(units > BigDecimal.ZERO) { "税后分红不足以换算为最小份额" }
         val day = LocalDate.now(ZoneId.of("Asia/Shanghai"))
         val db = writableDatabase
-        db.beginTransaction()
+        beginSerializedTransaction(db)
         return try {
             val transactionId = db.insertOrThrow("transactions", null, ContentValues().apply {
                 put("asset_id", asset.symbol)
@@ -1573,7 +1730,7 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
             invalidatePortfolioFactsFrom(db, day)
             db.setTransactionSuccessful()
             transactionId
-        } finally { db.endTransaction() }
+        } finally { endSerializedTransaction(db) }
     }
 
     /** Applies a pure share ratio while preserving total cost and invalidating the old per-unit quote. */
@@ -1586,7 +1743,7 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
         require(note.length <= 120) { "备注不能超过 120 个字符" }
         val day = LocalDate.now(ZoneId.of("Asia/Shanghai"))
         val db = writableDatabase
-        db.beginTransaction()
+        beginSerializedTransaction(db)
         return try {
             val current = positions().firstOrNull { it.asset.symbol == asset.symbol }
             require(current != null && current.units > BigDecimal.ZERO) { "该标的没有可拆分的持仓" }
@@ -1607,7 +1764,7 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
             invalidatePortfolioFactsFrom(db, day)
             db.setTransactionSuccessful()
             transactionId
-        } finally { db.endTransaction() }
+        } finally { endSerializedTransaction(db) }
     }
 
     /** Moves units and their weighted-average cost basis between two tracked assets atomically. */
@@ -1626,7 +1783,7 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
         require(note.length <= 120) { "备注不能超过 120 个字符" }
         val day = LocalDate.now(ZoneId.of("Asia/Shanghai"))
         val db = writableDatabase
-        db.beginTransaction()
+        beginSerializedTransaction(db)
         return try {
             val source = positions().firstOrNull { it.asset.symbol == sourceAsset.symbol }
                 ?: error("转出标的当前没有持仓")
@@ -1654,7 +1811,7 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
             invalidatePortfolioFactsFrom(db, day)
             db.setTransactionSuccessful()
             transactionId
-        } finally { db.endTransaction() }
+        } finally { endSerializedTransaction(db) }
     }
 
     private fun recordCashDividendEvent(
@@ -1685,7 +1842,7 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
         require(averageCost > BigDecimal.ZERO) { "平均成本过小，无法精确保存" }
         val day = LocalDate.now(ZoneId.of("Asia/Shanghai")).toString()
         val db = writableDatabase
-        db.beginTransaction()
+        beginSerializedTransaction(db)
         return try {
             val transactionId = db.insertOrThrow("transactions", null, ContentValues().apply {
                 put("asset_id", asset.symbol)
@@ -1700,13 +1857,13 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
             invalidatePortfolioFactsFrom(db, LocalDate.parse(day))
             db.setTransactionSuccessful()
             transactionId
-        } finally { db.endTransaction() }
+        } finally { endSerializedTransaction(db) }
     }
 
     /** Undo a just-recorded trade and its linked cash event atomically. */
     fun deleteTrade(id: Long) {
         val db = writableDatabase
-        db.beginTransaction()
+        beginSerializedTransaction(db)
         try {
             val trade = trades().singleOrNull { it.id == id } ?: error("找不到这笔流水")
             require(!trade.isReversed) { "已冲正的流水需要保留审计记录" }
@@ -1723,7 +1880,7 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
                 invalidatePortfolioFactsFrom(db, LocalDate.parse(trade.day))
             }
             db.setTransactionSuccessful()
-        } finally { db.endTransaction() }
+        } finally { endSerializedTransaction(db) }
     }
 
     /** Preserve the original transaction while excluding it from balances and calculations. */
@@ -1732,7 +1889,7 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
         require(note.isNotBlank()) { "请填写冲正原因" }
         require(note.length <= 200) { "冲正原因不能超过 200 个字符" }
         val db = writableDatabase
-        db.beginTransaction()
+        beginSerializedTransaction(db)
         try {
             val trade = trades().singleOrNull { it.id == id } ?: error("找不到这笔流水")
             require(!trade.isReversed) { "这笔流水已经冲正" }
@@ -1749,7 +1906,7 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
             AccountCashLedger.balance(accountCashEvents())
             invalidatePortfolioFactsFrom(db, LocalDate.parse(trade.day))
             db.setTransactionSuccessful()
-        } finally { db.endTransaction() }
+        } finally { endSerializedTransaction(db) }
     }
 
     fun confirmTrade(id: Long, price: BigDecimal) {
@@ -1767,7 +1924,7 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
         }
         val amount = if (trade.side == TradeSide.SELL) units.multiply(price) else trade.amount
         val db = writableDatabase
-        db.beginTransaction()
+        beginSerializedTransaction(db)
         try {
             db.update("transactions", ContentValues().apply {
                 put("amount", amount.toPlainString()); put("units", units.toPlainString())
@@ -1776,19 +1933,19 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
             recordTradeCashEvent(db, id, trade.day, trade.side, amount, trade.fee)
             invalidatePortfolioFactsFrom(db, LocalDate.parse(trade.day))
             db.setTransactionSuccessful()
-        } finally { db.endTransaction() }
+        } finally { endSerializedTransaction(db) }
     }
 
     fun setQuote(asset: AssetInfo, price: BigDecimal) {
         require(price > BigDecimal.ZERO)
         val db = writableDatabase
-        db.beginTransaction()
+        beginSerializedTransaction(db)
         try {
             saveAssetQuote(asset, price, Instant.now(), "MANUAL", db)
             db.delete("manual_gold_quotes", "asset_id=?", arrayOf(asset.symbol))
             db.setTransactionSuccessful()
         } finally {
-            db.endTransaction()
+            endSerializedTransaction(db)
         }
     }
 
@@ -1807,7 +1964,7 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
         val observedAt = Instant.now()
         val validUntil = observedAt.plusSeconds(validityHours * 60L * 60L)
         val db = writableDatabase
-        db.beginTransaction()
+        beginSerializedTransaction(db)
         try {
             saveAssetQuote(asset, bankBuybackPrice, observedAt, "MANUAL_BANK_BUYBACK", db)
             val values = ContentValues().apply {
@@ -1826,7 +1983,7 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
             )
             db.setTransactionSuccessful()
         } finally {
-            db.endTransaction()
+            endSerializedTransaction(db)
         }
     }
 
@@ -1856,7 +2013,7 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
         ) != null) { "当前缓存没有与资产代码和单位匹配的 ETF / 黄金行情" }
         val db = writableDatabase
         var changed = false
-        db.beginTransaction()
+        beginSerializedTransaction(db)
         try {
             val current = db.rawQuery(
                 "SELECT market_quote_secid FROM assets WHERE id=? AND kind=?",
@@ -1875,7 +2032,7 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
             }
             db.setTransactionSuccessful()
         } finally {
-            db.endTransaction()
+            endSerializedTransaction(db)
         }
         return changed
     }
@@ -1899,7 +2056,7 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
 
         val db = writableDatabase
         var changed = 0
-        db.beginTransaction()
+        beginSerializedTransaction(db)
         try {
             val latest = mutableMapOf<String, Pair<Instant, BigDecimal>>()
             db.rawQuery("SELECT asset_id,price,observed_at FROM quotes", null).use { cursor ->
@@ -1918,7 +2075,7 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
             }
             db.setTransactionSuccessful()
         } finally {
-            db.endTransaction()
+            endSerializedTransaction(db)
         }
         return changed
     }
@@ -1936,13 +2093,13 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
             put("observed_at", timestamp); put("source", source)
         }
         val ownsTransaction = !db.inTransaction()
-        if (ownsTransaction) db.beginTransaction()
+        if (ownsTransaction) beginSerializedTransaction(db)
         try {
             db.insertWithOnConflict("quotes", null, values, SQLiteDatabase.CONFLICT_REPLACE)
             db.insertWithOnConflict("quote_history", null, values, SQLiteDatabase.CONFLICT_IGNORE)
             if (ownsTransaction) db.setTransactionSuccessful()
         } finally {
-            if (ownsTransaction) db.endTransaction()
+            if (ownsTransaction) endSerializedTransaction(db)
         }
     }
 
@@ -2310,7 +2467,7 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
         }
 
         val db = writableDatabase
-        db.beginTransaction()
+        beginSerializedTransaction(db)
         try {
             db.delete("transactions", null, null)
             db.delete("account_cash_events", null, null)
@@ -2381,7 +2538,7 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
                 put("quote_source", row.optString("quote_source").takeIf { it.isNotBlank() && it != "null" })
             }) }
             db.setTransactionSuccessful()
-        } finally { db.endTransaction() }
+        } finally { endSerializedTransaction(db) }
     }
 
     private fun quoteRowsFromBackup(root: JSONObject, key: String): List<JSONObject> {
@@ -2499,4 +2656,19 @@ private fun computePositions(
         val quote = quotes[p.asset.symbol]
         Position(p.asset,p.units,p.cost,p.realized,quote?.first,quote?.second,quote?.third)
     }.filter { it.units > BigDecimal.ZERO || it.realized != BigDecimal.ZERO }
+}
+
+/**
+ * One open ledger per process. The Activity and the WorkManager workers all run in the same process,
+ * so opening the encrypted database once avoids paying the SQLCipher key derivation twice on launch
+ * and keeps a single connection pool for the serialized writes. Callers must not close the shared
+ * instance; process teardown releases it.
+ */
+object LedgerProvider {
+    @Volatile
+    private var instance: Ledger? = null
+
+    fun get(context: Context): Ledger = instance ?: synchronized(this) {
+        instance ?: Ledger(context.applicationContext).also { instance = it }
+    }
 }

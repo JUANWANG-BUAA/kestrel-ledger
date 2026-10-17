@@ -40,6 +40,7 @@ class AssistantSettingsStore(context: Context) {
             reasoningEffort = preferences.getString(KEY_REASONING_EFFORT, "auto") ?: "auto",
             toolsEnabled = preferences.getBoolean(KEY_TOOLS_ENABLED, true),
             sharePrivateDetails = preferences.getBoolean(KEY_SHARE_PRIVATE, false),
+            allowLocalChanges = preferences.getBoolean(KEY_ALLOW_LOCAL_CHANGES, false),
             systemPrompt = preferences.getString(KEY_SYSTEM_PROMPT, null) ?: LlmSettings.DEFAULT_SYSTEM_PROMPT,
             imageInputEnabled = if (migrateLegacyDeepSeek) false else
                 preferences.getBoolean(KEY_IMAGE_INPUT_ENABLED, false)
@@ -60,6 +61,7 @@ class AssistantSettingsStore(context: Context) {
             .putString(KEY_REASONING_EFFORT, normalized.reasoningEffort)
             .putBoolean(KEY_TOOLS_ENABLED, normalized.toolsEnabled)
             .putBoolean(KEY_SHARE_PRIVATE, normalized.sharePrivateDetails)
+            .putBoolean(KEY_ALLOW_LOCAL_CHANGES, normalized.allowLocalChanges)
             .putString(KEY_SYSTEM_PROMPT, normalized.systemPrompt)
             .putBoolean(KEY_IMAGE_INPUT_ENABLED, normalized.imageInputEnabled)
             .apply()
@@ -90,6 +92,7 @@ class AssistantSettingsStore(context: Context) {
         const val KEY_REASONING_EFFORT = "reasoning_effort"
         const val KEY_TOOLS_ENABLED = "tools_enabled"
         const val KEY_SHARE_PRIVATE = "share_private"
+        const val KEY_ALLOW_LOCAL_CHANGES = "allow_local_changes"
         const val KEY_SYSTEM_PROMPT = "system_prompt"
         const val KEY_ENABLED_TOOLS = "enabled_tools"
         const val KEY_IMAGE_INPUT_ENABLED = "image_input_enabled"

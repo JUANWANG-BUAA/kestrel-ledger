@@ -9,7 +9,7 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import cn.market.assistant.AlertNotifier
 import cn.market.assistant.AlertObservations
-import cn.market.assistant.Ledger
+import cn.market.assistant.LedgerProvider
 import cn.market.assistant.domain.alert.AlertDecision
 import cn.market.assistant.domain.alert.AlertEngine
 import cn.market.assistant.domain.alert.AlertEvent
@@ -30,43 +30,40 @@ class AlertEvaluationWorker(
     override suspend fun doWork(): Result = try {
         withContext(Dispatchers.IO) {
             AlertNotifier.ensureChannel(applicationContext)
-            val ledger = Ledger(applicationContext)
-            try {
-                val rules = ledger.alertRules().filter { it.enabled }
-                if (rules.isEmpty()) {
-                    Log.i(TAG, "No enabled alert rules; skipping evaluation")
-                    return@withContext
-                }
-                val quotes = ledger.marketQuotes()
-                val positions = ledger.positions()
-                val observations = AlertObservations.build(rules, quotes, positions)
-                var fired = 0
-                val now = System.currentTimeMillis()
-                rules.forEach { rule ->
-                    val outcome = AlertEngine.evaluate(
-                        rule,
-                        observations[rule.id] ?: AlertObservation(value = null),
-                        now
+            // Shared with the Activity; the worker must not close it.
+            val ledger = LedgerProvider.get(applicationContext)
+            val rules = ledger.alertRules().filter { it.enabled }
+            if (rules.isEmpty()) {
+                Log.i(TAG, "No enabled alert rules; skipping evaluation")
+                return@withContext
+            }
+            val quotes = ledger.marketQuotes()
+            val positions = ledger.positions()
+            val observations = AlertObservations.build(rules, quotes, positions)
+            var fired = 0
+            val now = System.currentTimeMillis()
+            rules.forEach { rule ->
+                val outcome = AlertEngine.evaluate(
+                    rule,
+                    observations[rule.id] ?: AlertObservation(value = null),
+                    now
+                )
+                if (outcome.rule != rule) ledger.upsertAlertRule(outcome.rule)
+                val decision = outcome.decision
+                if (decision is AlertDecision.Fire) {
+                    val event = AlertEvent(
+                        ruleId = rule.id,
+                        ruleKind = rule.kind,
+                        title = decision.title,
+                        body = decision.body,
+                        firedAtMillis = now,
+                        targetValue = observations[rule.id]?.value
                     )
-                    if (outcome.rule != rule) ledger.upsertAlertRule(outcome.rule)
-                    val decision = outcome.decision
-                    if (decision is AlertDecision.Fire) {
-                        val event = AlertEvent(
-                            ruleId = rule.id,
-                            ruleKind = rule.kind,
-                            title = decision.title,
-                            body = decision.body,
-                            firedAtMillis = now,
-                            targetValue = observations[rule.id]?.value
-                        )
-                        ledger.recordAlertEvent(event)
-                        AlertNotifier.post(applicationContext, event, ongoing = false)
-                        fired++
-                    }
+                    ledger.recordAlertEvent(event)
+                    AlertNotifier.post(applicationContext, event, ongoing = false)
+                    fired++
                 }
                 Log.i(TAG, "Evaluated ${rules.size} alert rules; fired $fired")
-            } finally {
-                ledger.close()
             }
         }
         Result.success()

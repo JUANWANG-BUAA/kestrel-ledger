@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
@@ -81,30 +82,87 @@ internal fun MarketCard(
     }
 }
 
+/** Filled search field: one rounded track, leading glyph and an inline clear affordance. */
+@Composable
+internal fun MarketSearchField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+    modifier: Modifier = Modifier,
+    onClear: (() -> Unit)? = null
+) {
+    val palette = MarketTheme.colors
+    val geometry = MarketTheme.geometry
+    val shape = RoundedCornerShape(geometry.card)
+    androidx.compose.foundation.text.BasicTextField(
+        value = value,
+        onValueChange = onValueChange,
+        singleLine = true,
+        textStyle = MarketType.body.copy(color = palette.ink),
+        cursorBrush = androidx.compose.ui.graphics.SolidColor(palette.accent),
+        modifier = modifier,
+        decorationBox = { inner ->
+            Row(
+                Modifier.fillMaxWidth()
+                    .clip(shape)
+                    .background(palette.surfaceAlt)
+                    .padding(horizontal = 14.dp, vertical = 13.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(9.dp)
+            ) {
+                MarketIcon("search", size = 18.dp, tint = palette.muted)
+                Box(Modifier.weight(1f)) {
+                    if (value.isEmpty()) Text(placeholder, color = palette.muted, style = MarketType.body)
+                    inner()
+                }
+                if (value.isNotEmpty() && onClear != null) {
+                    Box(
+                        Modifier.size(20.dp).clip(androidx.compose.foundation.shape.CircleShape)
+                            .background(palette.line)
+                            .marketPressable(onClick = onClear),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        MarketIcon("close", size = 12.dp, tint = palette.inkSoft)
+                    }
+                }
+            }
+        }
+    )
+}
+
 /** Pill quick link with a hint line; replaces a bare row of text buttons. */
 @Composable
 internal fun MarketQuickLink(
     label: String,
     hint: String,
     modifier: Modifier = Modifier,
+    icon: String? = null,
     onClick: () -> Unit
 ) {
     val palette = MarketTheme.colors
     val geometry = MarketTheme.geometry
-    Row(
+    val shape = RoundedCornerShape(geometry.card)
+    Column(
         modifier
-            .marketShadow(RoundedCornerShape(geometry.chip), MarketElevation.card)
-            .clip(RoundedCornerShape(geometry.chip))
+            .marketShadow(shape, MarketElevation.card)
+            .clip(shape)
             .background(palette.surface)
+            .border(1.dp, palette.line, shape)
             .marketPressable(onClick = onClick)
-            .padding(horizontal = geometry.md, vertical = 9.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .padding(horizontal = geometry.md, vertical = geometry.md),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-            Text(label, color = palette.ink, style = MarketType.numberSmall, maxLines = 1)
-            Text(hint, color = palette.muted, style = MarketType.caption, maxLines = 1)
+        if (icon != null) {
+            Box(
+                Modifier.size(30.dp).clip(androidx.compose.foundation.shape.CircleShape)
+                    .background(palette.accentSoft),
+                contentAlignment = Alignment.Center
+            ) {
+                MarketIcon(icon, size = 16.dp, tint = palette.accent)
+            }
         }
-        Text("›", color = palette.muted, style = MarketType.numberSmall)
+        Text(label, color = palette.ink, style = MarketType.numberSmall, maxLines = 1)
+        Text(hint, color = palette.muted, style = MarketType.caption, maxLines = 1)
     }
 }
 
@@ -153,9 +211,10 @@ internal fun MarketMetric(
 }
 
 /**
- * Home hero: one white panel, one dominant number and a single accent action. Numbers use tabular
- * figures so they stay aligned as they change, and the accounting state is carried by hairline
- * dividers instead of decorated sub-panels.
+ * Home hero: one accent-gradient panel that carries the account value, today's move and the three
+ * accounting totals. White text on a saturated surface is the only place the app lets colour lead, so
+ * the rest of the page stays quiet. Decorative circles are drawn at single-digit opacity to keep the
+ * panel from reading as a flat rectangle.
  */
 @Composable
 internal fun OverviewHeroCard(
@@ -184,7 +243,7 @@ internal fun OverviewHeroCard(
         cashTrackingEnabled && accountValue == null -> "待补价格"
         positions.isEmpty() && accountValue == null -> "尚未录入持仓"
         accountValue == null && noPositionQuotes -> "暂无有效报价"
-        else -> "¥${(accountValue ?: total).portfolioMoney()}"
+        else -> "¥${(accountValue ?: total).portfolioMoneyGrouped()}"
     }
     val hasPrivateAmount = accountValue != null || positions.any { it.value != null }
     val amountHidden = concealAmounts && hasPrivateAmount
@@ -197,8 +256,9 @@ internal fun OverviewHeroCard(
         positions.isEmpty() -> "尚无持仓报价"
         latestQuoteAt != null -> "报价 $quoteCount/${positions.size} · 最近 $latestQuoteAt"
         else -> "报价 $quoteCount/${positions.size} · 尚无报价时间"
+    }.let { base ->
+        if (!allPositionsPriced && positions.isNotEmpty()) "$base · 部分持仓缺报价" else base
     }
-    val todayColor = todayProfit?.let { value -> plColor(value) } ?: palette.muted
     val todayText = when {
         amountHidden -> "今日 ••••"
         todayProfit == null -> "今日暂不可用"
@@ -207,96 +267,201 @@ internal fun OverviewHeroCard(
             if (todayProfit.signum() > 0) append("+")
             append("¥${todayProfit.portfolioMoney()}")
             todayRate?.let { rate ->
-                append("  ")
+                append("   ")
                 append(if (rate.signum() > 0) "+" else "")
                 append(rate.setScale(2, java.math.RoundingMode.HALF_UP))
                 append("%")
             }
         }
     }
+    val onHero = Color.White
+    val onHeroMuted = Color.White.copy(alpha = 0.74f)
+    val heroShape = RoundedCornerShape(geometry.panel)
 
-    Card(
-        Modifier.fillMaxWidth().marketShadow(RoundedCornerShape(geometry.panel), MarketElevation.raised),
-        shape = RoundedCornerShape(geometry.panel),
-        colors = CardDefaults.cardColors(containerColor = palette.surface),
-        border = BorderStroke(1.dp, palette.line.copy(alpha = 0.85f))
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .marketShadow(heroShape, MarketElevation.raised)
+            .clip(heroShape)
+            .background(
+                Brush.linearGradient(
+                    listOf(palette.accent, palette.accent.shade(0.74f)),
+                    start = androidx.compose.ui.geometry.Offset.Zero,
+                    end = androidx.compose.ui.geometry.Offset(1200f, 1400f)
+                )
+            )
     ) {
+        androidx.compose.foundation.Canvas(Modifier.matchParentSize()) {
+            drawCircle(Color.White.copy(alpha = 0.07f), radius = size.minDimension * 0.62f, center = androidx.compose.ui.geometry.Offset(size.width * 1.04f, size.height * 0.12f))
+            drawCircle(Color.White.copy(alpha = 0.05f), radius = size.minDimension * 0.34f, center = androidx.compose.ui.geometry.Offset(size.width * 0.12f, size.height * 0.96f))
+        }
         Column(
-            Modifier.fillMaxWidth().padding(geometry.xl),
+            Modifier.fillMaxWidth().padding(horizontal = geometry.xl, vertical = geometry.lg),
             verticalArrangement = Arrangement.spacedBy(geometry.md)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(subtitle, color = palette.muted, style = MarketType.label)
+                Text(subtitle, color = onHeroMuted, style = MarketType.heroLabel)
                 Spacer(Modifier.weight(1f))
-                Text(
-                    if (amountHidden) "显示金额" else "隐藏金额",
-                    color = palette.accent, style = MarketType.label,
-                    modifier = Modifier.clickable(onClick = onToggleAmountVisibility)
-                )
+                Box(
+                    Modifier
+                        .clip(RoundedCornerShape(geometry.chip))
+                        .background(Color.White.copy(alpha = 0.16f))
+                        .marketPressable(scaleDown = 0.94f, onClick = onToggleAmountVisibility)
+                        .padding(horizontal = 10.dp, vertical = 5.dp)
+                ) {
+                    Text(
+                        if (amountHidden) "显示金额" else "隐藏金额",
+                        color = onHero,
+                        style = MarketType.caption,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
             }
             Text(
                 if (amountHidden) "¥••••••" else headline,
-                color = palette.ink,
-                style = MarketType.amount
+                color = onHero,
+                style = if (positions.isEmpty() && accountValue == null) MarketType.title else MarketType.heroAmount
             )
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(geometry.sm)) {
                 Box(
                     Modifier.clip(RoundedCornerShape(geometry.chip))
-                        .background(todayColor.copy(alpha = 0.10f))
-                        .padding(horizontal = 9.dp, vertical = 4.dp)
+                        .background(Color.White.copy(alpha = 0.18f))
+                        .padding(horizontal = 10.dp, vertical = 5.dp)
                 ) {
-                    Text(todayText, color = todayColor, style = MarketType.numberSmall)
+                    Text(todayText, color = onHero, style = MarketType.numberSmall)
+                }
+                if (positions.isEmpty()) {
+                    Text("先记一笔买入，收益就从这里开始", color = onHeroMuted, style = MarketType.caption)
                 }
             }
-            Box(Modifier.fillMaxWidth().height(1.dp).background(palette.line))
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                MarketMetric(
-                    label = "持有收益",
-                    value = if (amountHidden) "••••" else "${if (holding.signum() > 0) "+" else ""}¥${holding.portfolioMoney()}",
-                    valueColor = plColor(holding),
-                    modifier = Modifier.weight(1f)
+            Box(Modifier.fillMaxWidth().height(1.dp).background(Color.White.copy(alpha = 0.20f)))
+            if (positions.isEmpty() && accountValue == null) {
+                Text(
+                    "录入持仓后，这里自动汇总持有收益、成本与已实现。",
+                    color = onHeroMuted,
+                    style = MarketType.caption
                 )
-                MarketMetric(
-                    label = "成本",
-                    value = if (amountHidden) "••••" else "¥${cost.portfolioMoney()}",
-                    valueColor = palette.inkSoft,
-                    modifier = Modifier.weight(1f),
-                    withDivider = true
-                )
-                MarketMetric(
-                    label = "已实现",
-                    value = if (amountHidden) "••••" else "¥${realized.portfolioMoney()}",
-                    valueColor = palette.muted,
-                    modifier = Modifier.weight(1f),
-                    withDivider = true
-                )
+            } else {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+                    HeroMetric(
+                        "持有收益",
+                        if (amountHidden) "••••" else "${if (holding.signum() > 0) "+" else ""}¥${holding.portfolioMoneyGrouped()}",
+                        Modifier.weight(1f)
+                    )
+                    HeroMetric("成本", if (amountHidden) "••••" else "¥${cost.portfolioMoneyGrouped()}", Modifier.weight(1f), divider = true)
+                    HeroMetric("已实现", if (amountHidden) "••••" else "¥${realized.portfolioMoneyGrouped()}", Modifier.weight(1f), divider = true)
+                }
             }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    listOfNotNull(
-                        coverage,
-                        todayMissingReason.takeIf { todayProfit == null },
-                        "部分持仓缺少报价，金额只统计有报价的持仓"
-                            .takeIf { !allPositionsPriced && positions.isNotEmpty() }
-                    ).joinToString(" · "),
-                    color = palette.muted, style = MarketType.caption,
+                    coverage,
+                    color = onHeroMuted, style = MarketType.caption,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f)
                 )
+                Spacer(Modifier.width(geometry.sm))
                 Box(
                     Modifier.clip(RoundedCornerShape(geometry.chip))
-                        .background(palette.accent)
-                        .marketPressable(onClick = onRecord)
-                        .padding(horizontal = geometry.lg, vertical = 8.dp)
+                        .background(Color.White)
+                        .marketPressable(scaleDown = 0.95f, onClick = onRecord)
+                        .padding(horizontal = geometry.lg, vertical = 9.dp)
                 ) {
-                    Text("＋ 记一笔", color = Color.White, style = MarketType.label, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "＋ 记一笔",
+                        color = palette.accent,
+                        style = MarketType.label,
+                        fontWeight = FontWeight.SemiBold
+                    )
                 }
             }
+            if (todayProfit == null && !todayMissingReason.isNullOrBlank()) {
+                Text(
+                    todayMissingReason,
+                    color = onHeroMuted,
+                    style = MarketType.caption,
+                    maxLines = 2,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                )
+            }
             if (accountPeriod) {
-                Text("按完整账户口径计算今日盈亏", color = palette.muted, style = MarketType.caption)
+                Text("按完整账户口径计算今日盈亏", color = onHeroMuted, style = MarketType.caption)
             }
         }
     }
 }
+
+/** One label/value column inside the hero; the divider is a translucent white hairline. */
+@Composable
+private fun HeroMetric(label: String, value: String, modifier: Modifier = Modifier, divider: Boolean = false) {
+    Row(modifier) {
+        if (divider) {
+            Box(Modifier.width(1.dp).height(30.dp).background(Color.White.copy(alpha = 0.20f)))
+        }
+        Column(
+            Modifier.weight(1f).padding(start = if (divider) 12.dp else 0.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Text(label, color = Color.White.copy(alpha = 0.70f), style = MarketType.caption)
+            Text(value, color = Color.White, style = MarketType.number)
+        }
+    }
+}
+
+/**
+ * Empty state with one glyph, one sentence and one action. Replaces the old pattern of showing a row
+ * of zeroes, which read as broken data rather than as "nothing recorded yet".
+ */
+@Composable
+internal fun MarketEmptyState(
+    icon: String,
+    title: String,
+    body: String,
+    modifier: Modifier = Modifier,
+    actionLabel: String? = null,
+    onAction: (() -> Unit)? = null
+) {
+    val palette = MarketTheme.colors
+    val geometry = MarketTheme.geometry
+    val shape = RoundedCornerShape(geometry.card)
+    Column(
+        modifier
+            .fillMaxWidth()
+            .marketShadow(shape, MarketElevation.card)
+            .clip(shape)
+            .background(palette.surface)
+            .border(1.dp, palette.line, shape)
+            .padding(horizontal = geometry.lg, vertical = 24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(9.dp)
+    ) {
+        Box(
+            Modifier.size(54.dp).clip(androidx.compose.foundation.shape.CircleShape).background(palette.accentSoft),
+            contentAlignment = Alignment.Center
+        ) {
+            MarketIcon(icon, size = 24.dp, tint = palette.accent)
+        }
+        Text(title, color = palette.ink, style = MarketType.section)
+        Text(
+            body,
+            color = palette.muted,
+            style = MarketType.caption,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+        )
+        if (actionLabel != null && onAction != null) {
+            Box(
+                Modifier
+                    .clip(RoundedCornerShape(geometry.chip))
+                    .background(palette.accent)
+                    .marketPressable(scaleDown = 0.95f, onClick = onAction)
+                    .padding(horizontal = geometry.xl, vertical = 9.dp)
+            ) {
+                Text(actionLabel, color = Color.White, style = MarketType.label, fontWeight = FontWeight.SemiBold)
+            }
+        }
+    }
+}
+
 
 /**
  * Compact 3-column quote tile: name, value and change are read top-to-bottom in one glance, matching

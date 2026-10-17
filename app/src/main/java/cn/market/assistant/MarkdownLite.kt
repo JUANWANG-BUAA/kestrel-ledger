@@ -61,21 +61,21 @@ internal fun MarkdownLite(
             blocks.forEach { block ->
                 when (block) {
                     is MarkdownBlock.Heading -> MarkdownInlineText(
-                        block.text, bodyColor, if (block.level == 1) 16.sp else 14.sp, 20.sp,
+                        block.text, bodyColor, if (block.level == 1) 17.sp else 15.sp, 23.sp,
                         fontWeight = FontWeight.SemiBold, onOpenMarket = onOpenMarket
                     )
                     is MarkdownBlock.Bullet -> MarkdownInlineText(
-                        "· ${block.text}", bodyColor, 12.5.sp, 18.sp, onOpenMarket = onOpenMarket
+                        "· ${block.text}", bodyColor, 13.5.sp, 21.sp, onOpenMarket = onOpenMarket
                     )
                     is MarkdownBlock.Numbered -> MarkdownInlineText(
-                        "${block.index}. ${block.text}", bodyColor, 12.5.sp, 18.sp, onOpenMarket = onOpenMarket
+                        "${block.index}. ${block.text}", bodyColor, 13.5.sp, 21.sp, onOpenMarket = onOpenMarket
                     )
                     is MarkdownBlock.Quote -> Surface(
                         color = MarketTheme.colors.surfaceAlt,
                         shape = RoundedCornerShape(topEnd = 10.dp, bottomEnd = 10.dp)
                     ) {
                         MarkdownInlineText(
-                            block.text, mutedColor, 12.sp, 18.sp,
+                            block.text, mutedColor, 13.sp, 19.sp,
                             Modifier.fillMaxWidth().padding(start = 10.dp, end = 9.dp, top = 6.dp, bottom = 6.dp),
                             onOpenMarket = onOpenMarket
                         )
@@ -85,7 +85,7 @@ internal fun MarkdownLite(
                     is MarkdownBlock.Chart -> MarkdownChartCard(block)
                     is MarkdownBlock.Divider -> Text("————————", color = mutedColor, fontSize = 10.sp)
                     is MarkdownBlock.Paragraph -> MarkdownInlineText(
-                        block.text, bodyColor, 12.5.sp, 18.sp, onOpenMarket = onOpenMarket
+                        block.text, bodyColor, 14.sp, 22.sp, onOpenMarket = onOpenMarket
                     )
                 }
             }

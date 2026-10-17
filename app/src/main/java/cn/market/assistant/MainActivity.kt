@@ -102,6 +102,7 @@ import androidx.compose.material3.rememberDrawerState
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.TextFieldColors
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
@@ -190,6 +191,7 @@ private const val HEALTH_ROUTE = "__data_health__"
 private const val ASSISTANT_ROUTE = "__assistant__"
 private const val ALERT_ROUTE = "__alerts__"
 private const val APPEARANCE_ROUTE = "__appearance__"
+private const val UPDATE_ROUTE = "__update__"
 
 private fun readBackupText(inputStream: InputStream): String = inputStream.use { input ->
     val output = ByteArrayOutputStream()
@@ -230,19 +232,16 @@ private data class DrawerEntry(
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        DailyPortfolioSnapshotScheduler.ensureScheduled(applicationContext)
-        AlertNotifier.ensureChannel(applicationContext)
-        AlertEvaluationScheduler.ensureScheduled(applicationContext)
+        // Scheduling starts after the first frame: WorkManager opens the encrypted ledger on its own
+        // thread and used to compete with the splash screen's database open.
         @Suppress("DEPRECATION")
         window.decorView.systemUiVisibility = android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
-        window.statusBarColor = android.graphics.Color.rgb(242, 241, 237)
-        window.navigationBarColor = android.graphics.Color.rgb(28, 34, 37)
         setContent {
             val themeStore = rememberMarketThemeStore(LocalContext.current)
             val themeState = remember(themeStore) { themeStore.load() }
             LaunchedEffect(
                 themeState.accent, themeState.mode, themeState.density, themeState.fontScale,
-                themeState.corner, themeState.blurEnabled
+                themeState.corner
             ) {
                 themeStore.save(themeState)
             }
@@ -281,7 +280,7 @@ private fun LedgerStartup(content: @Composable (Ledger) -> Unit) {
         ledger = null
         errorMessage = null
         try {
-            ledger = withContext(Dispatchers.IO) { Ledger(context) }
+            ledger = withContext(Dispatchers.IO) { LedgerProvider.get(context) }
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
             throw cancelled
         } catch (error: Exception) {
@@ -299,27 +298,7 @@ private fun LedgerStartup(content: @Composable (Ledger) -> Unit) {
 
 @Composable
 private fun LedgerStartupScreen(errorMessage: String?, onRetry: () -> Unit) {
-    Surface(modifier = Modifier.fillMaxSize(), color = Paper) {
-        Box(
-            modifier = Modifier.fillMaxSize().padding(24.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                Text("Market", color = Ink, fontSize = 28.sp, fontWeight = FontWeight.SemiBold)
-                if (errorMessage == null) {
-                    CircularProgressIndicator(color = Blue)
-                    Text("正在安全打开本地账本…", color = Muted, fontSize = 14.sp)
-                } else {
-                    Text("本地账本暂时无法打开", color = Ink, fontSize = 16.sp, fontWeight = FontWeight.Medium)
-                    Text(errorMessage, color = ErrorColor, fontSize = 13.sp)
-                    Button(onClick = onRetry) { Text("重试") }
-                }
-            }
-        }
-    }
+    MarketSplashScreen(errorMessage, onRetry)
 }
 
 @Composable
@@ -340,6 +319,14 @@ internal fun assetChipColors() = FilterChipDefaults.filterChipColors(
 
 @Composable
 private fun MarketApp(ledger: Ledger) {
+    val appContext = LocalContext.current.applicationContext
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) {
+            DailyPortfolioSnapshotScheduler.ensureScheduled(appContext)
+            AlertNotifier.ensureChannel(appContext)
+            AlertEvaluationScheduler.ensureScheduled(appContext)
+        }
+    }
     val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
     val fundCatalogCacheFile = LocalContext.current.applicationContext.cacheDir.resolve("fund-catalog-cache.js")
     val marketRepository = remember(ledger) { MarketRepositoryImpl(ledger, Dispatchers.IO) }
@@ -376,6 +363,7 @@ private fun MarketApp(ledger: Ledger) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val portfolioRiskFeatureState = rememberPortfolioRiskFeatureState(context)
+    val updateState = rememberUpdateFeatureState(scope, Dispatchers.IO)
     suspend fun syncLinkedPortfolioQuotes(quotes: Map<String, MarketQuote>) {
         val changed = withContext(Dispatchers.IO) { ledger.syncLinkedMarketQuotes(quotes) }
         if (changed > 0) revision++
@@ -488,7 +476,13 @@ private fun MarketApp(ledger: Ledger) {
     val cashEvents = remember(revision) { ledger.accountCashEvents() }
     var snapshotRevision by remember { mutableStateOf(0) }
     LaunchedEffect(positions, cashEvents, trades, revision) {
-        withContext(Dispatchers.IO) { ledger.savePortfolioSnapshot(positions) }
+        val failure = withContext(Dispatchers.IO) {
+            runCatching { ledger.savePortfolioSnapshot(positions) }.exceptionOrNull()
+        }
+        if (failure != null) {
+            dataMessage = "今日快照暂未保存：${failure.userFacingMessage("请稍后重试")}"
+            dataMessageIsError = true
+        }
         snapshotRevision++
     }
     val recordedSnapshots = remember(snapshotRevision) { ledger.portfolioSnapshots() }
@@ -536,7 +530,6 @@ private fun MarketApp(ledger: Ledger) {
         riskFeatureState = portfolioRiskFeatureState,
         onPortfolioChanged = { revision++ }
     )
-    val appContext = LocalContext.current.applicationContext
     val alertState = remember(ledger) {
         AlertFeatureState(ledger, scope) { event -> AlertNotifier.post(appContext, event) }
             .also { it.refresh() }
@@ -566,7 +559,8 @@ private fun MarketApp(ledger: Ledger) {
                 DrawerEntry("数据健康", "pulse", Tab.HOME, route = HEALTH_ROUTE),
                 DrawerEntry("提醒", "bell", Tab.HOME, route = ALERT_ROUTE),
                 DrawerEntry("AI 助手", "spark", Tab.HOME, route = ASSISTANT_ROUTE),
-                DrawerEntry("外观", "sliders", Tab.HOME, route = APPEARANCE_ROUTE)
+                DrawerEntry("外观", "sliders", Tab.HOME, route = APPEARANCE_ROUTE),
+                DrawerEntry("关于与更新", "refresh", Tab.HOME, route = UPDATE_ROUTE)
             )
         )
     }
@@ -607,28 +601,42 @@ private fun MarketApp(ledger: Ledger) {
                         Modifier.fillMaxWidth()
                             .padding(top = geometry.lg)
                             .clip(RoundedCornerShape(geometry.card))
-                            .background(palette.surfaceAlt)
+                            .background(
+                                Brush.linearGradient(
+                                    listOf(palette.accent, palette.accent.shade(0.74f)),
+                                    start = androidx.compose.ui.geometry.Offset.Zero,
+                                    end = androidx.compose.ui.geometry.Offset(700f, 700f)
+                                )
+                            )
                             .padding(geometry.lg)
                     ) {
                         Column(verticalArrangement = Arrangement.spacedBy(geometry.sm)) {
                             Text(
                                 if (cashBalance != null) "账户总资产" else "持仓市值 · 不含现金",
-                                color = palette.muted, style = MarketType.label
+                                color = Color.White.copy(alpha = 0.75f), style = MarketType.label
                             )
                             Text(
                                 if (drawerAmountHidden) "¥••••••" else "¥${drawerAccount.portfolioMoney()}",
-                                color = palette.ink, style = MarketType.numberLarge
+                                color = Color.White,
+                                fontSize = 26.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = (-0.8).sp
                             )
                             val today = todayFacts.profit
-                            val todayColor = if (today != null) plColor(today) else palette.muted
-                            Text(
-                                when {
-                                    drawerAmountHidden -> "今日 ••••"
-                                    today == null -> "今日盈亏暂不可用"
-                                    else -> "今日 ${if (today.signum() > 0) "+" else ""}¥${today.portfolioMoney()}"
-                                },
-                                color = todayColor, style = MarketType.numberSmall
-                            )
+                            Box(
+                                Modifier.clip(RoundedCornerShape(geometry.chip))
+                                    .background(Color.White.copy(alpha = 0.18f))
+                                    .padding(horizontal = 9.dp, vertical = 4.dp)
+                            ) {
+                                Text(
+                                    when {
+                                        drawerAmountHidden -> "今日 ••••"
+                                        today == null -> "今日盈亏暂不可用"
+                                        else -> "今日 ${if (today.signum() > 0) "+" else ""}¥${today.portfolioMoney()}"
+                                    },
+                                    color = Color.White, style = MarketType.numberSmall
+                                )
+                            }
                         }
                     }
 
@@ -703,23 +711,11 @@ private fun MarketApp(ledger: Ledger) {
             }
         }
     ) {
-      val pageBackdrop = rememberGraphicsLayer()
       CompositionLocalProvider(
-        LocalOpenDrawer provides { scope.launch { drawerState.open() } },
-        LocalMarketBackdrop provides if (MarketTheme.state?.blurEnabled != false) pageBackdrop else null
+        LocalOpenDrawer provides { scope.launch { drawerState.open() } }
       ) {
 
       Box(Modifier.fillMaxSize()) {
-      Box(
-        Modifier.fillMaxSize().drawWithContent {
-            pageBackdrop.record(
-                density = this,
-                layoutDirection = layoutDirection,
-                size = IntSize(size.width.roundToInt(), size.height.roundToInt())
-            ) { this@drawWithContent.drawContent() }
-            drawLayer(pageBackdrop)
-        }
-      ) {
       Scaffold(
         containerColor = Paper,
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) }
@@ -755,6 +751,10 @@ private fun MarketApp(ledger: Ledger) {
                     onBackfillDaily = dataHealthState::backfillDailyHistory,
                     onBack = { selectedMarket = null },
                     modifier = Modifier.padding(insets)
+                ) else if (route.second == UPDATE_ROUTE) UpdateScreen(
+                    state = updateState,
+                    onBack = { selectedMarket = null },
+                    modifier = Modifier.padding(insets)
                 ) else if (route.second == APPEARANCE_ROUTE) AppearanceScreen(
                     onBack = { selectedMarket = null },
                     modifier = Modifier.padding(insets)
@@ -774,6 +774,7 @@ private fun MarketApp(ledger: Ledger) {
                     domesticQuote = marketQuotes["GOLD.SGE.AU9999"],
                     internationalCnyGramQuote = marketQuotes[MarketApi.GOLD_CNY_GRAM_ID],
                     etfQuote = marketQuotes["1.518880"], marketRepository = marketRepository,
+                    ledger = ledger,
                     goldPositions = positions.filter { it.asset.kind == AssetKind.GOLD },
                     message = goldMessage, quoteLoading = goldLoading, onRefresh = ::refreshGoldSpot,
                     onOpenEtf = { selectedMarket = "1.518880"; showSectors = false; tab = Tab.WATCHLIST },
@@ -840,6 +841,7 @@ private fun MarketApp(ledger: Ledger) {
                         showExportBackupDialog = true
                     },
                     onImport = { restoreLauncher.launch(arrayOf("application/json", "text/*")) },
+                    onRecord = { tab = Tab.RECORD },
                     dataMessage = dataMessage, dataMessageIsError = dataMessageIsError,
                     modifier = Modifier.padding(insets)
                 )
@@ -1007,7 +1009,6 @@ private fun MarketApp(ledger: Ledger) {
             }
         }
       }
-      }
     }
     }
 }
@@ -1138,9 +1139,9 @@ private fun GoldOverviewCard(domestic: MarketQuote?, international: MarketQuote?
     }
 }
 
-private fun Double.asSignedPercent() = "${if (this > 0) "+" else ""}${String.format("%.2f", this)}%"
+internal fun Double.asSignedPercent() = "${if (this > 0) "+" else ""}${String.format("%.2f", this)}%"
 
-private fun MarketQuote.displaySource(): String = when {
+internal fun MarketQuote.displaySource(): String = when {
     source.startsWith("gold-api") -> "gold-api.com"
     source == "sge-au9999" -> "上海黄金交易所"
     source == "tencent" -> "腾讯行情"
@@ -1148,7 +1149,7 @@ private fun MarketQuote.displaySource(): String = when {
 }
 
 @Composable
-private fun AnimatedTicker(value: String, color: Color, fontSize: androidx.compose.ui.unit.TextUnit,
+internal fun AnimatedTicker(value: String, color: Color, fontSize: androidx.compose.ui.unit.TextUnit,
                           fontWeight: FontWeight = FontWeight.SemiBold, modifier: Modifier = Modifier) {
     var previous by remember { mutableStateOf(value) }
     val oldNumber = previous.filter { it.isDigit() || it == '.' || it == '-' }.toDoubleOrNull()
@@ -1171,249 +1172,6 @@ private fun AnimatedTicker(value: String, color: Color, fontSize: androidx.compo
         }
     }
     LaunchedEffect(value) { previous = value }
-}
-
-@Composable
-private fun GoldDashboardScreen(
-    quote: MarketQuote?, domesticQuote: MarketQuote?, internationalCnyGramQuote: MarketQuote?, etfQuote: MarketQuote?, marketRepository: MarketRepository,
-    goldPositions: List<Position>, message: String, quoteLoading: Boolean, onRefresh: () -> Unit,
-    onOpenEtf: () -> Unit, onBack: () -> Unit, modifier: Modifier = Modifier
-) {
-    var period by remember { mutableStateOf(ChartPeriod.INTRADAY) }
-    var style by remember { mutableStateOf(MarketChartStyle.CANDLE) }
-    var showMa5 by remember { mutableStateOf(true) }
-    var showMa20 by remember { mutableStateOf(false) }
-    var showVolume by remember { mutableStateOf(true) }
-    var showRsi by remember { mutableStateOf(false) }
-    var showMacd by remember { mutableStateOf(false) }
-    var refreshRevision by remember { mutableStateOf(0) }
-    var bars by remember(period) { mutableStateOf(emptyList<MarketOhlcBar>()) }
-    var loading by remember { mutableStateOf(false) }
-    var message by remember { mutableStateOf("") }
-    var selectedIndex by remember(period) { mutableStateOf(-1) }
-    val scope = rememberCoroutineScope()
-    fun loadChart(force: Boolean = false) {
-        if (loading) return
-        val ttl = if (period == ChartPeriod.INTRADAY || period == ChartPeriod.FIVE_DAY) 15 * 60 * 1000L else 12 * 60 * 60 * 1000L
-        scope.launch {
-            loading = true
-            val cached = runCatching { marketRepository.cachedChart("1.518880", period) }.getOrNull()
-            cached?.let {
-                bars = it.bars
-                selectedIndex = filteredChartBars(it.bars, period).lastIndex
-            }
-            if (!force && cached != null && cached.bars.size >= 2 && cached.cachedAt > 0 &&
-                System.currentTimeMillis() - cached.cachedAt < ttl) {
-                loading = false
-                return@launch
-            }
-            runCatching { marketRepository.refreshChart("1.518880", period) }
-                .onSuccess { refreshed ->
-                    if (refreshed.bars.isNotEmpty()) {
-                        bars = refreshed.bars
-                        selectedIndex = filteredChartBars(refreshed.bars, period).lastIndex
-                        message = if (refreshed.refreshed) "${period.label} · 华安黄金 ETF · ${etfQuote?.displayTime() ?: "公开行情源"}"
-                            else "行情源没有返回 K 线，显示最近缓存"
-                    } else message = "行情源没有返回 K 线，显示最近缓存"
-                }
-                .onFailure { message = if (bars.isEmpty()) "黄金 ETF K 线暂时不可用：${it.message ?: "请稍后重试"}" else "更新失败，显示本机缓存" }
-            loading = false
-        }
-    }
-    LaunchedEffect(period, refreshRevision) { loadChart(force = refreshRevision > 0) }
-    LaunchedEffect(period) {
-        if (period == ChartPeriod.INTRADAY) while (isActive) {
-            delay(60_000)
-            if (!loading) runCatching { marketRepository.refreshChart("1.518880", ChartPeriod.INTRADAY) }
-                .getOrNull()?.bars?.takeIf { it.isNotEmpty() }?.let { fresh ->
-                    bars = fresh
-                    selectedIndex = filteredChartBars(fresh, period).lastIndex
-                }
-        }
-    }
-    LaunchedEffect(Unit) {
-        onRefresh()
-        while (isActive) { delay(30_000); onRefresh() }
-    }
-    val visibleBars = filteredChartBars(bars, period)
-    val selectedBar = visibleBars.getOrNull(selectedIndex.coerceIn(0, (visibleBars.lastIndex).coerceAtLeast(0)))
-    ScreenColumn(modifier, spacing = 14.dp, onPullRefresh = { onRefresh(); refreshRevision++ }) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            MarketBackButton(label = "总览", onClick = onBack)
-            Spacer(Modifier.weight(1f))
-            TextButton(onClick = { onRefresh(); refreshRevision++ }, enabled = !loading && !quoteLoading) {
-                Text(if (quoteLoading) "更新报价…" else "刷新行情")
-            }
-        }
-        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text("黄金", color = Ink, fontSize = 28.sp, fontWeight = FontWeight.SemiBold)
-            Text("国际 XAU/USD · 国内 Au99.99 · 黄金 ETF", color = Muted, fontSize = 12.sp)
-        }
-        Card(Modifier.fillMaxWidth(), shape = TacticalPanel, colors = CardDefaults.cardColors(containerColor = White),
-            border = BorderStroke(1.dp, Color(0xFFD8D8D2)), elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
-            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("国内现货 · AU9999", color = Muted, fontSize = 11.sp)
-                        AnimatedTicker(domesticQuote?.let { "¥${String.format("%.2f", it.price)}" } ?: "—", Ink, 27.sp)
-                        Text("人民币 / 克", color = Muted, style = MarketType.caption)
-                        Text(
-                            "上金所公开现货 · ${domesticQuote?.displayTime() ?: "等待行情"}",
-                            color = Blue, style = MarketType.caption, maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("国际现货 · XAU/USD", color = Muted, fontSize = 11.sp)
-                        AnimatedTicker(quote?.let { "US\$${String.format("%,.2f", it.price)}" } ?: "—", Ink, 27.sp)
-                        Text("美元 / 金衡盎司", color = Muted, style = MarketType.caption)
-                        Text(
-                            "${quote?.displayTime() ?: "等待行情"} · ${quote?.displaySource() ?: "公共报价源"}",
-                            color = Muted, style = MarketType.caption, maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
-                val premium = if (domesticQuote != null && internationalCnyGramQuote != null) domesticQuote.price - internationalCnyGramQuote.price else null
-                val premiumPct = if (premium != null && internationalCnyGramQuote != null && internationalCnyGramQuote.price > 0) premium / internationalCnyGramQuote.price * 100 else null
-                val goldPalette = MarketTheme.colors
-                val goldGeometry = MarketTheme.geometry
-                Column(
-                    Modifier.fillMaxWidth()
-                        .clip(RoundedCornerShape(goldGeometry.chip))
-                        .background(goldPalette.surfaceAlt)
-                        .padding(horizontal = goldGeometry.lg, vertical = goldGeometry.md),
-                    verticalArrangement = Arrangement.spacedBy(3.dp)
-                ) {
-                    Text("国内相对国际溢价", color = goldPalette.muted, style = MarketType.label)
-                    Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(
-                            premium?.let { "${String.format("%+.2f", it)} 元" } ?: "—",
-                            color = premium?.let { plColor(BigDecimal.valueOf(it)) } ?: goldPalette.muted,
-                            style = MarketType.numberLarge
-                        )
-                        Text(
-                            premiumPct?.let { "${String.format("%+.2f", it)}%" } ?: "",
-                            color = premiumPct?.let { plColor(BigDecimal.valueOf(it)) } ?: goldPalette.muted,
-                            style = MarketType.numberSmall
-                        )
-                    }
-                    Text(
-                        "仅此处折算为人民币 / 克；国际金价仍为美元 / 盎司",
-                        color = goldPalette.muted, style = MarketType.caption
-                    )
-                }
-                androidx.compose.animation.AnimatedContent(targetState = etfQuote?.price,
-                    transitionSpec = { fadeIn(tween(160)) togetherWith fadeOut(tween(120)) }, label = "gold_etf_quote") { price ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text("华安黄金 ETF · 518880", color = Ink, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                            Text("${etfQuote?.displayTime() ?: "暂无报价"} · ${etfQuote?.displaySource() ?: "等待数据"}", color = Muted, fontSize = 10.sp)
-                        }
-                        AnimatedTicker(price?.let { "¥${String.format("%.3f", it)}" } ?: "—", Ink, 17.sp)
-                        Spacer(Modifier.width(6.dp))
-                        Text(etfQuote?.changePct?.asSignedPercent() ?: "", color = etfQuote?.let { plColor(BigDecimal.valueOf(it.changePct)) } ?: Muted, fontSize = 11.sp)
-                    }
-                }
-            }
-        }
-        if (goldPositions.isNotEmpty()) {
-            Card(Modifier.fillMaxWidth(), shape = TacticalPanel, colors = CardDefaults.cardColors(containerColor = White),
-                border = BorderStroke(1.dp, Color(0xFFD8D8D2))) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("我的黄金", color = Ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                    goldPositions.forEach { position ->
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                Text(position.asset.name, color = Ink, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                                Text("${position.units.portfolioQty()} 克 · 成本 ¥${position.cost.portfolioMoney()}", color = Muted, fontSize = 10.sp)
-                            }
-                            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                Text(
-                                    position.value?.let { "市值 ¥${it.portfolioMoney()}" }
-                                        ?: if (position.quoteExpired) "报价已过期" else "需录入克价",
-                                    color = if (position.quoteExpired) ErrorColor else Ink, fontSize = 11.sp
-                                )
-                                Text(position.holdingProfit?.let { "盈亏 ${if (it.signum() > 0) "+" else ""}¥${it.portfolioMoney()}" } ?: "估值待补",
-                                    color = position.holdingProfit?.let { value -> plColor(value) } ?: Muted, fontSize = 10.sp)
-                            }
-                        }
-                        if (position.quote != null) Text(
-                            "${portfolioQuoteSourceLabel(position.quoteSource)} · ${portfolioQuoteTimeLabel(position.quoteTime)}",
-                            color = Muted, fontSize = 9.sp
-                        )
-                    }
-                    Text("Au99.99 可按上金所报价计价；银行积存金请录入账户实际克价。国际现货不用于推算银行报价。",
-                        color = Muted, fontSize = 10.sp, lineHeight = 15.sp)
-                }
-            }
-        }
-        Card(Modifier.fillMaxWidth(), shape = TacticalPanel, colors = CardDefaults.cardColors(containerColor = White),
-            border = BorderStroke(1.dp, Color(0xFFD8D8D2))) {
-            Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        if (period == ChartPeriod.INTRADAY) "黄金 ETF 当日分时" else "黄金 ETF K 线",
-                        color = Ink, style = MarketType.section, modifier = Modifier.weight(1f)
-                    )
-                    Text(
-                        if (loading) "加载中" else "更新",
-                        color = if (loading) MarketTheme.colors.muted else MarketTheme.colors.accent,
-                        style = MarketType.label,
-                        modifier = Modifier.marketPressable(enabled = !loading) { loadChart(true) }
-                            .padding(horizontal = 8.dp, vertical = 6.dp)
-                    )
-                }
-                Text(
-                    if (period == ChartPeriod.INTRADAY) {
-                        "默认显示当日 5 分钟分时；黄金报价约每 30 秒刷新，分时约每分钟更新"
-                    } else {
-                        "518880 作为国内黄金交易代理，价格不等同于现货克价"
-                    },
-                    color = MarketTheme.colors.muted, style = MarketType.caption
-                )
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    ChartPeriod.entries.forEach { item ->
-                        FilterChip(selected = period == item, onClick = { period = item }, label = { Text(item.label, fontSize = 11.sp) }, colors = assetChipColors())
-                    }
-                }
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    FilterChip(selected = style == MarketChartStyle.LINE, onClick = { style = MarketChartStyle.LINE }, label = { Text("走势") }, colors = assetChipColors())
-                    FilterChip(selected = style == MarketChartStyle.CANDLE, onClick = { style = MarketChartStyle.CANDLE }, label = { Text("K线") }, colors = assetChipColors())
-                    FilterChip(selected = showMa5, onClick = { showMa5 = !showMa5 }, label = { Text("MA5") }, colors = assetChipColors())
-                    FilterChip(selected = showMa20, onClick = { showMa20 = !showMa20 }, label = { Text("MA20") }, colors = assetChipColors())
-                    FilterChip(selected = showVolume, onClick = { showVolume = !showVolume }, label = { Text("成交量") }, colors = assetChipColors())
-                    FilterChip(selected = showRsi, onClick = { showRsi = !showRsi }, label = { Text("RSI14") }, colors = assetChipColors())
-                    FilterChip(selected = showMacd, onClick = { showMacd = !showMacd }, label = { Text("MACD") }, colors = assetChipColors())
-                }
-                if (visibleBars.isNotEmpty()) MarketChart(visibleBars, style, showMa5, showMa20, showVolume, selectedIndex,
-                    Modifier.fillMaxWidth().height(220.dp), onIndexSelected = { selectedIndex = it })
-                else Box(Modifier.fillMaxWidth().height(220.dp), contentAlignment = Alignment.Center) {
-                    Text(if (loading) "正在加载黄金行情…" else "暂无该周期 K 线", color = Muted, fontSize = 13.sp)
-                }
-                AnimatedVisibility(
-                    visible = showRsi,
-                    enter = fadeIn(tween(180)) + expandVertically(tween(220)),
-                    exit = fadeOut(tween(120)) + shrinkVertically(tween(180))
-                ) { IndicatorPane(visibleBars, selectedIndex, macd = false) }
-                AnimatedVisibility(
-                    visible = showMacd,
-                    enter = fadeIn(tween(180)) + expandVertically(tween(220)),
-                    exit = fadeOut(tween(120)) + shrinkVertically(tween(180))
-                ) { IndicatorPane(visibleBars, selectedIndex, macd = true) }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text(visibleBars.firstOrNull()?.let { chartDate(it.day) } ?: "—", color = Muted, fontSize = 9.sp)
-                    Text(selectedBar?.let { "${chartDate(it.day)} · 收 ¥${String.format("%.3f", it.close)}" } ?: "拖动图表查看", color = Blue, fontSize = 10.sp)
-                    Text(visibleBars.lastOrNull()?.let { chartDate(it.day) } ?: "—", color = Muted, fontSize = 9.sp)
-                }
-                if (message.isNotBlank()) Text(message, color = Muted, fontSize = 10.sp)
-            }
-        }
-        Button(onClick = onOpenEtf, modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(14.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Blue)) { Text("查看 518880 完整行情与指标") }
-        if (message.isNotBlank()) Text(message, color = Muted, fontSize = 11.sp)
-        Text("国际金价直接显示 XAU/USD 美元 / 金衡盎司报价。国内溢价比较会另按汇率和金衡盎司重量折算为人民币 / 克；ETF 图表仅观察国内交易品种走势。行情可能延迟。", color = Muted, fontSize = 10.sp, lineHeight = 15.sp)
-    }
 }
 
 @Composable
@@ -1483,6 +1241,8 @@ private fun OverviewScreen(
                 .format(java.time.format.DateTimeFormatter.ofPattern("MM-dd HH:mm"))
         }.getOrDefault(value.take(16).replace('T', ' '))
     }
+    val palette = MarketTheme.colors
+    val geometry = MarketTheme.geometry
     ScreenColumn(modifier, onPullRefresh = { if (!marketLoading) onRefreshMarket() }) {
         MarketLargeTitle("资产", subtitle = "账户 · 持仓 · 行情", leading = { MarketMenuButton() })
         OverviewHeroCard(
@@ -1506,59 +1266,53 @@ private fun OverviewScreen(
             onRecord = onRecord
         )
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            MarketQuickLink("全部持仓", "份额 · 成本 · 盈亏", Modifier.weight(1f), onClick = onOpenAssets)
-            MarketQuickLink("黄金行情", "国内外金价 · 折算", Modifier.weight(1f), onClick = onOpenGold)
-            MarketQuickLink("市场行情", "指数 · 板块 · 自选", Modifier.weight(1f), onClick = onOpenWatchlist)
+            MarketQuickLink("全部持仓", "份额 · 成本 · 盈亏", Modifier.weight(1f), icon = "assets", onClick = onOpenAssets)
+            MarketQuickLink("黄金行情", "国内外金价 · 折算", Modifier.weight(1f), icon = "coin", onClick = onOpenGold)
+            MarketQuickLink("市场行情", "指数 · 板块 · 自选", Modifier.weight(1f), icon = "grid", onClick = onOpenWatchlist)
         }
-        if (snapshots.size > 1) {
-            Card(
-                Modifier.fillMaxWidth(), shape = TacticalPanel,
-                colors = CardDefaults.cardColors(containerColor = White),
-                border = BorderStroke(1.dp, Color(0xFFD8D8D2))
+        if (hasSparklineVariation(snapshots)) {
+            val shape = RoundedCornerShape(geometry.card)
+            Column(
+                Modifier.fillMaxWidth()
+                    .marketShadow(shape, MarketElevation.card)
+                    .clip(shape)
+                    .background(palette.surface)
+                    .border(1.dp, palette.line, shape)
+                    .padding(geometry.lg),
+                verticalArrangement = Arrangement.spacedBy(geometry.sm)
             ) {
-                Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("资产变化", Modifier.weight(1f), color = Ink, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                        Text("${snapshots.size} 个观察日", color = Muted, fontSize = 10.sp)
-                    }
-                    PortfolioProfitSparkline(snapshots, Modifier.fillMaxWidth().height(64.dp))
+                MarketSectionHeader("资产变化", caption = "${snapshots.size} 个观察日 · 按已记录快照") {
+                    Text("分析 ›", color = palette.accent, style = MarketType.label,
+                        modifier = Modifier.clickable(onClick = onOpenAssets))
                 }
+                PortfolioProfitSparkline(snapshots, Modifier.fillMaxWidth().height(72.dp))
             }
         }
-        MarketSectionHeader("我的持仓") {
-            Text("全部资产 ›", color = Muted, fontSize = 11.sp, modifier = Modifier.clickable(onClick = onOpenAssets))
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            MarketCompactStat(
-                "基金持仓",
-                "${positions.count { it.asset.kind == AssetKind.FUND }} 只",
-                Modifier.weight(1f)
-            )
-            MarketCompactStat(
-                "黄金持仓",
-                "${positions.count { it.asset.kind == AssetKind.GOLD }} 项",
-                Modifier.weight(1f)
-            )
+        MarketSectionHeader("我的持仓", caption = "按确认流水计算份额与成本") {
+            Text("全部资产 ›", color = palette.accent, style = MarketType.label,
+                modifier = Modifier.clickable(onClick = onOpenAssets))
         }
         if (positions.isEmpty()) {
-            MarketCard {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text("还没有持仓记录", color = Ink, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                        Text("记一笔后这里显示份额、成本与盈亏", color = Muted, fontSize = 10.sp)
-                    }
-                    Text(
-                        "去记账",
-                        color = Color.White, fontSize = 11.5.sp,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(Blue)
-                            .clickable(onClick = onRecord)
-                            .padding(horizontal = 12.dp, vertical = 6.dp)
-                    )
-                }
-            }
+            MarketEmptyState(
+                icon = "assets",
+                title = "还没有持仓记录",
+                body = "记下第一笔买入或期初持仓，这里会显示份额、成本与盈亏。",
+                actionLabel = "去记一笔",
+                onAction = onRecord
+            )
         } else {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                MarketCompactStat(
+                    "基金持仓",
+                    "${positions.count { it.asset.kind == AssetKind.FUND }} 只",
+                    Modifier.weight(1f)
+                )
+                MarketCompactStat(
+                    "黄金持仓",
+                    "${positions.count { it.asset.kind == AssetKind.GOLD }} 项",
+                    Modifier.weight(1f)
+                )
+            }
             positions.take(5).forEach { PositionCard(it, concealAmounts) }
         }
         if (pendingCount > 0) InfoCard("有 $pendingCount 笔交易待确认", "净值公布后补录确认净值，即可计入持仓。", Blue)
@@ -1566,27 +1320,25 @@ private fun OverviewScreen(
             TextButton(onClick = onRecord, modifier = Modifier.fillMaxWidth()) { Text("记下买入或卖出") }
         }
 
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text("行情观察", color = Ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                val latest = marketQuotes.values.maxOfOrNull { it.fetchedAt }
-                Text(
-                    if (latest == null) "行情暂未更新" else "行情截至 ${java.time.Instant.ofEpochSecond(latest).atZone(java.time.ZoneId.of("Asia/Shanghai")).format(java.time.format.DateTimeFormatter.ofPattern("MM-dd HH:mm"))}",
-                    color = Muted, fontSize = 10.sp
-                )
+        val latestQuote = marketQuotes.values.maxOfOrNull { it.fetchedAt }
+        MarketSectionHeader(
+            "行情观察",
+            caption = if (latestQuote == null) "行情暂未更新" else "行情截至 " + java.time.Instant.ofEpochSecond(latestQuote)
+                .atZone(java.time.ZoneId.of("Asia/Shanghai"))
+                .format(java.time.format.DateTimeFormatter.ofPattern("MM-dd HH:mm"))
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                Text(if (marketLoading) "刷新中" else "刷新", color = palette.accent, style = MarketType.label,
+                    modifier = Modifier.clickable(enabled = !marketLoading, onClick = onRefreshMarket))
+                Text("板块 ›", color = palette.accent, style = MarketType.label,
+                    modifier = Modifier.clickable(onClick = onOpenSectors))
+                Text("自选 ›", color = palette.accent, style = MarketType.label,
+                    modifier = Modifier.clickable(onClick = onOpenWatchlist))
             }
-            Text(if (marketLoading) "刷新中" else "刷新", color = Muted, fontSize = 11.sp,
-                modifier = Modifier.clickable(enabled = !marketLoading, onClick = onRefreshMarket))
-            Spacer(Modifier.width(14.dp))
-            Text("板块 ›", color = Muted, fontSize = 11.sp, modifier = Modifier.clickable(onClick = onOpenSectors))
-            Spacer(Modifier.width(14.dp))
-            Text("自选 ›", color = Muted, fontSize = 11.sp, modifier = Modifier.clickable(onClick = onOpenWatchlist))
         }
         GoldOverviewCard(marketQuotes["GOLD.SGE.AU9999"], marketQuotes[MarketApi.GOLD_SPOT_ID], marketQuotes["1.518880"], onOpenGold = onOpenGold)
         MarketBoardTicker(boardSnapshots, boardLoadingTypes, boardMessage, onOpenSectors, onRefreshBoards)
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("全球大盘指数", Modifier.weight(1f), color = Ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-        }
+        MarketSectionHeader("全球大盘指数", caption = "点开看分时与日线")
         if (marketMessage.isNotBlank()) Text(marketMessage, color = Muted, fontSize = 11.sp)
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             MarketInstrumentCatalog.overview.chunked(3).forEach { trio ->
@@ -1681,9 +1433,14 @@ internal fun InfoCard(title: String, body: String, color: Color) {
 }
 
 @Composable
-internal fun fieldColors() = OutlinedTextFieldDefaults.colors(
-    focusedTextColor = Ink, unfocusedTextColor = Ink,
-    focusedContainerColor = White, unfocusedContainerColor = White,
-    focusedBorderColor = Blue, unfocusedBorderColor = Color(0xFFD8D8D2),
-    focusedLabelColor = Ink, unfocusedLabelColor = Muted, cursorColor = Ink
-)
+internal fun fieldColors(): TextFieldColors {
+    val palette = MarketTheme.colors
+    return OutlinedTextFieldDefaults.colors(
+        focusedTextColor = palette.ink, unfocusedTextColor = palette.ink,
+        focusedContainerColor = palette.surface, unfocusedContainerColor = palette.surface,
+        focusedBorderColor = palette.accent, unfocusedBorderColor = palette.line,
+        focusedLabelColor = palette.accent, unfocusedLabelColor = palette.muted,
+        focusedPlaceholderColor = palette.muted, unfocusedPlaceholderColor = palette.muted,
+        cursorColor = palette.accent
+    )
+}

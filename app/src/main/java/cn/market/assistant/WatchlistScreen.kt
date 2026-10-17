@@ -186,15 +186,18 @@ internal fun WatchlistScreen(
             "暂时没有自选标的", "可以在下方添加市场标的，或在基金画像中加入基金自选。"
         )
         if (instruments.isNotEmpty()) {
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(7.dp)
+            ) {
                 WatchlistSort.entries.forEach { option ->
-                    FilterChip(
+                    MarketChoiceChip(
+                        label = option.label,
                         selected = sortMode == option,
                         onClick = {
                             sortMode = option
                             preferences.edit().putString("watchlist_sort", option.name).apply()
-                        },
-                        label = { Text(option.label) }, colors = assetChipColors()
+                        }
                     )
                 }
             }
@@ -229,10 +232,10 @@ internal fun WatchlistScreen(
                                         Text(instrument.market, color = palette.accent, style = MarketType.caption)
                                     }
                                     Text(
-                                        "${quote?.let {
+                                        quote?.let {
                                             if (it.source == "daily-close") "近收 ${it.displayTime()}"
                                             else "行情 ${it.displayTime()}"
-                                        } ?: "暂无报价"} · 点开看日线",
+                                        } ?: "暂无报价",
                                         color = palette.muted, style = MarketType.caption
                                     )
                                 }
@@ -255,11 +258,12 @@ internal fun WatchlistScreen(
                                 }
                                 Text(
                                     "移除",
-                                    color = palette.muted, style = MarketType.label,
+                                    color = palette.muted.copy(alpha = 0.85f),
+                                    fontSize = 10.5.sp,
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(geometry.chip))
                                         .marketPressable { onToggle(instrument.secid, false) }
-                                        .padding(horizontal = geometry.md, vertical = geometry.sm)
+                                        .padding(horizontal = geometry.sm, vertical = geometry.sm)
                                 )
                             }
                         }
@@ -302,16 +306,24 @@ internal fun WatchlistScreen(
                 }
             }
         )
-        Text("添加关注", color = Ink, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-        OutlinedTextField(
-            value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth(),
-            label = { Text("按名称搜索指数或股票") }, singleLine = true,
-            shape = RoundedCornerShape(15.dp), colors = fieldColors()
+        MarketSectionHeader("添加关注", caption = "指数、股票与市场标的")
+        MarketSearchField(
+            value = query,
+            onValueChange = { query = it },
+            placeholder = "按名称或代码搜索指数、股票",
+            modifier = Modifier.fillMaxWidth(),
+            onClear = { query = "" }
         )
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+        Row(
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(7.dp)
+        ) {
             listOf("全部", "A股", "美股", "日股", "韩股", "港股").forEach { market ->
-                FilterChip(selected = marketFilter == market, onClick = { marketFilter = market },
-                    label = { Text(market) }, colors = assetChipColors())
+                MarketChoiceChip(
+                    label = market,
+                    selected = marketFilter == market,
+                    onClick = { marketFilter = market }
+                )
             }
         }
         if (candidates.isEmpty()) EmptyCard("没有匹配标的", "试试名称关键词，或切换市场分类。")

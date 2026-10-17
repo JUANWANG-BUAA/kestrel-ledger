@@ -1,6 +1,6 @@
 package cn.market.assistant.domain.assistant
 
-enum class MemoryKind { QUESTION, TOOL_USE, SKILL_USE, INSTRUMENT, MODEL, PREFERENCE }
+enum class MemoryKind { QUESTION, TOOL_USE, SKILL_USE, INSTRUMENT, MODEL, PREFERENCE, ACTION }
 
 data class MemoryEvent(
     val kind: MemoryKind,

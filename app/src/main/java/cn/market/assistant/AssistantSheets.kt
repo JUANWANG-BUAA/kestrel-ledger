@@ -119,6 +119,7 @@ private fun AssistantSettingsPanel(state: AssistantFeatureState, modifier: Modif
     var reasoningEffort by remember(state.settings.reasoningEffort) { mutableStateOf(state.settings.reasoningEffort) }
     var systemPrompt by remember(state.settings.systemPrompt) { mutableStateOf(state.settings.systemPrompt) }
     var sharePrivate by remember(state.settings.sharePrivateDetails) { mutableStateOf(state.settings.sharePrivateDetails) }
+    var allowLocalChanges by remember(state.settings.allowLocalChanges) { mutableStateOf(state.settings.allowLocalChanges) }
     var imageInputEnabled by remember(state.settings.imageInputEnabled) { mutableStateOf(state.settings.imageInputEnabled) }
     var selectedTab by remember { mutableStateOf(AssistantSettingsTab.MODEL) }
 
@@ -132,6 +133,7 @@ private fun AssistantSettingsPanel(state: AssistantFeatureState, modifier: Modif
         reasoningEffort = reasoningEffort,
         toolsEnabled = true,
         sharePrivateDetails = sharePrivate,
+        allowLocalChanges = allowLocalChanges,
         systemPrompt = systemPrompt,
         imageInputEnabled = imageInputEnabled
     )
@@ -462,10 +464,23 @@ private fun AssistantSettingsPanel(state: AssistantFeatureState, modifier: Modif
                                 state.toolDescriptors.forEach { descriptor -> state.setToolEnabled(descriptor.id, enabled) }
                             }
                         )
+                        AssistantSettingSwitch(
+                            title = "允许修改本机数据",
+                            detail = if (allowLocalChanges) {
+                                "助手可以提议记账、改自选、调风险参数或新建技能；每次仍需你点确认"
+                            } else {
+                                "关闭时助手只能读数据；任何写入类工具都不会出现在它的可用工具里"
+                            },
+                            checked = allowLocalChanges,
+                            onCheckedChange = {
+                                allowLocalChanges = it
+                                state.updateSettings(currentSettings(), apiKey)
+                            }
+                        )
                         SettingsGroupTitle("逐项管理", "关闭某项后，助手不会调用它")
                         state.toolDescriptors.forEach { descriptor ->
-                            val shortTitle = descriptor.id.substringAfterLast('.').replace('_', ' ')
-                                .replaceFirstChar { it.uppercase() }
+                            val shortTitle = assistantToolLabel(descriptor.id)
+                            val needsPermission = descriptor.id in state.localChangeToolIds
                             Row(
                                 Modifier.fillMaxWidth().background(MarketTheme.colors.surface, RoundedCornerShape(13.dp))
                                     .padding(start = 12.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
@@ -473,11 +488,19 @@ private fun AssistantSettingsPanel(state: AssistantFeatureState, modifier: Modif
                             ) {
                                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                     Text(shortTitle, color = Ink, fontSize = 11.sp, fontWeight = FontWeight.Medium)
-                                    Text(descriptor.description, color = Muted, fontSize = 9.sp, lineHeight = 12.sp,
-                                        maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                    Text(
+                                        if (needsPermission && !allowLocalChanges) {
+                                            "需要先打开「允许修改本机数据」才会出现在助手的工具里"
+                                        } else {
+                                            descriptor.description
+                                        },
+                                        color = Muted, fontSize = 9.sp, lineHeight = 12.sp,
+                                        maxLines = 2, overflow = TextOverflow.Ellipsis
+                                    )
                                 }
                                 Switch(
                                     checked = descriptor.id in state.enabledToolIds,
+                                    enabled = !needsPermission || allowLocalChanges,
                                     onCheckedChange = { state.setToolEnabled(descriptor.id, it) }
                                 )
                             }
@@ -534,6 +557,20 @@ private fun SettingsGroupTitle(title: String, subtitle: String) {
         Text(title, color = Ink, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
         Text(subtitle, color = Muted, fontSize = 9.sp)
     }
+}
+
+/** User-facing tool names; the tool id stays stable and is what the registry matches on. */
+internal fun assistantToolLabel(id: String): String = when (id) {
+    "market.quote" -> "行情查询"
+    "market.chart" -> "走势图"
+    "portfolio.positions" -> "持仓明细"
+    "portfolio.period_report" -> "周期报告"
+    "portfolio.risk" -> "组合风险"
+    "portfolio.propose_change" -> "本机更改提议"
+    "fund.search" -> "基金目录"
+    "alerts.summary" -> "提醒汇总"
+    "web.fetch" -> "公开网页抓取"
+    else -> id.substringAfterLast('.').replace('_', ' ').replaceFirstChar { it.uppercase() }
 }
 
 @Composable

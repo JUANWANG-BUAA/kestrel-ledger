@@ -280,7 +280,7 @@ internal fun MarketBoardExplorerScreen(
 
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text("全市场板块", color = BoardInk, fontSize = 26.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.8).sp)
+                        Text("全市场板块", color = BoardInk, style = MarketType.title)
                         Text("行业指数 + 主题概念 · 真实市场宽度与成交数据", color = BoardMuted, style = MarketType.caption)
                     }
                     Box(
@@ -305,19 +305,12 @@ internal fun MarketBoardExplorerScreen(
 
                 BoardBreadthCard(breadth, snapshot, isLoading)
 
-                OutlinedTextField(
+                MarketSearchField(
                     value = query,
                     onValueChange = { query = it },
+                    placeholder = "搜索板块名称或代码",
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("搜索板块名称或代码", style = MarketType.label) },
-                    singleLine = true,
-                    shape = RoundedCornerShape(14.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = BoardAccent,
-                        unfocusedBorderColor = BoardLine,
-                        focusedLabelColor = BoardAccent,
-                        cursorColor = BoardAccent
-                    )
+                    onClear = { query = "" }
                 )
 
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -357,7 +350,9 @@ internal fun MarketBoardExplorerScreen(
             }
         } else {
             itemsIndexed(filteredBoards, key = { _, board -> board.id }) { index, board ->
-                MarketBoardRow(index + 1, board, onClick = { selectedBoard = board })
+                Box(Modifier.animateItem()) {
+                    MarketBoardRow(index + 1, board, onClick = { selectedBoard = board })
+                }
             }
         }
     }

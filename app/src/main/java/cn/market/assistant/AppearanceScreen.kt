@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -67,9 +68,6 @@ internal fun AppearanceScreen(onBack: () -> Unit, modifier: Modifier = Modifier)
         AppearanceSection("信息密度", MarketDensity.entries.map { it.label to (state.density == it) }) { index ->
             state.density = MarketDensity.entries[index]
         }
-        AppearanceSection("背景模糊", listOf("开启" to state.blurEnabled, "关闭" to !state.blurEnabled)) { index ->
-            state.blurEnabled = index == 0
-        }
         AppearanceSection("字号", MarketFontScale.entries.map { it.label to (state.fontScale == it) }) { index ->
             state.fontScale = MarketFontScale.entries[index]
         }
@@ -99,17 +97,11 @@ private fun AppearanceSection(
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             options.forEachIndexed { index, (label, selected) ->
-                FilterChip(
+                MarketChoiceChip(
+                    label = label,
                     selected = selected,
-                    onClick = { onSelect(index) },
-                    label = { Text(label, fontSize = 10.sp) },
-                    colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = colors.accentSoft,
-                        selectedLabelColor = colors.ink,
-                        containerColor = colors.surface,
-                        labelColor = colors.muted
-                    )
-                )
+                    modifier = Modifier.heightIn(min = 34.dp)
+                ) { onSelect(index) }
             }
         }
     }

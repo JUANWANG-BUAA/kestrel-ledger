@@ -4,7 +4,7 @@ import android.content.Context
 import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
-import cn.market.assistant.Ledger
+import cn.market.assistant.LedgerProvider
 import cn.market.assistant.data.portfolio.LocalPortfolioSnapshotRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -20,13 +20,10 @@ class DailyPortfolioSnapshotWorker(
     override suspend fun doWork(): Result = try {
         withContext(Dispatchers.IO) {
             val today = LocalDate.now(SHANGHAI_ZONE)
-            val ledger = Ledger(applicationContext)
-            try {
-                val snapshot = LocalPortfolioSnapshotRepository(ledger).capture(today)
-                Log.i(TAG, "Captured daily portfolio snapshot for $today (${snapshot.positionCount} positions, fresh=${snapshot.valuationFresh})")
-            } finally {
-                ledger.close()
-            }
+            // Shared with the Activity: one encrypted open per process, never closed by a worker.
+            val ledger = LedgerProvider.get(applicationContext)
+            val snapshot = LocalPortfolioSnapshotRepository(ledger).capture(today)
+            Log.i(TAG, "Captured daily portfolio snapshot for $today (${snapshot.positionCount} positions, fresh=${snapshot.valuationFresh})")
         }
         Result.success()
     } catch (cancelled: CancellationException) {

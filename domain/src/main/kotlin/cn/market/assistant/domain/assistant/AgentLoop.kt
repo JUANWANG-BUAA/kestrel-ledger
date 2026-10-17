@@ -8,6 +8,7 @@ sealed interface AgentEvent {
     data class ToolCallStarted(val toolId: String, val argumentSummary: String) : AgentEvent
     data class ToolCallFinished(val toolId: String, val succeeded: Boolean, val factCount: Int) : AgentEvent
     data class Answer(val text: String, val toolCallIds: List<String>) : AgentEvent
+    data class ChartReady(val chart: AssistantChart) : AgentEvent
     data class Failed(val reason: String) : AgentEvent
 }
 
@@ -19,7 +20,9 @@ data class AgentRunResult(
     /** Non-null when the live model failed; the app then falls back to the offline fact engine. */
     val failureReason: String? = null,
     /** The UI must obtain confirmation before applying this proposed local change. */
-    val pendingAction: AssistantActionProposal? = null
+    val pendingAction: AssistantActionProposal? = null,
+    /** Charts a tool produced this turn, rendered inline under the answer. */
+    val charts: List<AssistantChart> = emptyList()
 ) {
     val usedLiveModel: Boolean get() = failureReason == null
 }
@@ -77,6 +80,7 @@ class AgentLoop(
         messages += ChatMessage(ChatRole.USER, question, attachments = attachments)
 
         val collectedFacts = mutableListOf<AssistantFact>()
+        val collectedCharts = mutableListOf<AssistantChart>()
         val usedToolIds = mutableListOf<String>()
         var usage = ChatUsage()
         var rounds = 0
@@ -130,7 +134,8 @@ class AgentLoop(
                     ),
                     rounds = rounds,
                     toolCallIds = usedToolIds.distinct(),
-                    usage = usage
+                    usage = usage,
+                    charts = collectedCharts.toList()
                 )
             }
             messages += ChatMessage(
@@ -163,10 +168,24 @@ class AgentLoop(
                         pendingAction = proposal
                     )
                 }
-                if (result.errorCode == null && result.facts.isNotEmpty()) {
+                if (result.errorCode == null && (result.facts.isNotEmpty() || result.charts.isNotEmpty())) {
                     collectedFacts += result.facts
+                    result.charts.forEach { chart ->
+                        if (collectedCharts.size < 4) {
+                            collectedCharts += chart
+                            onEvent(AgentEvent.ChartReady(chart))
+                        }
+                    }
                     if (localToolId !in usedToolIds) usedToolIds += localToolId
-                    messages += ChatMessage(ChatRole.TOOL, result.facts.toToolResultText(), toolCallId = call.id)
+                    val chartNote = result.charts.takeIf { it.isNotEmpty() }
+                        ?.joinToString("；") { "已生成图表「${it.title}」（${it.series.size} 条序列）" }
+                        .orEmpty()
+                    messages += ChatMessage(
+                        ChatRole.TOOL,
+                        listOfNotNull(result.facts.toToolResultText().takeIf { result.facts.isNotEmpty() }, chartNote.takeIf { it.isNotBlank() })
+                            .joinToString("\n"),
+                        toolCallId = call.id
+                    )
                 } else {
                     val reason = result.errorCode ?: "EMPTY_RESULT"
                     messages += ChatMessage(

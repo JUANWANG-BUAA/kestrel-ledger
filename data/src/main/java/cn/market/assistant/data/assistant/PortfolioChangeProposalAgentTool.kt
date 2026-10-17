@@ -16,9 +16,9 @@ import kotlinx.coroutines.withContext
 class PortfolioChangeProposalAgentTool(private val ledger: Ledger) : AgentTool {
     override val id = "portfolio.propose_change"
     override val description =
-        "准备添加/移除基金自选、记录本地买卖流水、更新风险分析参数或保存使用偏好；只生成预览，不会直接写入。"
+        "准备添加/移除基金自选、记录本地买卖流水、更新风险分析参数、保存使用偏好或新增一个可复用技能；只生成预览，不会直接写入。"
     override val parameters = listOf(
-        AgentToolParameter("action", "watch_add、watch_remove、record_buy、record_sell、risk_parameters 或 save_preference", true),
+        AgentToolParameter("action", "watch_add、watch_remove、record_buy、record_sell、risk_parameters、save_preference 或 save_skill", true),
         AgentToolParameter("fund_code", "六位基金代码"),
         AgentToolParameter("fund_name", "基金名称"),
         AgentToolParameter("category", "基金分类"),
@@ -28,7 +28,10 @@ class PortfolioChangeProposalAgentTool(private val ledger: Ledger) : AgentTool {
         AgentToolParameter("fee", "手续费，人民币元；默认 0"),
         AgentToolParameter("risk_free_annual_pct", "Sharpe 无风险年利率，百分数形式"),
         AgentToolParameter("minimum_acceptable_annual_pct", "Sortino 最低可接受年收益，百分数形式"),
-        AgentToolParameter("preference", "希望助手以后遵循的分析方法或偏好")
+        AgentToolParameter("preference", "希望助手以后遵循的分析方法或偏好"),
+        AgentToolParameter("skill_name", "技能名称，例如「周度复盘」"),
+        AgentToolParameter("skill_instruction", "技能执行要求，写给未来的自己看"),
+        AgentToolParameter("skill_trigger", "触发词，多个用顿号分隔")
     )
 
     override suspend fun execute(request: AgentToolRequest): AgentToolResult =
@@ -64,6 +67,20 @@ class PortfolioChangeProposalAgentTool(private val ledger: Ledger) : AgentTool {
                     kind = AssistantActionKind.SAVE_PREFERENCE,
                     summary = "记住这条分析偏好：$preference",
                     preference = preference
+                )
+            }
+            "save_skill" -> {
+                val skillName = args["skill_name"]?.trim()?.takeIf { it.length in 2..40 } ?: return invalid()
+                val instruction = args["skill_instruction"]?.trim()?.takeIf { it.length in 4..2_000 } ?: return invalid()
+                val trigger = args["skill_trigger"]?.trim()?.take(120).orEmpty()
+                AssistantActionProposal(
+                    id = UUID.randomUUID().toString(),
+                    kind = AssistantActionKind.SAVE_SKILL,
+                    summary = "新建技能「$skillName」：$instruction" +
+                        if (trigger.isBlank()) "" else "（触发词：$trigger）",
+                    skillName = skillName,
+                    skillInstruction = instruction,
+                    skillTrigger = trigger
                 )
             }
             else -> return invalid()

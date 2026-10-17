@@ -238,7 +238,18 @@ class MarketRepositoryImpl(
             )
         }
         val fresh = outcomes.mapNotNull { it.getOrNull() }
-        if (fresh.isNotEmpty()) ledger.saveMarketQuotes(fresh)
+        if (fresh.isNotEmpty()) {
+            ledger.saveMarketQuotes(fresh)
+            // Gold providers only publish a latest quote; keep one daily observation for the trend.
+            ledger.recordGoldDailyHistory(fresh)
+        }
+        // The SGE publishes ten years of official daily closes. Import them once so the domestic
+        // trend is usable immediately; later days continue to accumulate from local observations.
+        if (ledger.goldDailyHistory("sge_cny_gram").size < 2) {
+            runCatching { MarketApi.fetchSgeDailyCloses() }.getOrNull()?.takeIf { it.size >= 2 }?.let { closes ->
+                ledger.importGoldDailyHistory("sge_cny_gram", "上金所日线（一次性回填）", closes)
+            }
+        }
         QuoteRefreshResult(
             quotes = ledger.marketQuotes(),
             refreshedCount = fresh.size,

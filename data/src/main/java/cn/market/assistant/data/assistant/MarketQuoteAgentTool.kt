@@ -88,15 +88,15 @@ class MarketQuoteAgentTool(
     } + listOf(
         LookupInstrument(
             id = "GOLD.XAU.USD.OZ", name = "国际黄金 XAU/USD", market = "黄金", unit = "USD / troy oz",
-            aliases = listOf("XAU/USD", "国际金价", "美元/盎司")
+            aliases = listOf("XAU/USD", "国际金价", "美元/盎司", "gold.international")
         ),
         LookupInstrument(
             id = "GOLD.SGE.AU9999", name = "上金所 Au99.99", market = "黄金", unit = "CNY / 克",
-            aliases = listOf("Au99.99", "国内金价", "上金所黄金")
+            aliases = listOf("Au99.99", "国内金价", "上金所黄金", "gold.domestic")
         ),
         LookupInstrument(
             id = "GOLD.XAU.CNY.GRAM", name = "国际黄金人民币折算", market = "换算参考", unit = "CNY / 克",
-            aliases = listOf("人民币折算", "CNY/g")
+            aliases = listOf("人民币折算", "CNY/g", "gold.cny")
         )
     )
 

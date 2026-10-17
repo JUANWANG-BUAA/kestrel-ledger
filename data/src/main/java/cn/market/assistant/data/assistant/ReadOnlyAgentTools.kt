@@ -17,8 +17,11 @@ object ReadOnlyAgentTools {
     ): AgentToolRegistry = AgentToolRegistry(
         listOf(
             MarketQuoteAgentTool(marketRepository),
+            MarketChartAgentTool(ledger),
             PortfolioPeriodReportAgentTool(LocalPortfolioReportRepository(ledger, ioDispatcher)),
             LocalPortfolioAgentTool(ledger),
+            PortfolioRiskAgentTool(ledger),
+            AlertsAgentTool(ledger),
             FundCatalogAgentTool(fundRepository),
             PortfolioChangeProposalAgentTool(ledger),
             HttpFetchAgentTool()
