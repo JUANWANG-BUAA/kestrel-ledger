@@ -30,6 +30,10 @@ object ReadOnlyAgentTools {
                 FundCatalogAgentTool(fundRepository),
                 PortfolioChangeProposalAgentTool(ledger),
                 RecipeAgentTool(ledger, workspace, handle),
+                WorkspaceListTool(workspace),
+                WorkspaceReadTool(workspace),
+                WorkspaceWriteTool(workspace),
+                WorkspaceQueryTool(workspace),
                 HttpFetchAgentTool()
             )
         )

@@ -660,6 +660,17 @@ private fun AssistantSkillsPanel(state: AssistantFeatureState, onEditSkill: (Ass
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         TextButton(
+                            onClick = { state.runRecipe(recipe.id) },
+                            enabled = !state.recipeRunInProgress,
+                            contentPadding = PaddingValues(horizontal = 6.dp)
+                        ) {
+                            Text(
+                                if (state.recipeRunInProgress) "运行中…" else "运行",
+                                color = if (state.recipeRunInProgress) Muted else Blue,
+                                fontSize = 10.sp
+                            )
+                        }
+                        TextButton(
                             onClick = { state.deleteRecipe(recipe.id) },
                             contentPadding = PaddingValues(horizontal = 6.dp)
                         ) { Text("删除", color = AssistantDown, fontSize = 10.sp) }

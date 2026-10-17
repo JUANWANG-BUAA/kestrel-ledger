@@ -21,6 +21,7 @@ import cn.market.assistant.domain.assistant.AssistantFact
 import cn.market.assistant.data.assistant.RecipeCodec
 import cn.market.assistant.domain.assistant.AssistantMemoryRanker
 import cn.market.assistant.domain.assistant.AssistantRecipe
+import cn.market.assistant.domain.assistant.RecipeExecutor
 import cn.market.assistant.domain.assistant.AssistantMemoryStore
 import cn.market.assistant.domain.assistant.AssistantSessionState
 import cn.market.assistant.domain.assistant.AssistantSkill
@@ -128,6 +129,7 @@ internal class AssistantFeatureState(
     private val ledger: Ledger,
     private val riskFeatureState: PortfolioRiskFeatureState,
     private val onPortfolioChanged: () -> Unit,
+    private val workspace: cn.market.assistant.data.assistant.LocalAssistantWorkspace,
     private val nowMillis: () -> Long = System::currentTimeMillis
 ) {
     var settings by mutableStateOf(settingsStore.load())
@@ -831,6 +833,52 @@ internal class AssistantFeatureState(
         }
     }
 
+    var recipeRunInProgress by mutableStateOf(false)
+        private set
+
+    fun runRecipe(id: String) {
+        val recipe = recipes.firstOrNull { it.id == id } ?: return
+        if (recipeRunInProgress) return
+        recipeRunInProgress = true
+        scope.launch {
+            val allowed = enabledToolIds.intersect(registry.toolIds)
+                .let { ids -> if (settings.allowLocalChanges) ids else ids - LOCAL_CHANGE_TOOLS }
+            val authorization = AgentToolAuthorization(
+                allowedToolIds = allowed,
+                sharePrivateDetails = settings.sharePrivateDetails
+            )
+            val result = RecipeExecutor(registry).run(recipe, authorization) { path, content ->
+                workspace.write(path, content)
+            }
+            val started = nowMillis()
+            val answer = if (result.succeeded) buildString {
+                appendLine("已运行配方「${recipe.name}」，共 ${recipe.steps.size} 步。")
+                if (result.writtenFiles.isNotEmpty()) {
+                    appendLine("报告：" + result.writtenFiles.joinToString("、"))
+                }
+                appendLine("事实 ${result.facts.size} 条，图表 ${result.charts.size} 张。")
+                append("以上为本机工具结果，不构成投资建议。")
+            } else {
+                "配方未能完成：${result.errorCode}。没有写入任何账本数据。"
+            }
+            val turn = AssistantTurnUi(
+                id = "recipe-$started",
+                question = "运行配方「${recipe.name}」",
+                status = if (result.succeeded) AssistantTurnStatus.DONE else AssistantTurnStatus.FAILED,
+                answer = answer,
+                charts = result.charts,
+                modelLabel = "本机配方",
+                startedAtMillis = started,
+                finishedAtMillis = nowMillis(),
+                errorMessage = result.errorCode
+            )
+            turns = turns + turn
+            persistTurn(turn.id)
+            statusMessage = if (result.succeeded) "已运行配方 ${recipe.name}" else "配方运行失败：${result.errorCode}"
+            recipeRunInProgress = false
+        }
+    }
+
     fun deleteRecipe(id: String) {
         scope.launch {
             withContext(ioDispatcher) { ledger.deleteRecipe(id) }
@@ -848,7 +896,7 @@ internal class AssistantFeatureState(
 
     private companion object {
         /** Tools that can propose a local change and therefore require the permission switch. */
-        val LOCAL_CHANGE_TOOLS = setOf("portfolio.propose_change")
+        val LOCAL_CHANGE_TOOLS = setOf("portfolio.propose_change", "workspace.write")
     }
 
     private var lazyMemoryEvents: List<MemoryEvent> = emptyList()
@@ -1043,7 +1091,8 @@ internal fun rememberAssistantFeatureState(
             offlineFacts = offlineFacts,
             ledger = ledger,
             riskFeatureState = riskFeatureState,
-            onPortfolioChanged = onPortfolioChanged
+            onPortfolioChanged = onPortfolioChanged,
+            workspace = cn.market.assistant.data.assistant.LocalAssistantWorkspace(context)
         ).also { it.refresh() }
     }
     return state

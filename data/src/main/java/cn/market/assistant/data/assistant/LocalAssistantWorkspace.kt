@@ -47,6 +47,8 @@ class LocalAssistantWorkspace(context: Context) {
     private companion object {
         const val ROOT = "assistant-workspace"
         const val MAX_BYTES = 256 * 1024
-        val PATH = Regex("reports/[a-z0-9][a-z0-9_./-]{0,60}\\.md")
+        val PATH = Regex(
+            "(reports/[a-z0-9][a-z0-9_./-]{0,60}\\.md)|(data/[a-z0-9][a-z0-9_.-]{0,60}\\.(csv|json|md))"
+        )
     }
 }
