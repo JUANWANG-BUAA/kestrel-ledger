@@ -24,6 +24,8 @@ import cn.market.assistant.alert.AlertEvaluationScheduler
 import cn.market.assistant.domain.portfolio.Trade
 
 import android.os.Bundle
+import android.os.SystemClock
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.BackHandler
@@ -301,11 +303,14 @@ private fun LedgerStartup(content: @Composable (Ledger) -> Unit) {
     LaunchedEffect(attempt) {
         ledger = null
         errorMessage = null
+        val startedAt = SystemClock.elapsedRealtime()
         try {
             ledger = withContext(Dispatchers.IO) { LedgerProvider.get(context) }
+            Log.i("LedgerStartup", "encrypted ledger opened in ${SystemClock.elapsedRealtime() - startedAt}ms")
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
             throw cancelled
         } catch (error: Exception) {
+            Log.w("LedgerStartup", "encrypted ledger open failed after ${SystemClock.elapsedRealtime() - startedAt}ms", error)
             errorMessage = error.message ?: "无法打开本地账本，请重试或检查可用空间"
         }
     }

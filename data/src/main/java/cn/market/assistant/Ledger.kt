@@ -81,7 +81,13 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
 
     init {
         // Opening and schema upgrades happen on the caller's thread; app entry points use IO.
+        val startedAt = android.os.SystemClock.elapsedRealtime()
+        android.util.Log.i("LedgerStartup", "opening encrypted database")
         LedgerDatabaseEncryption.withInitializationLock { helper.writableDatabase }
+        android.util.Log.i(
+            "LedgerStartup",
+            "encrypted database ready in ${android.os.SystemClock.elapsedRealtime() - startedAt}ms, version=${helper.writableDatabase.version}"
+        )
     }
 
     fun close() = helper.close()
@@ -152,12 +158,24 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
         false
     ) {
         override fun onCreate(db: SQLiteDatabase) {
+            val startedAt = android.os.SystemClock.elapsedRealtime()
+            android.util.Log.i("LedgerStartup", "creating schema on a new database")
             createSchema(db)
             seedCatalog(db)
+            android.util.Log.i(
+                "LedgerStartup",
+                "schema creation took ${android.os.SystemClock.elapsedRealtime() - startedAt}ms"
+            )
         }
 
         override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+            val startedAt = android.os.SystemClock.elapsedRealtime()
+            android.util.Log.i("LedgerStartup", "schema upgrade $oldVersion -> $newVersion")
             upgradeSchema(db, oldVersion, newVersion)
+            android.util.Log.i(
+                "LedgerStartup",
+                "schema upgrade $oldVersion -> $newVersion took ${android.os.SystemClock.elapsedRealtime() - startedAt}ms"
+            )
         }
     }
 

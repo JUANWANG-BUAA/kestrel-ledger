@@ -41,6 +41,7 @@ internal object LedgerDatabaseEncryption {
 
     /** Returns the passphrase bytes expected by SQLCipher after preparing the on-disk database. */
     fun prepareAndGetPassphrase(context: Context): ByteArray = synchronized(lock) {
+        val startedAt = android.os.SystemClock.elapsedRealtime()
         loadSqlCipher()
         val appContext = context.applicationContext
         val databaseFile = appContext.getDatabasePath(DATABASE_NAME)
@@ -53,6 +54,10 @@ internal object LedgerDatabaseEncryption {
         secret.fill(0)
         try {
             recoverOrMigrate(databaseFile, passphrase)
+            android.util.Log.i(
+                "LedgerStartup",
+                "passphrase/recovery prepared in ${android.os.SystemClock.elapsedRealtime() - startedAt}ms"
+            )
             passphrase.toByteArray(StandardCharsets.UTF_8)
         } finally {
             // Strings cannot be reliably wiped, but the binary key material is cleared above.
@@ -202,6 +207,13 @@ internal object LedgerDatabaseEncryption {
             migratePlaintextDatabase(databaseFile, temporaryFile, recoveryFile, passphrase)
             return
         }
+
+        // The normal startup path has no interrupted migration to reconcile. The file is already
+        // known not to be plaintext SQLite, the wrapped key exists, and SQLiteOpenHelper is about to
+        // perform the real SQLCipher open. Validating the same file here used to pay a second PBKDF2
+        // key derivation (tens of seconds on a loaded emulator) before the helper paid it again.
+        val hasRecoveryArtifacts = temporaryFile.exists() || recoveryFile.exists() || failedFile.exists()
+        if (!hasRecoveryArtifacts) return
 
         if (isEncryptedDatabase(databaseFile, passphrase)) {
             if (!deleteFileAndSidecars(temporaryFile)) throw IOException("无法清理迁移临时文件")
