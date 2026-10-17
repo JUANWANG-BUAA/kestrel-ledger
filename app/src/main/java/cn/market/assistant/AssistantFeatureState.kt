@@ -203,8 +203,7 @@ internal class AssistantFeatureState(
 
     private fun refreshSecrets() {
         hasApiKey = secretStore.hasApiKey(settings.provider.name.lowercase())
-        enabledToolIds = (settingsStore.enabledToolIds() ?: registry.toolIds) +
-            (if (settingsStore.enabledToolIds() != null) setOf("portfolio.propose_change") else emptySet())
+        enabledToolIds = settingsStore.enabledToolIds() ?: registry.toolIds
     }
 
     private fun catalogKey(value: LlmSettings): String =

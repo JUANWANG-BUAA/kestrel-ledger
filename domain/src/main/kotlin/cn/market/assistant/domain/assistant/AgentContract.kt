@@ -177,7 +177,11 @@ class AgentToolRegistry(tools: Collection<AgentTool>) {
         } catch (_: Exception) {
             return AgentToolResult(emptyList(), TOOL_FAILED)
         }
-        if (result.errorCode != null) return result.copy(facts = emptyList())
+        if (result.errorCode != null) {
+            // Keep only the safe proposal-validation reason so the next model turn can repair its
+            // arguments instead of guessing why the tool failed.
+            return result.copy(facts = result.facts.filter { it.key == "proposal.error" })
+        }
         if (result.facts.size > MAX_FACTS_PER_TOOL || result.facts.any {
                 it.key.isBlank() || it.value.isBlank() || it.source.isNullOrBlank() || it.observedAt.isNullOrBlank()
             }) {

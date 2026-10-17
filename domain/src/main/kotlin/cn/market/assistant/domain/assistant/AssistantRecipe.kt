@@ -86,6 +86,9 @@ class RecipeExecutor(private val registry: AgentToolRegistry) {
         if (recipe.toolIds.any { it !in authorization.allowedToolIds }) {
             return RecipeRunResult(errorCode = "RECIPE_TOOL_NOT_ALLOWED")
         }
+        if (recipe.steps.any { it.op == RecipeOp.WRITE } && "workspace.write" !in authorization.allowedToolIds) {
+            return RecipeRunResult(errorCode = "RECIPE_WRITE_NOT_ALLOWED")
+        }
         val facts = mutableListOf<AssistantFact>()
         val charts = mutableListOf<AssistantChart>()
         val files = mutableListOf<String>()

@@ -60,7 +60,7 @@ class AssistantRecipeTest {
                 RecipeStep(RecipeOp.TOOL, toolId = "portfolio.period_report"),
                 RecipeStep(RecipeOp.WRITE, path = "reports/gold.md")
             ),
-            AgentToolAuthorization(allowedToolIds = setOf("market.chart", "portfolio.period_report"))
+            AgentToolAuthorization(allowedToolIds = setOf("market.chart", "portfolio.period_report", "workspace.write"))
         ) { path, content -> written = path to content }
 
         assertTrue(result.succeeded)
@@ -72,6 +72,15 @@ class AssistantRecipeTest {
         assertTrue(content.contains("chart.latest"))
         assertTrue(content.contains("国内金价"))
         assertTrue(content.contains("不构成投资建议"))
+    }
+
+    @Test
+    fun refusesWorkspaceWritesWithoutTheWriteTool() = runTest {
+        val result = RecipeExecutor(AgentToolRegistry(emptyList())).run(
+            recipe(RecipeStep(RecipeOp.WRITE, path = "reports/gold.md")),
+            AgentToolAuthorization(allowedToolIds = emptySet())
+        ) { _, _ -> }
+        assertEquals("RECIPE_WRITE_NOT_ALLOWED", result.errorCode)
     }
 
     @Test

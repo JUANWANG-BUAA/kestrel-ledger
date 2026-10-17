@@ -121,13 +121,14 @@ class AgentToolRegistryTest {
     private class FixtureTool(
         override val id: String,
         private val resultFacts: List<AssistantFact>,
+        private val errorCode: String? = null,
         private val onExecute: () -> Unit = {}
     ) : AgentTool {
         override val description = "Fixture read-only tool"
 
         override suspend fun execute(request: AgentToolRequest): AgentToolResult {
             onExecute()
-            return AgentToolResult(resultFacts)
+            return AgentToolResult(resultFacts, errorCode)
         }
     }
 
@@ -139,5 +140,22 @@ class AgentToolRegistryTest {
         })
         assertFalse("Fixture suspend call unexpectedly suspended", result == null)
         return result!!.getOrThrow()
+    }
+
+    @Test
+    fun keepsOnlyTheSafeProposalErrorFactWhenAToolFails() {
+        val publicError = AssistantFact("proposal.error", "金额与份额不一致", "text", "本机提议校验", "2026-10-16T12:00:00Z")
+        val secret = AssistantFact("portfolio.secret", "must not leak", "text", "local-ledger", "2026-10-16T12:00:00Z", FactSensitivity.PRIVATE_DETAIL)
+        val registry = AgentToolRegistry(
+            listOf(FixtureTool("portfolio.propose_change", listOf(publicError, secret), errorCode = "INVALID_CHANGE_PROPOSAL"))
+        )
+        val result = runSuspend {
+            registry.execute(
+                "portfolio.propose_change", AgentToolRequest(emptyMap()),
+                AgentToolAuthorization(setOf("portfolio.propose_change"))
+            )
+        }
+        assertEquals("INVALID_CHANGE_PROPOSAL", result.errorCode)
+        assertEquals(listOf(publicError), result.facts)
     }
 }

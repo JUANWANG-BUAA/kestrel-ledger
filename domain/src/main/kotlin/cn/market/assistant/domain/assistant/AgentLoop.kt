@@ -193,9 +193,11 @@ class AgentLoop(
                     )
                 } else {
                     val reason = result.errorCode ?: "EMPTY_RESULT"
+                    val detail = result.facts.firstOrNull { it.key == "proposal.error" }?.value
+                        ?.takeIf { it.isNotBlank() }?.let { "（$it）" }.orEmpty()
                     messages += ChatMessage(
                         ChatRole.TOOL,
-                        "工具 $localToolId 返回错误：$reason。请改用其他依据或在回答中说明该数据暂不可得。",
+                        "工具 $localToolId 返回错误：$reason$detail。请改用其他依据或在回答中说明该数据暂不可得。",
                         toolCallId = call.id
                     )
                 }
