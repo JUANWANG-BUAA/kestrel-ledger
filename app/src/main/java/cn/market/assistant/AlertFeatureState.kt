@@ -18,6 +18,7 @@ import java.math.BigDecimal
 import java.math.RoundingMode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 
 internal data class AlertFiredUi(
     val rule: AlertRule,
@@ -83,6 +84,7 @@ internal class AlertFeatureState(
 
     fun checkNow(quotes: Map<String, MarketQuote>, positions: List<Position>) {
         scope.launch {
+            AlertEvaluationGate.mutex.withLock {
             val currentRules = store.alertRules()
             val observations = buildObservations(currentRules, quotes, positions)
             var firedCount = 0
@@ -110,6 +112,7 @@ internal class AlertFeatureState(
             lastCheck = "已检查 ${currentRules.size} 条规则：触发 $firedCount 条，其余 $suppressed 条未达到阈值或处于冷却/静默"
             rules = store.alertRules()
             events = store.alertEvents(limit = 40)
+            }
         }
     }
 

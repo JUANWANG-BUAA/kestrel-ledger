@@ -386,7 +386,7 @@ private fun MarketApp(ledger: Ledger, alertRequestId: Int = 0) {
     var marketMessage by remember { mutableStateOf("") }
     var goldMessage by remember { mutableStateOf("") }
     var goldLoading by remember { mutableStateOf(false) }
-    var selectedMarket by remember { mutableStateOf<String?>(null) }
+    var selectedMarket by remember { mutableStateOf<String?>(if (alertRequestId > 0) ALERT_ROUTE else null) }
     var showSectors by remember { mutableStateOf(false) }
     LaunchedEffect(alertRequestId) {
         if (alertRequestId > 0) {

@@ -8,6 +8,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import cn.market.assistant.AlertNotifier
+import cn.market.assistant.AlertEvaluationGate
 import cn.market.assistant.AlertObservations
 import cn.market.assistant.LedgerProvider
 import cn.market.assistant.domain.alert.AlertDecision
@@ -16,6 +17,7 @@ import cn.market.assistant.domain.alert.AlertEvent
 import cn.market.assistant.domain.alert.AlertObservation
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
 
@@ -29,6 +31,7 @@ class AlertEvaluationWorker(
 ) : CoroutineWorker(appContext, params) {
     override suspend fun doWork(): Result = try {
         withContext(Dispatchers.IO) {
+            AlertEvaluationGate.mutex.withLock {
             AlertNotifier.ensureChannel(applicationContext)
             // Shared with the Activity; the worker must not close it.
             val ledger = LedgerProvider.get(applicationContext)
@@ -64,6 +67,7 @@ class AlertEvaluationWorker(
                     fired++
                 }
                 Log.i(TAG, "Evaluated ${rules.size} alert rules; fired $fired")
+            }
             }
         }
         Result.success()
