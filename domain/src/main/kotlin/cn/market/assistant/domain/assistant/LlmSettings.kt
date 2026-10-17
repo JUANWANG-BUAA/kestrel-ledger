@@ -6,6 +6,23 @@ enum class LlmProtocol(val label: String, val endpointSuffix: String) {
     ANTHROPIC_MESSAGES("Anthropic Messages", "/v1/messages")
 }
 
+/** Capabilities read from the selected provider's model catalogue, never guessed from its name. */
+data class LlmModelCapabilities(
+    val modelId: String,
+    val displayName: String? = null,
+    val contextWindow: Int? = null,
+    /** Provider-declared input limit when it does not publish a total context window. */
+    val maxInputTokens: Int? = null,
+    val maxOutputTokens: Int? = null,
+    val inputModalities: List<String>? = null,
+    val reasoningEfforts: List<String>? = null,
+    val thinkingTypes: Set<String>? = null,
+    val modelFound: Boolean? = null,
+    val catalogueVerified: Boolean = true
+) {
+    val supportsImageInput: Boolean? get() = inputModalities?.let { "image" in it }
+}
+
 /**
  * Mainstream providers the user can pick from. `defaultBaseUrl` / `defaultModel` are editable, so a
  * provider staying compatible with the chosen protocol keeps working without an app update.
@@ -115,11 +132,15 @@ data class LlmSettings(
     val protocol: LlmProtocol = provider.defaultProtocol,
     val temperature: Double = 0.3,
     val maxTokens: Int = 1_024,
+    /** Provider-neutral UI selection; adapters translate this to protocol-specific fields. */
+    val reasoningEffort: String = "auto",
+    /** Runtime metadata from the provider's model catalogue. It is not persisted with preferences. */
+    val modelCapabilities: LlmModelCapabilities? = null,
     val toolsEnabled: Boolean = true,
     val sharePrivateDetails: Boolean = false,
     val systemPrompt: String = DEFAULT_SYSTEM_PROMPT,
     /** Explicit capability switch; unknown/custom endpoints default to text-only. */
-    val imageInputEnabled: Boolean = ModelImageCapabilities.infer(provider, model)
+    val imageInputEnabled: Boolean = false
 ) {
     val isConfigured: Boolean
         get() = baseUrl.isNotBlank() && model.isNotBlank()
@@ -128,7 +149,8 @@ data class LlmSettings(
         baseUrl = baseUrl.trim().trimEnd('/'),
         model = model.trim(),
         temperature = temperature.coerceIn(0.0, 2.0),
-        maxTokens = maxTokens.coerceIn(128, 8_192),
+        maxTokens = maxTokens.coerceIn(1, 393_216),
+        reasoningEffort = reasoningEffort.takeIf { it in REASONING_EFFORTS } ?: "auto",
         systemPrompt = systemPrompt.take(4_000)
     )
 
@@ -138,7 +160,9 @@ data class LlmSettings(
         baseUrl = next.baseUrlFor(next.defaultProtocol).ifBlank { baseUrl },
         model = next.defaultModel.ifBlank { model },
         protocol = next.defaultProtocol,
-        imageInputEnabled = ModelImageCapabilities.infer(next, next.defaultModel.ifBlank { model })
+        imageInputEnabled = false,
+        reasoningEffort = "auto",
+        maxTokens = if (next == LlmProvider.ANTHROPIC) 4_096 else maxTokens
     )
 
     fun withProtocol(next: LlmProtocol): LlmSettings {
@@ -151,6 +175,8 @@ data class LlmSettings(
     }
 
     companion object {
+        val REASONING_EFFORTS = listOf("auto", "none", "low", "medium", "high", "max")
+
         const val DEFAULT_SYSTEM_PROMPT =
             "你是「养基助手」的本地数据分析助手。规则：\n" +
                 "1. 只依据用户消息、工具返回的事实和附件内容回答，不得编造数值；缺数据就直说缺什么。\n" +
@@ -160,30 +186,8 @@ data class LlmSettings(
                 "5. 用简体中文回答，先给结论再给依据，控制在 400 字以内；涉及金额保留两位小数。\n" +
             "6. 用户如果问该不该买卖，直接说明本应用不做投资建议，并改为提供相关事实。\n" +
             "7. 用户明确要求记住分析方法时，可调用 portfolio.propose_change 的 save_preference 生成待确认记录；不要声称已经记住。\n" +
-            "8. 用户请求修改自选、记录基金流水或调整风险参数时，只能调用 portfolio.propose_change 生成预览；说明这是本机记录，不会提交交易。必须等用户在界面确认后才能说已保存。"
-    }
-}
-
-/** Conservative UI defaults for known vision model families; custom models remain opt-in. */
-object ModelImageCapabilities {
-    fun infer(provider: LlmProvider, model: String): Boolean {
-        val id = model.trim().lowercase()
-        return when (provider) {
-            LlmProvider.OPENAI -> listOf("gpt-4o", "gpt-4.1", "gpt-4.5", "gpt-5", "o1", "o3", "o4").any(id::startsWith)
-            LlmProvider.ANTHROPIC -> listOf("claude-3", "claude-4", "claude-haiku-4", "claude-sonnet-4", "claude-opus-4").any(id::startsWith)
-            LlmProvider.GEMINI -> id.startsWith("gemini-")
-            LlmProvider.DASHSCOPE -> listOf("qwen-vl", "qwen2.5-vl", "qwen3-vl", "qwen-omni").any(id::startsWith)
-            LlmProvider.ZHIPU -> listOf("glm-4v", "glm-4.5v", "glm-4.6v").any(id::startsWith)
-            LlmProvider.MOONSHOT -> id.startsWith("kimi-vl") || id.startsWith("kimi-k2.5")
-            LlmProvider.OPENROUTER -> listOf(
-                "gpt-4o", "gpt-4.1", "gpt-5", "claude-3", "claude-sonnet-4", "gemini-",
-                "qwen-vl", "qwen2.5-vl", "qwen3-vl", "glm-4v", "llava", "pixtral", "internvl",
-                "deepseek-flash"
-            ).any(id::contains)
-            LlmProvider.OLLAMA -> listOf("llava", "qwen2-vl", "qwen2.5vl", "qwen3-vl", "gemma3", "minicpm-v", "moondream").any(id::startsWith)
-            LlmProvider.DEEPSEEK -> id.startsWith("deepseek-flash")
-            LlmProvider.CUSTOM -> false
-        }
+                "8. 用户请求修改自选、记录基金流水或调整风险参数时，只能调用 portfolio.propose_change 生成预览；说明这是本机记录，不会提交交易。必须等用户在界面确认后才能说已保存。\n" +
+                "9. 用户要求图表且已有至少两条真实时点数值时，可用 ```chart 区块生成折线图：首行 title=标题，第二行 unit=单位，其余每行 标签,数值；只能画已有数据，不补造点。数据不足时明确说明不能画趋势图。"
     }
 }
 
@@ -203,6 +207,9 @@ object LlmEndpointValidator {
         else -> LlmEndpointCheck.Ok
     }
 
+    fun validateModelCatalog(settings: LlmSettings): LlmEndpointCheck =
+        validate(settings.copy(model = settings.model.ifBlank { MODEL_CATALOG_SENTINEL }))
+
     fun openAiChatUrl(settings: LlmSettings): String = settings.baseUrl.trimEnd('/') + "/chat/completions"
 
     fun openAiResponsesUrl(settings: LlmSettings): String = settings.baseUrl.trimEnd('/') + "/responses"
@@ -217,4 +224,6 @@ object LlmEndpointValidator {
         LlmProtocol.OPENAI_RESPONSES -> openAiResponsesUrl(settings)
         LlmProtocol.ANTHROPIC_MESSAGES -> anthropicMessagesUrl(settings)
     }
+
+    private const val MODEL_CATALOG_SENTINEL = "__model_catalog__"
 }

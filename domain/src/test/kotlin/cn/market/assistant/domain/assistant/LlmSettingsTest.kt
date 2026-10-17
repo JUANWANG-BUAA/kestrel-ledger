@@ -17,7 +17,7 @@ class LlmSettingsTest {
         assertEquals("https://api.deepseek.com", settings.baseUrl)
         assertEquals("deepseek-flash", settings.model)
         assertEquals(2.0, settings.temperature, 1e-9)
-        assertEquals(128, settings.maxTokens)
+        assertEquals(10, settings.maxTokens)
         assertTrue(settings.isConfigured)
     }
 
@@ -50,14 +50,12 @@ class LlmSettingsTest {
     }
 
     @Test
-    fun imageInputDefaultsFollowKnownModelFamiliesAndUnknownModelsStayTextOnly() {
-        assertTrue(LlmSettings(provider = LlmProvider.OPENAI, model = "gpt-4o-mini").imageInputEnabled)
-        assertTrue(LlmSettings(provider = LlmProvider.GEMINI, model = "gemini-2.5-flash").imageInputEnabled)
-        assertTrue(LlmSettings(provider = LlmProvider.DEEPSEEK, model = "deepseek-flash").imageInputEnabled)
-        assertTrue(LlmSettings(provider = LlmProvider.DEEPSEEK, model = "deepseek-v4-pro").imageInputEnabled.not())
-        assertTrue(LlmSettings(provider = LlmProvider.OLLAMA, model = "qwen3:8b").imageInputEnabled.not())
+    fun imageInputStartsUnverifiedUntilTheSelectedModelCatalogueConfirmsIt() {
+        assertTrue(LlmSettings(provider = LlmProvider.OPENAI, model = "gpt-4o-mini").imageInputEnabled.not())
+        assertTrue(LlmSettings(provider = LlmProvider.GEMINI, model = "gemini-2.5-flash").imageInputEnabled.not())
+        assertTrue(LlmSettings(provider = LlmProvider.DEEPSEEK, model = "deepseek-flash").imageInputEnabled.not())
+        assertTrue(LlmSettings(provider = LlmProvider.OLLAMA, model = "qwen3-vl:8b").imageInputEnabled.not())
         assertTrue(LlmSettings(provider = LlmProvider.CUSTOM, model = "my-model").imageInputEnabled.not())
-        assertTrue(LlmSettings(provider = LlmProvider.OLLAMA, model = "qwen3-vl:8b").imageInputEnabled)
     }
 
     @Test

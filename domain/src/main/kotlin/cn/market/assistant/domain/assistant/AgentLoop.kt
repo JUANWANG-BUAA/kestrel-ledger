@@ -77,7 +77,10 @@ class AgentLoop(
                         messages = messages.toList(),
                         tools = toolDefinitions,
                         temperature = settings.temperature,
-                        maxTokens = settings.maxTokens
+                        maxTokens = settings.maxTokens,
+                        provider = settings.provider,
+                        reasoningEffort = settings.reasoningEffort,
+                        capabilities = settings.modelCapabilities
                     )
                 )
             } catch (cancelled: CancellationException) {
@@ -94,7 +97,9 @@ class AgentLoop(
             }
             usage = ChatUsage(
                 promptTokens = usage.promptTokens + response.usage.promptTokens,
-                completionTokens = usage.completionTokens + response.usage.completionTokens
+                completionTokens = usage.completionTokens + response.usage.completionTokens,
+                reasoningTokens = listOfNotNull(usage.reasoningTokens, response.usage.reasoningTokens)
+                    .takeIf { it.isNotEmpty() }?.sum()
             )
             val toolCalls = response.message.toolCalls
             if (toolCalls.isEmpty()) {
@@ -107,7 +112,7 @@ class AgentLoop(
                 return AgentRunResult(
                     reply = AssistantReply(
                         text = text,
-                        citations = collectedFacts.map { AssistantCitation(it.key, it.source, it.observedAt) }
+                        citations = collectedFacts.map { AssistantCitation(it.key, it.source, it.observedAt, it.value) }
                             .distinctBy { it.factKey },
                         usedToolIds = usedToolIds.distinct()
                     ),

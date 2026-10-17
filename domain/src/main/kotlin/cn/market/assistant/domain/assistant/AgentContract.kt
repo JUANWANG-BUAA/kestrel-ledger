@@ -25,7 +25,12 @@ data class AssistantRequest(
 
 enum class AssistantDataSharingConsent { PUBLIC_AND_AGGREGATE, INCLUDE_PRIVATE_DETAILS }
 
-data class AssistantCitation(val factKey: String, val source: String?, val observedAt: String?)
+data class AssistantCitation(
+    val factKey: String,
+    val source: String?,
+    val observedAt: String?,
+    val value: String? = null
+)
 
 data class AssistantReply(
     val text: String,

@@ -7,6 +7,7 @@ import cn.market.assistant.domain.assistant.ChatResponse
 import cn.market.assistant.domain.assistant.ChatRole
 import cn.market.assistant.domain.assistant.ChatToolCall
 import cn.market.assistant.domain.assistant.ChatUsage
+import cn.market.assistant.domain.assistant.LlmProvider
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -21,9 +22,21 @@ object OpenAiWire {
         val root = JSONObject()
             .put("model", model)
             .put("messages", messages)
-            .put("temperature", request.temperature)
             .put("max_tokens", request.maxTokens)
             .put("stream", false)
+        effectiveTemperature(request)?.let { root.put("temperature", it) }
+        if (request.provider == LlmProvider.DEEPSEEK) {
+            when (request.reasoningEffort) {
+                "none" -> root.put("thinking", JSONObject().put("type", "disabled"))
+                "auto" -> Unit
+                else -> {
+                    root.put("thinking", JSONObject().put("type", "enabled"))
+                    root.put("reasoning_effort", deepSeekEffort(request.reasoningEffort))
+                }
+            }
+        } else if (request.reasoningEffort !in setOf("auto", "none")) {
+            root.put("reasoning_effort", request.reasoningEffort)
+        }
         if (request.tools.isNotEmpty()) {
             val tools = JSONArray()
             request.tools.forEach { tool ->
@@ -82,7 +95,10 @@ object OpenAiWire {
             ),
             usage = ChatUsage(
                 promptTokens = usage?.optInt("prompt_tokens", 0) ?: 0,
-                completionTokens = usage?.optInt("completion_tokens", 0) ?: 0
+                completionTokens = usage?.optInt("completion_tokens", 0) ?: 0,
+                reasoningTokens = usage?.optJSONObject("completion_tokens_details")?.let { details ->
+                    details.optInt("reasoning_tokens", -1).takeIf { it >= 0 }
+                }
             ),
             finishReason = choice.optString("finish_reason").takeIf { it.isNotBlank() }
         )
@@ -197,8 +213,12 @@ object OpenAiResponsesWire {
             .put("model", model)
             .put("input", input)
             .put("max_output_tokens", request.maxTokens)
-            .put("temperature", request.temperature)
             .put("stream", false)
+        effectiveTemperature(request)?.let { root.put("temperature", it) }
+        if (request.reasoningEffort != "auto") {
+            val effort = if (request.provider == LlmProvider.DEEPSEEK) deepSeekEffort(request.reasoningEffort) else request.reasoningEffort
+            root.put("reasoning", JSONObject().put("effort", effort))
+        }
         instructions?.let { root.put("instructions", it) }
         if (request.tools.isNotEmpty()) {
             root.put(
@@ -279,7 +299,10 @@ object OpenAiResponsesWire {
             ),
             usage = ChatUsage(
                 promptTokens = usage?.optInt("input_tokens", 0) ?: 0,
-                completionTokens = usage?.optInt("output_tokens", 0) ?: 0
+                completionTokens = usage?.optInt("output_tokens", 0) ?: 0,
+                reasoningTokens = usage?.optJSONObject("output_tokens_details")?.let { details ->
+                    details.optInt("reasoning_tokens", -1).takeIf { it >= 0 }
+                }
             ),
             finishReason = status.takeIf { it.isNotBlank() }
         )
@@ -316,8 +339,55 @@ object AnthropicWire {
         val root = JSONObject()
             .put("model", model)
             .put("max_tokens", maxTokens)
-            .put("temperature", request.temperature)
             .put("messages", messages)
+        if (request.reasoningEffort != "auto") {
+            if (request.provider == LlmProvider.DEEPSEEK) {
+                val enabled = request.reasoningEffort != "none"
+                root.put("thinking", JSONObject().put("type", if (enabled) "enabled" else "disabled"))
+                if (enabled) root.put("output_config", JSONObject().put("effort", deepSeekEffort(request.reasoningEffort)))
+            } else if (request.reasoningEffort == "none") {
+                val thinkingTypes = request.capabilities?.thinkingTypes
+                if (thinkingTypes != null && "disabled" !in thinkingTypes) {
+                    throw cn.market.assistant.domain.assistant.ChatModelException(
+                        "当前 Claude 模型不支持关闭 thinking；请使用服务商目录提供的档位"
+                    )
+                }
+                root.put("thinking", JSONObject().put("type", "disabled"))
+            } else {
+                val capabilities = request.capabilities
+                    ?: throw cn.market.assistant.domain.assistant.ChatModelException(
+                        "请先读取当前 Claude 模型能力，再选择思考程度"
+                    )
+                when {
+                    request.reasoningEffort in capabilities.reasoningEfforts.orEmpty() -> {
+                        root.put("thinking", JSONObject().put("type", "adaptive"))
+                        root.put("output_config", JSONObject().put("effort", request.reasoningEffort))
+                    }
+                    "enabled" in capabilities.thinkingTypes.orEmpty() -> {
+                        val configuredBudget = when (request.reasoningEffort) {
+                            "low" -> 1_024
+                            "medium" -> 2_048
+                            "high" -> 4_096
+                            else -> 8_192
+                        }
+                        if (maxTokens <= 1_024) {
+                            throw cn.market.assistant.domain.assistant.ChatModelException(
+                                "Claude 思考至少需要 1,025 个输出 tokens；请提高回答上限后重试"
+                            )
+                        }
+                        root.put(
+                            "thinking",
+                            JSONObject().put("type", "enabled")
+                                .put("budget_tokens", configuredBudget.coerceAtMost(maxTokens - 1).coerceAtLeast(1_024))
+                        )
+                    }
+                    else -> throw cn.market.assistant.domain.assistant.ChatModelException(
+                        "当前 Claude 模型目录未声明可用的思考方式"
+                    )
+                }
+            }
+        }
+        if (request.reasoningEffort == "none") effectiveTemperature(request)?.let { root.put("temperature", it) }
         system?.let { root.put("system", it) }
         if (request.tools.isNotEmpty()) {
             root.put(
@@ -367,7 +437,10 @@ object AnthropicWire {
             message = ChatMessage(ChatRole.ASSISTANT, text.toString().trim(), toolCalls = toolCalls),
             usage = ChatUsage(
                 promptTokens = usage?.optInt("input_tokens", 0) ?: 0,
-                completionTokens = usage?.optInt("output_tokens", 0) ?: 0
+                completionTokens = usage?.optInt("output_tokens", 0) ?: 0,
+                reasoningTokens = usage?.optJSONObject("output_tokens_details")?.let { details ->
+                    details.optInt("thinking_tokens", -1).takeIf { it >= 0 }
+                }
             ),
             finishReason = root.optString("stop_reason").takeIf { it.isNotBlank() }
         )
@@ -428,6 +501,20 @@ object AnthropicWire {
         }
         if (length() == 0) put(JSONObject().put("type", "text").put("text", "（空回复）"))
     }
+}
+
+private fun effectiveTemperature(request: ChatRequest): Double? = when {
+    request.temperature == null -> null
+    request.provider == LlmProvider.DEEPSEEK && request.reasoningEffort != "none" -> null
+    request.provider == LlmProvider.ANTHROPIC && request.reasoningEffort != "none" -> null
+    else -> request.temperature
+}
+
+private fun deepSeekEffort(value: String): String = when (value) {
+    "low" -> "low"
+    "max" -> "max"
+    "none" -> "none"
+    else -> "high"
 }
 
 internal fun ChatAttachment.imageLabel(): String = "@image:$fileName"

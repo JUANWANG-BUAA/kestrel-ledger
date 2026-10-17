@@ -38,6 +38,24 @@ open class HttpTransport {
         }
     }
 
+    open fun getJson(url: String, headers: Map<String, String>): String {
+        val connection = URL(url).openConnection() as HttpURLConnection
+        connection.connectTimeout = CONNECT_TIMEOUT_MILLIS
+        connection.readTimeout = READ_TIMEOUT_MILLIS
+        connection.requestMethod = "GET"
+        connection.setRequestProperty("Accept", "application/json")
+        headers.forEach { (name, value) -> connection.setRequestProperty(name, value) }
+        return try {
+            val code = connection.responseCode
+            val stream = if (code in 200..299) connection.inputStream else connection.errorStream
+            val response = stream?.bufferedReader(StandardCharsets.UTF_8)?.use { it.readText() }.orEmpty()
+            if (code !in 200..299) throw ChatModelException(describeHttpError(code, response))
+            response
+        } finally {
+            connection.disconnect()
+        }
+    }
+
     private fun describeHttpError(code: Int, body: String): String {
         val providerMessage = runCatching {
             val root = JSONObject(body)

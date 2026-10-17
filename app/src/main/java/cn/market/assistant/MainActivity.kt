@@ -767,6 +767,7 @@ private fun MarketApp(ledger: Ledger) {
                 ) else if (route.second == ASSISTANT_ROUTE) AssistantScreen(
                     state = assistantState,
                     onBack = { selectedMarket = null },
+                    onOpenMarket = { secid -> selectedMarket = secid; showSectors = false; tab = Tab.WATCHLIST },
                     modifier = Modifier.padding(insets)
                 ) else if (route.second == GOLD_ROUTE) GoldDashboardScreen(
                     quote = marketQuotes[MarketApi.GOLD_SPOT_ID],

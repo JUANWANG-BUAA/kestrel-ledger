@@ -37,17 +37,12 @@ class AssistantSettingsStore(context: Context) {
             protocol = protocol,
             temperature = preferences.getFloat(KEY_TEMPERATURE, 0.3f).toDouble(),
             maxTokens = preferences.getInt(KEY_MAX_TOKENS, 1_024),
+            reasoningEffort = preferences.getString(KEY_REASONING_EFFORT, "auto") ?: "auto",
             toolsEnabled = preferences.getBoolean(KEY_TOOLS_ENABLED, true),
             sharePrivateDetails = preferences.getBoolean(KEY_SHARE_PRIVATE, false),
             systemPrompt = preferences.getString(KEY_SYSTEM_PROMPT, null) ?: LlmSettings.DEFAULT_SYSTEM_PROMPT,
-            imageInputEnabled = if (migrateLegacyDeepSeek) {
-                cn.market.assistant.domain.assistant.ModelImageCapabilities.infer(provider, model)
-            } else {
-                preferences.getBoolean(
-                    KEY_IMAGE_INPUT_ENABLED,
-                    cn.market.assistant.domain.assistant.ModelImageCapabilities.infer(provider, model)
-                )
-            }
+            imageInputEnabled = if (migrateLegacyDeepSeek) false else
+                preferences.getBoolean(KEY_IMAGE_INPUT_ENABLED, false)
         ).normalized()
         if (migrateLegacyDeepSeek) save(settings)
         return settings
@@ -62,6 +57,7 @@ class AssistantSettingsStore(context: Context) {
             .putString(KEY_PROTOCOL, normalized.protocol.name)
             .putFloat(KEY_TEMPERATURE, normalized.temperature.toFloat())
             .putInt(KEY_MAX_TOKENS, normalized.maxTokens)
+            .putString(KEY_REASONING_EFFORT, normalized.reasoningEffort)
             .putBoolean(KEY_TOOLS_ENABLED, normalized.toolsEnabled)
             .putBoolean(KEY_SHARE_PRIVATE, normalized.sharePrivateDetails)
             .putString(KEY_SYSTEM_PROMPT, normalized.systemPrompt)
@@ -91,6 +87,7 @@ class AssistantSettingsStore(context: Context) {
         const val KEY_PROTOCOL = "protocol"
         const val KEY_TEMPERATURE = "temperature"
         const val KEY_MAX_TOKENS = "max_tokens"
+        const val KEY_REASONING_EFFORT = "reasoning_effort"
         const val KEY_TOOLS_ENABLED = "tools_enabled"
         const val KEY_SHARE_PRIVATE = "share_private"
         const val KEY_SYSTEM_PROMPT = "system_prompt"

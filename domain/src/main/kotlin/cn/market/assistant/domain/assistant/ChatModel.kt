@@ -34,11 +34,19 @@ data class ChatToolDefinition(val name: String, val description: String, val par
 data class ChatRequest(
     val messages: List<ChatMessage>,
     val tools: List<ChatToolDefinition> = emptyList(),
-    val temperature: Double = 0.3,
-    val maxTokens: Int = 1_024
+    val temperature: Double? = 0.3,
+    val maxTokens: Int = 1_024,
+    val provider: LlmProvider? = null,
+    /** `auto`, `none`, `low`, `medium`, `high`, or `max`; adapters map only documented fields. */
+    val reasoningEffort: String = "auto",
+    val capabilities: LlmModelCapabilities? = null
 )
 
-data class ChatUsage(val promptTokens: Int = 0, val completionTokens: Int = 0) {
+data class ChatUsage(
+    val promptTokens: Int = 0,
+    val completionTokens: Int = 0,
+    val reasoningTokens: Int? = null
+) {
     val totalTokens: Int get() = promptTokens + completionTokens
 }
 

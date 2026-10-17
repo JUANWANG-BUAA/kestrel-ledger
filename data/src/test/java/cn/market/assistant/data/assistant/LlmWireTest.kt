@@ -7,6 +7,8 @@ import cn.market.assistant.domain.assistant.ChatRequest
 import cn.market.assistant.domain.assistant.ChatRole
 import cn.market.assistant.domain.assistant.ChatToolCall
 import cn.market.assistant.domain.assistant.ChatToolDefinition
+import cn.market.assistant.domain.assistant.LlmModelCapabilities
+import cn.market.assistant.domain.assistant.LlmProvider
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -23,6 +25,89 @@ class LlmWireTest {
             parametersJsonSchema = "{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\"}},\"required\":[\"query\"]}"
         )
     )
+
+    @Test
+    fun deepSeekChatMapsThinkingEffortAndTemperatureByDocumentedMode() {
+        val thinking = JSONObject(
+            OpenAiWire.requestBody(
+                "deepseek-flash",
+                ChatRequest(
+                    messages = listOf(ChatMessage(ChatRole.USER, "ping")),
+                    temperature = 0.8,
+                    provider = LlmProvider.DEEPSEEK,
+                    reasoningEffort = "high"
+                )
+            )
+        )
+        assertEquals("enabled", thinking.getJSONObject("thinking").getString("type"))
+        assertEquals("high", thinking.getString("reasoning_effort"))
+        assertFalse(thinking.has("temperature"))
+
+        val nonThinking = JSONObject(
+            OpenAiWire.requestBody(
+                "deepseek-flash",
+                ChatRequest(
+                    messages = listOf(ChatMessage(ChatRole.USER, "ping")),
+                    temperature = 0.8,
+                    provider = LlmProvider.DEEPSEEK,
+                    reasoningEffort = "none"
+                )
+            )
+        )
+        assertEquals("disabled", nonThinking.getJSONObject("thinking").getString("type"))
+        assertEquals(0.8, nonThinking.getDouble("temperature"), 0.0)
+        assertFalse(nonThinking.has("reasoning_effort"))
+    }
+
+    @Test
+    fun responsesRequestCarriesConfiguredReasoningEffort() {
+        val body = JSONObject(
+            OpenAiResponsesWire.requestBody(
+                "deepseek-flash",
+                ChatRequest(
+                    messages = listOf(ChatMessage(ChatRole.USER, "ping")),
+                    provider = LlmProvider.DEEPSEEK,
+                    reasoningEffort = "max"
+                )
+            )
+        )
+        assertEquals("max", body.getJSONObject("reasoning").getString("effort"))
+        assertFalse(body.has("temperature"))
+    }
+
+    @Test
+    fun anthropicMapsCataloguedEffortToAdaptiveAndManualThinking() {
+        val adaptiveBody = JSONObject(
+            AnthropicWire.requestBody(
+                "claude-sonnet-5-5",
+                ChatRequest(
+                    messages = listOf(ChatMessage(ChatRole.USER, "ping")),
+                    provider = LlmProvider.ANTHROPIC,
+                    reasoningEffort = "high",
+                    capabilities = LlmModelCapabilities("claude-sonnet-5-5", reasoningEfforts = listOf("low", "high"))
+                ),
+                maxTokens = 4_096
+            )
+        )
+        assertEquals("adaptive", adaptiveBody.getJSONObject("thinking").getString("type"))
+        assertEquals("high", adaptiveBody.getJSONObject("output_config").getString("effort"))
+        assertFalse(adaptiveBody.has("temperature"))
+
+        val manualBody = JSONObject(
+            AnthropicWire.requestBody(
+                "claude-sonnet-4-5",
+                ChatRequest(
+                    messages = listOf(ChatMessage(ChatRole.USER, "ping")),
+                    provider = LlmProvider.ANTHROPIC,
+                    reasoningEffort = "low",
+                    capabilities = LlmModelCapabilities("claude-sonnet-4-5", thinkingTypes = setOf("enabled"))
+                ),
+                maxTokens = 4_096
+            )
+        )
+        assertEquals("enabled", manualBody.getJSONObject("thinking").getString("type"))
+        assertEquals(1_024, manualBody.getJSONObject("thinking").getInt("budget_tokens"))
+    }
 
     @Test
     fun openAiRequestCarriesToolsImagesAndToolResults() {
@@ -84,7 +169,7 @@ class LlmWireTest {
             """
             {"choices":[{"finish_reason":"tool_calls","message":{"role":"assistant","content":null,
             "tool_calls":[{"id":"c1","type":"function","function":{"name":"market.quote","arguments":"{\"query\":\"x\"}"}}]}}],
-            "usage":{"prompt_tokens":120,"completion_tokens":30}}
+            "usage":{"prompt_tokens":120,"completion_tokens":30,"completion_tokens_details":{"reasoning_tokens":8}}}
             """.trimIndent()
         )
 
@@ -92,6 +177,7 @@ class LlmWireTest {
         assertEquals("market.quote", response.message.toolCalls[0].name)
         assertEquals(120, response.usage.promptTokens)
         assertEquals(30, response.usage.completionTokens)
+        assertEquals(8, response.usage.reasoningTokens)
         assertEquals("tool_calls", response.finishReason)
 
         val error = assertThrows(ChatModelException::class.java) {

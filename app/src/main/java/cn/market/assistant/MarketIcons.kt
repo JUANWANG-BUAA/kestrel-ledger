@@ -24,7 +24,7 @@ import androidx.compose.ui.unit.dp
  *
  * Names are deliberately close to Material naming so unfamiliar glyphs are guessable:
  * menu, home, star, plus, assets, chart, coin, grid, pulse, bell, spark, sliders, search, eye, eyeOff,
- * back, forward, refresh, close, check, warn, clock, sort, trash.
+ * back, forward, refresh, close, check, warn, clock, sort, trash, edit, more, copy, send, stop, file, image.
  */
 internal object MarketIcons {
     const val VIEWPORT = 24f
@@ -226,6 +226,65 @@ private fun DrawScope.drawMarketIcon(name: String, unit: Float, tint: Color, kno
                 cornerRadius = CornerRadius(x(2f)), style = stroke
             )
             drawLine(tint, Offset(x(9.5f), y(3.5f)), Offset(x(14.5f), y(3.5f)), thin.width, StrokeCap.Round)
+        }
+        "edit" -> {
+            drawRoundRect(
+                tint, topLeft = Offset(x(3.5f), y(11.5f)), size = Size(x(11.5f), y(9f)),
+                cornerRadius = CornerRadius(x(2f)), style = stroke
+            )
+            drawLine(tint, Offset(x(7f), y(17f)), Offset(x(18f), y(6f)), stroke.width, StrokeCap.Round)
+            drawLine(tint, Offset(x(16f), y(4f)), Offset(x(20f), y(8f)), stroke.width, StrokeCap.Round)
+        }
+        "more" -> {
+            listOf(6f, 12f, 18f).forEach { drawCircle(tint, x(1.55f), Offset(x(12f), y(it))) }
+        }
+        "copy" -> {
+            drawRoundRect(
+                tint, topLeft = Offset(x(8f), y(4f)), size = Size(x(12f), y(14f)),
+                cornerRadius = CornerRadius(x(2f)), style = stroke
+            )
+            drawPath(
+                Path().apply {
+                    moveTo(x(5f), y(8f)); lineTo(x(4f), y(8f)); lineTo(x(4f), y(19f))
+                    quadraticTo(x(4f), y(20f), x(5f), y(20f)); lineTo(x(14f), y(20f)); lineTo(x(14f), y(18f))
+                },
+                tint,
+                style = stroke
+            )
+        }
+        "send" -> {
+            drawLine(tint, Offset(x(12f), y(20f)), Offset(x(12f), y(5f)), stroke.width, StrokeCap.Round)
+            drawLine(tint, Offset(x(5.5f), y(11f)), Offset(x(12f), y(4.5f)), stroke.width, StrokeCap.Round)
+            drawLine(tint, Offset(x(18.5f), y(11f)), Offset(x(12f), y(4.5f)), stroke.width, StrokeCap.Round)
+        }
+        "stop" -> {
+            drawRoundRect(
+                tint, topLeft = Offset(x(6f), y(6f)), size = Size(x(12f), y(12f)),
+                cornerRadius = CornerRadius(x(2f)), style = Fill
+            )
+        }
+        "file" -> {
+            val path = Path().apply {
+                moveTo(x(6f), y(3.5f)); lineTo(x(14f), y(3.5f)); lineTo(x(19f), y(8.5f))
+                lineTo(x(19f), y(20.5f)); lineTo(x(6f), y(20.5f)); close()
+            }
+            drawPath(path, tint, style = stroke)
+            drawLine(tint, Offset(x(14f), y(4f)), Offset(x(14f), y(9f)), thin.width, StrokeCap.Round)
+            drawLine(tint, Offset(x(14.5f), y(9f)), Offset(x(18.5f), y(9f)), thin.width, StrokeCap.Round)
+            drawLine(tint, Offset(x(9f), y(13f)), Offset(x(16f), y(13f)), thin.width, StrokeCap.Round)
+            drawLine(tint, Offset(x(9f), y(16.5f)), Offset(x(16f), y(16.5f)), thin.width, StrokeCap.Round)
+        }
+        "image" -> {
+            drawRoundRect(
+                tint, topLeft = Offset(x(3.5f), y(4.5f)), size = Size(x(17f), y(15f)),
+                cornerRadius = CornerRadius(x(2.5f)), style = stroke
+            )
+            drawCircle(tint, x(1.7f), Offset(x(15.8f), y(9f)))
+            val landscape = Path().apply {
+                moveTo(x(5f), y(17f)); lineTo(x(9.3f), y(12.5f)); lineTo(x(12f), y(15f))
+                lineTo(x(14f), y(13.2f)); lineTo(x(19f), y(18f))
+            }
+            drawPath(landscape, tint, style = Stroke(width = thin.width, cap = StrokeCap.Round, join = StrokeJoin.Round))
         }
         else -> {
             drawCircle(tint, radius = x(8.6f), center = Offset(x(12f), y(12f)), style = stroke)

@@ -123,7 +123,8 @@ class AssistantFactsTest {
 
         val (_, reply) = AssistantEngine.ask(AssistantSessionState("test"), "黄金 ETF 什么价格", facts)
 
-        assertTrue(reply.text.contains("market.quote.1.518880.price"))
+        assertTrue(reply.text.contains("518880 · 现价"))
+        assertTrue(reply.citations.any { it.factKey == "market.quote.1.518880.price" })
         assertTrue(reply.text.contains("tencent"))
         assertFalse(reply.citations.any { it.factKey.startsWith("portfolio.holding") })
     }

@@ -6,6 +6,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import cn.market.assistant.data.assistant.LlmChatModelFactory
+import cn.market.assistant.data.assistant.LlmModelCatalog
 import cn.market.assistant.data.assistant.LlmSecretStore
 import cn.market.assistant.domain.assistant.AgentEvent
 import cn.market.assistant.domain.assistant.AgentLoop
@@ -30,6 +31,7 @@ import cn.market.assistant.domain.assistant.ChatRole
 import cn.market.assistant.domain.assistant.ChatUsage
 import cn.market.assistant.domain.assistant.HabitSummary
 import cn.market.assistant.domain.assistant.LlmProvider
+import cn.market.assistant.domain.assistant.LlmModelCapabilities
 import cn.market.assistant.domain.assistant.LlmSettings
 import cn.market.assistant.domain.assistant.LlmEndpointCheck
 import cn.market.assistant.domain.assistant.LlmEndpointValidator
@@ -148,9 +150,18 @@ internal class AssistantFeatureState(
         private set
     var checkingConnection by mutableStateOf(false)
         private set
+    var modelCapabilities by mutableStateOf<LlmModelCapabilities?>(null)
+        private set
+    var availableModels by mutableStateOf(emptyList<LlmModelCapabilities>())
+        private set
+    var checkingModelCapabilities by mutableStateOf(false)
+        private set
+    var modelCapabilitiesMessage by mutableStateOf<String?>(null)
+        private set
 
     private var runJob: Job? = null
     private var turnCounter = 0L
+    private var modelCatalogKey: String? = null
 
     val modelLabel: String
         get() = if (isLive) "${settings.provider.label} · ${settings.model}" else "离线事实模式"
@@ -166,7 +177,7 @@ internal class AssistantFeatureState(
     fun refresh() {
         scope.launch {
             val (loadedSkills, loadedWorkflows, events) = withContext(ioDispatcher) {
-                Triple(skillStore.skills(), workflowStore.workflows(), memoryStore.memoryEvents())
+                Triple(skillStore.skills(), workflowStore.workflows(limit = 200), memoryStore.memoryEvents())
             }
             skills = loadedSkills
             workflows = loadedWorkflows
@@ -182,9 +193,63 @@ internal class AssistantFeatureState(
             (if (settingsStore.enabledToolIds() != null) setOf("portfolio.propose_change") else emptySet())
     }
 
+    private fun catalogKey(value: LlmSettings): String =
+        "${value.provider.name}|${value.protocol.name}|${value.baseUrl.trimEnd('/')}"
+
+    private fun catalogSummary(
+        modelCount: Int,
+        modelId: String,
+        capabilities: LlmModelCapabilities?
+    ): String {
+        if (capabilities == null) {
+            return if (modelId.isBlank()) {
+                "已读取 $modelCount 个可用模型；请选择模型完成配置。"
+            } else {
+                "已读取 $modelCount 个可用模型；当前模型「$modelId」不在目录中，请从列表选择。"
+            }
+        }
+        val image = when (capabilities.supportsImageInput) {
+            true -> "支持图片"
+            false -> "仅文本"
+            null -> "图片能力未公开"
+        }
+        val contextWindow = capabilities.contextWindow
+        val maxInputTokens = capabilities.maxInputTokens
+        val context = when {
+            contextWindow != null -> "上下文 ${contextWindow.formatTokenCount()}"
+            maxInputTokens != null -> "最大输入 ${maxInputTokens.formatTokenCount()}"
+            else -> "上下文未公开"
+        }
+        val output = capabilities.maxOutputTokens?.let { "输出上限 ${it.formatTokenCount()}" } ?: "输出上限未公开"
+        return "已读取 $modelCount 个可用模型；当前模型：$image · $context · $output"
+    }
+
     fun updateSettings(next: LlmSettings, apiKey: String?) {
-        settings = next.normalized()
-        settingsStore.save(settings)
+        val normalized = next.normalized()
+        val providedApiKey = apiKey?.takeIf(String::isNotBlank)
+        val savedApiKey = runCatching { secretStore.loadApiKey(settings.provider.name.lowercase()) }.getOrNull()
+        val catalogCredentialsChanged = providedApiKey != null && providedApiKey != savedApiKey && modelCatalogKey != null
+        val endpointChanged = modelCatalogKey != null &&
+            (modelCatalogKey != catalogKey(normalized) || catalogCredentialsChanged)
+        if (endpointChanged) {
+            availableModels = emptyList()
+            modelCatalogKey = null
+            modelCapabilities = null
+            modelCapabilitiesMessage = null
+        }
+        modelCapabilities = availableModels.firstOrNull { it.modelId == normalized.model }
+        settings = normalized.copy(
+            modelCapabilities = modelCapabilities,
+            imageInputEnabled = when (modelCapabilities?.supportsImageInput) {
+                true -> normalized.imageInputEnabled
+                false -> false
+                null -> normalized.imageInputEnabled
+            }
+        )
+        if (availableModels.isNotEmpty()) {
+            modelCapabilitiesMessage = catalogSummary(availableModels.size, normalized.model, modelCapabilities)
+        }
+        settingsStore.save(settings.copy(modelCapabilities = null))
         apiKey?.takeIf { it.isNotBlank() }?.let { key ->
             runCatching { secretStore.saveApiKey(settings.provider.name.lowercase(), key) }
                 .onFailure { statusMessage = it.userFacingMessage("API Key 保存失败") }
@@ -193,10 +258,55 @@ internal class AssistantFeatureState(
         connectionCheck = null
     }
 
+    fun readAvailableModels() {
+        if (checkingModelCapabilities) return
+        scope.launch {
+            checkingModelCapabilities = true
+            modelCapabilitiesMessage = null
+            val validation = LlmEndpointValidator.validateModelCatalog(settings)
+            if (validation is LlmEndpointCheck.Invalid) {
+                modelCapabilitiesMessage = validation.reason
+                checkingModelCapabilities = false
+                return@launch
+            }
+            try {
+                val apiKey = secretStore.loadApiKey(settings.provider.name.lowercase())
+                val models = LlmModelCatalog(ioDispatcher = ioDispatcher).readAvailableModels(settings, apiKey)
+                modelCatalogKey = catalogKey(settings)
+                availableModels = models
+                val capabilities = models.firstOrNull { it.modelId == settings.model }
+                modelCapabilities = capabilities
+                settings = settings.copy(modelCapabilities = capabilities)
+                val imageCapability = capabilities?.supportsImageInput
+                if (imageCapability != null) {
+                    settings = settings.copy(imageInputEnabled = imageCapability)
+                }
+                modelCapabilitiesMessage = catalogSummary(models.size, settings.model, capabilities)
+                if (capabilities == null) {
+                    checkingModelCapabilities = false
+                    return@launch
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                modelCapabilities = null
+                availableModels = emptyList()
+                modelCatalogKey = null
+                modelCapabilitiesMessage = "读取失败：${error.userFacingMessage("服务未提供模型目录")}".take(240)
+            } finally {
+                checkingModelCapabilities = false
+            }
+        }
+    }
+
     fun clearApiKey() {
         secretStore.clearApiKey(settings.provider.name.lowercase())
         refreshSecrets()
         connectionCheck = null
+        modelCapabilities = null
+        availableModels = emptyList()
+        modelCatalogKey = null
+        modelCapabilitiesMessage = null
         statusMessage = "已清除本机保存的 API Key"
     }
 
@@ -218,7 +328,7 @@ internal class AssistantFeatureState(
                 return@launch
             }
             val model = LlmChatModelFactory.create(
-                settings,
+                settings.copy(modelCapabilities = modelCapabilities?.takeIf { it.modelId == settings.model }),
                 secretStore.loadApiKey(settings.provider.name.lowercase()),
                 ioDispatcher
             )
@@ -234,13 +344,18 @@ internal class AssistantFeatureState(
                             ChatMessage(ChatRole.SYSTEM, "你是连通性测试，只回复 ok。"),
                             ChatMessage(ChatRole.USER, "ping")
                         ),
-                        maxTokens = 128
+                        temperature = settings.temperature,
+                        maxTokens = settings.maxTokens,
+                        provider = settings.provider,
+                        reasoningEffort = settings.reasoningEffort,
+                        capabilities = modelCapabilities?.takeIf { it.modelId == settings.model }
                     )
                 )
-                response.message.content.take(40).ifBlank {
+                response.message.content.take(28).ifBlank {
                     "服务已响应，但模型没有返回可见文字；请检查模型名和输出限制。"
                 }.let { reply ->
-                    if (reply.startsWith("服务已响应")) reply else "连接成功：$reply"
+                    if (reply.startsWith("服务已响应")) reply else
+                        "连接成功 · ${settings.protocol.label} · ${settings.model}：$reply · 输入 ${response.usage.promptTokens} / 输出 ${response.usage.completionTokens} tokens"
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -271,8 +386,11 @@ internal class AssistantFeatureState(
 
     fun resumeWorkflow(id: String) {
         scope.launch {
-            val workflow = withContext(ioDispatcher) { workflowStore.workflow(id) } ?: return@launch
+            val stored = withContext(ioDispatcher) { workflowStore.workflow(id) } ?: return@launch
+            val workflow = stored.copy(status = WorkflowStatus.ACTIVE)
             currentWorkflow = workflow
+            if (stored.status == WorkflowStatus.ARCHIVED) withContext(ioDispatcher) { workflowStore.upsertWorkflow(workflow) }
+            workflows = withContext(ioDispatcher) { workflowStore.workflows(limit = 200) }
             turns = workflow.turns.map { turn ->
                 AssistantTurnUi(
                     id = "wf-${turn.atMillis}-${turn.question.hashCode()}",
@@ -286,6 +404,29 @@ internal class AssistantFeatureState(
                     offlineFallback = false
                 )
             }
+        }
+    }
+
+    fun archiveWorkflow(id: String, archived: Boolean = true) {
+        if (hasPendingAction) {
+            statusMessage = "先确认或取消待处理的本地更改"
+            return
+        }
+        scope.launch {
+            val workflow = withContext(ioDispatcher) { workflowStore.workflow(id) } ?: return@launch
+            val updated = workflow.copy(status = if (archived) WorkflowStatus.ARCHIVED else WorkflowStatus.ACTIVE)
+            val loaded = withContext(ioDispatcher) {
+                workflowStore.upsertWorkflow(updated)
+                workflowStore.workflows(limit = 200)
+            }
+            workflows = loaded
+            if (archived && currentWorkflow?.id == id) {
+                currentWorkflow = null
+                turns = emptyList()
+            } else if (!archived && currentWorkflow?.id == id) {
+                currentWorkflow = updated
+            }
+            statusMessage = if (archived) "会话已归档" else "会话已移出归档"
         }
     }
 
@@ -474,7 +615,7 @@ internal class AssistantFeatureState(
             try {
                 val model = if (isLive) {
                     LlmChatModelFactory.create(
-                        settings,
+                        settings.copy(modelCapabilities = modelCapabilities?.takeIf { it.modelId == settings.model }),
                         secretStore.loadApiKey(settings.provider.name.lowercase()),
                         ioDispatcher
                     )
@@ -741,7 +882,7 @@ internal class AssistantFeatureState(
         currentWorkflow = updated
         val loadedWorkflows = withContext(ioDispatcher) {
             workflowStore.upsertWorkflow(updated)
-            workflowStore.workflows()
+            workflowStore.workflows(limit = 200)
         }
         workflows = loadedWorkflows
     }

@@ -129,7 +129,32 @@ class AssistantEngineTest {
         )
 
         assertTrue(reply.citations.first().factKey.contains("GOLD"))
-        assertTrue(reply.text.indexOf("GOLD.SGE.AU9999") < reply.text.indexOf("000300"))
+        assertTrue(reply.text.contains("现价"))
+        assertFalse(reply.text.contains("market.quote.GOLD"))
+    }
+
+    @Test
+    fun unknownOfflineQuestionUsesReadableLabelsAndLimitsFactNoise() {
+        val facts = (0 until 8).map { index ->
+            AssistantFact(
+                key = "market.quote.0.${159819 + index}.change_pct",
+                value = "0.14",
+                unit = "%",
+                source = "tencent",
+                observedAt = "2026-10-16T08:14:39Z",
+                sensitivity = FactSensitivity.PUBLIC_MARKET
+            )
+        }
+
+        val (_, reply) = AssistantEngine.ask(
+            AssistantSessionState("test"),
+            "Review the local session persistence",
+            facts
+        )
+
+        assertTrue(reply.text.contains("159819 · 涨跌幅"))
+        assertFalse(reply.text.contains("market.quote.0.159819.change_pct"))
+        assertEquals(4, reply.citations.size)
     }
 
     @Test

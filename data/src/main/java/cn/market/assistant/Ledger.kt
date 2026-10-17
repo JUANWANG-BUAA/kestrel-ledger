@@ -405,8 +405,8 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
     override suspend fun workflows(limit: Int): List<AssistantWorkflow> = buildList {
         readableDatabase.rawQuery(
             "SELECT id,title,status,turns,created_at,updated_at FROM assistant_workflows " +
-                "WHERE status != ? ORDER BY updated_at DESC LIMIT ?",
-            arrayOf(WorkflowStatus.ARCHIVED.name, limit.coerceIn(1, 200).toString())
+                "ORDER BY updated_at DESC LIMIT ?",
+            arrayOf(limit.coerceIn(1, 200).toString())
         ).use { cursor ->
             while (cursor.moveToNext()) add(readWorkflow(cursor))
         }

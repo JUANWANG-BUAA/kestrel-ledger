@@ -123,19 +123,19 @@ object AssistantEngine {
             AssistantIntent.FUND_ESTIMATE -> "以下是已接入路由的基金估值事实（估算，非官方净值）："
             AssistantIntent.RISK -> "以下是基于历史快照的风险统计（描述性，不是预测）："
             AssistantIntent.HELP -> "我可以汇总本地账本与已缓存公开数据。可以这样问："
-            AssistantIntent.UNKNOWN -> "我没有完全理解问题，先按已授权事实汇总："
+            AssistantIntent.UNKNOWN -> "这条问题暂时没有匹配到具体数据类型，先列出几条可用事实："
         }
         selected.forEach { fact ->
             val unit = fact.unit?.takeIf { it.isNotBlank() }?.let { " $it" } ?: ""
             val source = fact.source?.takeIf { it.isNotBlank() }?.let { " · 来源 $it" } ?: ""
             val time = fact.observedAt?.takeIf { it.isNotBlank() }?.let { " · $it" } ?: ""
-            lines += "· ${fact.key}：${fact.value}$unit$source$time"
+            lines += "· ${factLabel(fact.key)}：${fact.value}$unit$source$time"
         }
         if (consent == AssistantDataSharingConsent.PUBLIC_AND_AGGREGATE) {
             lines += "（当前仅使用公开与汇总事实；持仓明细未参与回答。）"
         }
         lines += "以上为事实汇总，不构成投资建议；估值均为估算。"
-        val citations = selected.map { AssistantCitation(it.key, it.source, it.observedAt) }
+        val citations = selected.map { AssistantCitation(it.key, it.source, it.observedAt, it.value) }
         return AssistantReply(text = lines.joinToString("\n"), citations = citations)
     }
 
@@ -165,7 +165,42 @@ object AssistantEngine {
                     .thenByDescending { it.sensitivity == FactSensitivity.PUBLIC_MARKET }
                     .thenBy { it.key }
             )
-            .take(MAX_FACTS_PER_ANSWER)
+            .take(if (intent == AssistantIntent.UNKNOWN) MAX_FACTS_FOR_UNKNOWN else MAX_FACTS_PER_ANSWER)
+    }
+
+    private fun factLabel(key: String): String {
+        val parts = key.split('.')
+        if (parts.size >= 3 && parts[0] == "market" && parts[1] == "quote") {
+            val instrument = if (parts.size > 4) {
+                parts.drop(2).dropLast(1)
+                    .filterNot { it.length == 1 && it.all(Char::isDigit) }
+                    .joinToString("/")
+            } else {
+                ""
+            }
+            val field = when (parts.last()) {
+                "instrument_id" -> "标的代码"
+                "instrument_name" -> "标的名称"
+                "price" -> "现价"
+                "change_pct" -> "涨跌幅"
+                "change" -> "涨跌额"
+                "age_seconds" -> "延迟秒数"
+                "fresh_within_72h" -> "数据时效检查"
+                "volume" -> "成交量"
+                "open" -> "开盘价"
+                "high" -> "最高价"
+                "low" -> "最低价"
+                "close" -> "收盘价"
+                else -> parts.last().replace('_', ' ')
+            }
+            return listOf(instrument, field).filter(String::isNotBlank).joinToString(" · ")
+        }
+        return when (key) {
+            "portfolio.report.account_twr_pct" -> "账户时间加权收益率"
+            "portfolio.report.account_max_drawdown_pct" -> "账户最大回撤"
+            "portfolio.report.account_volatility_pct" -> "账户波动率"
+            else -> key.substringAfterLast('.').replace('_', ' ')
+        }
     }
 
     /**
@@ -181,6 +216,7 @@ object AssistantEngine {
     private fun refusal() = AssistantReply(ADVICE_REFUSAL)
 
     private const val MAX_TURNS = 20
+    private const val MAX_FACTS_FOR_UNKNOWN = 4
 
     const val ADVICE_REFUSAL =
         "本应用只做本地事实汇总与复盘，不提供买卖建议、不做交易通道、不承诺收益。\n" +
