@@ -574,7 +574,7 @@ private fun MarketApp(ledger: Ledger, alertRequestId: Int = 0) {
             alertState.checkNow(marketQuotes, positions)
         }
     }
-    val ledgerDraft = remember { LedgerDraft() }
+    val ledgerDraft = rememberSaveable(saver = LedgerDraft.Saver) { LedgerDraft() }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val snackbarHostState = remember { SnackbarHostState() }
     val drawerSections = remember {

@@ -40,6 +40,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.ui.Alignment
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -106,6 +108,95 @@ internal class LedgerDraft {
     val cashEventType = mutableStateOf(AccountCashEventType.DEPOSIT)
     val tradeDay = mutableStateOf(LocalDate.now(ZoneId.of("Asia/Shanghai")))
     val saving = mutableStateOf(false)
+
+    companion object {
+        private const val SEP = "\u001f"
+
+        /** Keeps a half-filled form across Activity recreation; transient dialogs are re-opened by the user. */
+        val Saver: Saver<LedgerDraft, Any> = listSaver(
+            save = { draft ->
+                listOf(
+                    draft.filter.value.name,
+                    draft.selected.value.encodeAsset(),
+                    draft.transferTarget.value.encodeAsset(),
+                    draft.search.value,
+                    draft.side.value.name,
+                    draft.amount.value,
+                    draft.units.value,
+                    draft.price.value,
+                    draft.fee.value,
+                    draft.shareFactor.value,
+                    draft.transferSearch.value,
+                    draft.transferUnits.value,
+                    draft.transferCost.value,
+                    if (draft.showFee.value) "1" else "0",
+                    draft.note.value,
+                    draft.message.value,
+                    if (draft.messageIsError.value) "1" else "0",
+                    draft.customCode.value,
+                    draft.customName.value,
+                    draft.confirmPrice.value,
+                    if (draft.cashSetupOpen.value) "1" else "0",
+                    draft.cashAmount.value,
+                    draft.cashMemo.value,
+                    draft.cashEventType.value.name,
+                    draft.tradeDay.value.toString()
+                )
+            },
+            restore = { values ->
+                fun value(index: Int): String = values.getOrNull(index) as? String ?: ""
+                LedgerDraft().apply {
+                    filter.value = runCatching { AssetKind.valueOf(value(0)) }.getOrDefault(AssetKind.FUND)
+                    selected.value = value(1).decodeAsset()
+                    transferTarget.value = value(2).decodeAsset()
+                    search.value = value(3)
+                    side.value = runCatching { TradeSide.valueOf(value(4)) }.getOrDefault(TradeSide.BUY)
+                    amount.value = value(5)
+                    units.value = value(6)
+                    price.value = value(7)
+                    fee.value = value(8)
+                    shareFactor.value = value(9)
+                    transferSearch.value = value(10)
+                    transferUnits.value = value(11)
+                    transferCost.value = value(12)
+                    showFee.value = value(13) == "1"
+                    note.value = value(14)
+                    message.value = value(15)
+                    messageIsError.value = value(16) == "1"
+                    customCode.value = value(17)
+                    customName.value = value(18)
+                    confirmPrice.value = value(19)
+                    cashSetupOpen.value = value(20) == "1"
+                    cashAmount.value = value(21)
+                    cashMemo.value = value(22)
+                    cashEventType.value = runCatching {
+                        AccountCashEventType.valueOf(value(23))
+                    }.getOrDefault(AccountCashEventType.DEPOSIT)
+                    tradeDay.value = runCatching { LocalDate.parse(value(24)) }
+                        .getOrDefault(LocalDate.now(ZoneId.of("Asia/Shanghai")))
+                }
+            }
+        )
+
+        private fun AssetInfo?.encodeAsset(): String = this?.let {
+            listOf(it.symbol, it.name, it.kind.name, it.category, it.marketQuoteSecid.orEmpty()).joinToString(SEP)
+        } ?: ""
+
+        private fun String.decodeAsset(): AssetInfo? {
+            if (isBlank()) return null
+            val parts = split(SEP)
+            if (parts.size != 5) return null
+            return runCatching {
+                AssetInfo(
+                    symbol = parts[0],
+                    name = parts[1],
+                    kind = AssetKind.valueOf(parts[2]),
+                    category = parts[3],
+                    marketQuoteSecid = parts[4].takeIf { it.isNotBlank() }
+                )
+            }.getOrNull()
+        }
+    }
 }
 
 @Composable
