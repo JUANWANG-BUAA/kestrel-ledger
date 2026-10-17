@@ -341,7 +341,7 @@ private fun LedgerStartup(content: @Composable (Ledger) -> Unit) {
 
 @Composable
 private fun LedgerStartupScreen(errorMessage: String?, onRetry: () -> Unit) {
-    MarketSplashScreen(errorMessage, onRetry)
+    MarketStartupShell(errorMessage, onRetry)
 }
 
 @Composable
