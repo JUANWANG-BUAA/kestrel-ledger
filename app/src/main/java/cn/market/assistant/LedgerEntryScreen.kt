@@ -407,10 +407,11 @@ internal fun RecordScreen(
                                 val result = runCatching {
                                     withContext(Dispatchers.IO) { ledger.addCustomAsset(identifier, displayName, kind) }
                                 }
-                                result.onSuccess {
-                                    selected = it; search = ""; customName = ""; customCode = ""
+                                result.onSuccess { asset ->
+                                    selected = asset; search = ""; customName = ""; customCode = ""
                                     transferTarget = null; transferSearch = ""
-                                    it.toFundSearchResult()?.let(fundFeatureState::openProfile) ?: fundFeatureState.clearProfile()
+                                    message = "已添加 ${asset.name}"; messageIsError = false
+                                    asset.toFundSearchResult()?.let(fundFeatureState::openProfile) ?: fundFeatureState.clearProfile()
                                 }.onFailure { message = it.message ?: "添加失败"; messageIsError = true }
                             }
                         }) { Text("使用这个标的") }
