@@ -42,6 +42,14 @@ object FundNavEstimator {
     )
     private val marketZone = ZoneId.of("Asia/Shanghai")
 
+    /** Age of the NAV used as the estimate base, or null for an unparseable/future date. */
+    internal fun baseNavAgeDays(baseNavDay: String, quoteDay: String): Long? = runCatching {
+        ChronoUnit.DAYS.between(LocalDate.parse(baseNavDay), LocalDate.parse(quoteDay))
+    }.getOrNull()?.takeIf { it >= 0 }
+
+    internal fun isBaseNavFresh(baseNavDay: String, quoteDay: String): Boolean =
+        baseNavAgeDays(baseNavDay, quoteDay)?.let { it <= MAX_BASE_NAV_AGE_DAYS } == true
+
     fun classificationText(profile: FundProfile): String = "${profile.name} ${profile.fundType.orEmpty()}"
 
     /** Short-duration debt where the research pipeline proved the model noise exceeds the signal. */
@@ -243,6 +251,16 @@ object FundNavEstimator {
         val navByDay = profile.navHistory.filter { it.day < quoteDay }.associateBy { it.day }
         val baseNav = navByDay.values.maxByOrNull { it.day }
             ?: return emptyResult(profile, FundEstimateGrade.UNAVAILABLE, "基准行情当日没有可用的前一日基金净值", indexQuote)
+        if (!isBaseNavFresh(baseNav.day, quoteDay)) {
+            val age = baseNavAgeDays(baseNav.day, quoteDay)
+            return emptyResult(
+                profile,
+                FundEstimateGrade.UNAVAILABLE,
+                if (age == null) "基准净值日期无效，暂不估算"
+                else "最近公布净值距今 $age 天，超过 $MAX_BASE_NAV_AGE_DAYS 天，暂不估算",
+                indexQuote
+            )
+        }
 
         val fundReturns = fundReturns(profile.navHistory)
         val indexReturns = indexReturns(indexBars)
@@ -427,14 +445,13 @@ object FundNavEstimator {
         }.getOrNull() ?: return emptyResult(profile, FundEstimateGrade.UNAVAILABLE, "无法识别${spec.label}行情日期", indexQuote)
         val baseNav = profile.navHistory.filter { it.day < quoteDay }.maxByOrNull { it.day }
             ?: return emptyResult(profile, FundEstimateGrade.UNAVAILABLE, "基准行情当日没有可用的前一日基金净值", indexQuote)
-        val baseNavAge = runCatching {
-            ChronoUnit.DAYS.between(LocalDate.parse(baseNav.day), LocalDate.parse(quoteDay))
-        }.getOrDefault(Long.MAX_VALUE)
-        if (baseNavAge > MAX_BASE_NAV_AGE_DAYS) {
+        if (!isBaseNavFresh(baseNav.day, quoteDay)) {
+            val baseNavAge = baseNavAgeDays(baseNav.day, quoteDay)
             return emptyResult(
                 profile,
                 FundEstimateGrade.UNAVAILABLE,
-                "最近公布净值距今 $baseNavAge 天，超过 $MAX_BASE_NAV_AGE_DAYS 天，暂不估算",
+                if (baseNavAge == null) "基准净值日期无效，暂不估算"
+                else "最近公布净值距今 $baseNavAge 天，超过 $MAX_BASE_NAV_AGE_DAYS 天，暂不估算",
                 indexQuote
             )
         }
@@ -740,6 +757,15 @@ object FundNavEstimator {
         val quoteDay = asOf.toString()
         val baseNav = profile.navHistory.filter { it.day < quoteDay }.maxByOrNull { it.day }
             ?: return emptyResult(profile, FundEstimateGrade.UNAVAILABLE, "缺少当前交易日前一日基金净值")
+        if (!isBaseNavFresh(baseNav.day, quoteDay)) {
+            val age = baseNavAgeDays(baseNav.day, quoteDay)
+            return emptyResult(
+                profile,
+                FundEstimateGrade.UNAVAILABLE,
+                if (age == null) "最近公布净值日期无效，暂不估算"
+                else "最近公布净值距今 $age 天，超过 $MAX_BASE_NAV_AGE_DAYS 天，暂不估算"
+            )
+        }
         val quotesByCode = quotes.associateBy { it.code }
         val included = profile.holdings.distinctBy { it.code }.mapNotNull { holding ->
             if (!holding.weightPct.isFinite() || holding.weightPct <= 0.0) return@mapNotNull null
