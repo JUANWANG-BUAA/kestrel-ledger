@@ -1027,11 +1027,18 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
         val db = writableDatabase
         beginSerializedTransaction(db)
         try {
-            quotes.forEach { quote -> db.insertWithOnConflict("market_quotes", null, ContentValues().apply {
-                put("secid", quote.secid); put("name", quote.name); put("price", quote.price)
-                put("change", quote.change); put("change_pct", quote.changePct)
-                put("quote_time", quote.quoteTime); put("fetched_at", quote.fetchedAt); put("source", quote.source)
-            }, SQLiteDatabase.CONFLICT_REPLACE) }
+            quotes.forEach { quote ->
+                val existingQuoteTime = db.rawQuery(
+                    "SELECT quote_time FROM market_quotes WHERE secid=?",
+                    arrayOf(quote.secid)
+                ).use { cursor -> if (cursor.moveToFirst()) cursor.getLong(0) else null }
+                if (!shouldReplaceQuote(existingQuoteTime, quote.quoteTime)) return@forEach
+                db.insertWithOnConflict("market_quotes", null, ContentValues().apply {
+                    put("secid", quote.secid); put("name", quote.name); put("price", quote.price)
+                    put("change", quote.change); put("change_pct", quote.changePct)
+                    put("quote_time", quote.quoteTime); put("fetched_at", quote.fetchedAt); put("source", quote.source)
+                }, SQLiteDatabase.CONFLICT_REPLACE)
+            }
             db.setTransactionSuccessful()
         } finally { endSerializedTransaction(db) }
     }
@@ -1298,6 +1305,16 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
         val db = writableDatabase
         beginSerializedTransaction(db)
         try {
+            val existing = db.rawQuery(
+                "SELECT observed_at, valid FROM portfolio_snapshots WHERE day=?",
+                arrayOf(snapshot.day.toString())
+            ).use { cursor ->
+                if (cursor.moveToFirst()) cursor.getString(0) to (cursor.getInt(1) != 0) else null
+            }
+            if (existing != null && !shouldReplaceSnapshot(existing.first, existing.second, snapshot.observedAt)) {
+                db.setTransactionSuccessful()
+                return
+            }
             db.insertWithOnConflict("portfolio_snapshots", null, ContentValues().apply {
                 put("day", snapshot.day.toString()); put("observed_at", snapshot.observedAt)
                 put("position_count", snapshot.positionCount); put("priced_position_count", snapshot.pricedPositionCount)
@@ -1676,10 +1693,6 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
         require(units == null || units > BigDecimal.ZERO)
         require(price == null || price > BigDecimal.ZERO)
         if (side == TradeSide.BUY) require(amount > BigDecimal.ZERO && fee < amount) { "买入金额需大于手续费" }
-        if (side == TradeSide.SELL) {
-            val position = positions().firstOrNull { it.asset.symbol == asset.symbol }
-            require(units != null && position != null && position.units >= units) { "卖出份额超过当前持仓" }
-        }
         requireNotFuture(day)
         val sellAmount = if (side == TradeSide.SELL && price != null) requireNotNull(units).multiply(price) else amount
         val confirmed = units != null && price != null
@@ -1693,6 +1706,10 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
         val db = writableDatabase
         beginSerializedTransaction(db)
         return try {
+            if (side == TradeSide.SELL) {
+                val position = positions().firstOrNull { it.asset.symbol == asset.symbol }
+                require(units != null && position != null && position.units >= units) { "卖出份额超过当前持仓" }
+            }
             val transactionId = db.insertOrThrow("transactions", null, values)
             if (confirmed) recordTradeCashEvent(
                 db, transactionId, tradeDay.toString(), side, if (side == TradeSide.SELL) sellAmount else amount, fee
