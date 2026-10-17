@@ -20,6 +20,15 @@ class LocalAssistantWorkspace(context: Context) {
         val canonicalTarget = target.canonicalFile
         require(canonicalTarget.path.startsWith(canonicalRoot.path + File.separator)) { "报告路径越界" }
         require(!java.nio.file.Files.isSymbolicLink(target.toPath())) { "不支持符号链接" }
+        val replacingBytes = if (target.isFile) target.length() else 0L
+        require(
+            WorkspaceQuota.canWrite(
+                totalBytes = usageBytes(),
+                fileCount = fileCount(),
+                incomingBytes = bytes.size.toLong(),
+                replacingBytes = replacingBytes
+            )
+        ) { "助手工作区已满（最多 ${WorkspaceQuota.MAX_FILES} 个文件 / ${WorkspaceQuota.MAX_TOTAL_BYTES / 1024} KB）" }
         target.parentFile?.mkdirs()
         target.writeBytes(bytes)
         return relativePath
@@ -43,6 +52,10 @@ class LocalAssistantWorkspace(context: Context) {
     fun usageBytes(): Long = runCatching {
         root.walkTopDown().filter { it.isFile }.sumOf { it.length() }
     }.getOrDefault(0L)
+
+    private fun fileCount(): Int = runCatching {
+        root.walkTopDown().count { it.isFile }
+    }.getOrDefault(0)
 
     private companion object {
         const val ROOT = "assistant-workspace"
