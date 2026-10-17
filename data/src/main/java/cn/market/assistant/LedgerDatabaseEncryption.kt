@@ -212,7 +212,11 @@ internal object LedgerDatabaseEncryption {
         // known not to be plaintext SQLite, the wrapped key exists, and SQLiteOpenHelper is about to
         // perform the real SQLCipher open. Validating the same file here used to pay a second PBKDF2
         // key derivation (tens of seconds on a loaded emulator) before the helper paid it again.
-        val hasRecoveryArtifacts = temporaryFile.exists() || recoveryFile.exists() || failedFile.exists()
+        val hasRecoveryArtifacts = needsRecoveryReconciliation(
+            hasTemporary = temporaryFile.exists(),
+            hasRecovery = recoveryFile.exists(),
+            hasFailed = failedFile.exists()
+        )
         if (!hasRecoveryArtifacts) return
 
         if (isEncryptedDatabase(databaseFile, passphrase)) {
