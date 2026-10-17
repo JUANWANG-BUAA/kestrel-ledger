@@ -7,15 +7,23 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
@@ -158,7 +166,7 @@ internal fun FundProfileCard(
     Card(
         Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(17.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(containerColor = FundPaper),
         border = androidx.compose.foundation.BorderStroke(1.dp, MarketTheme.colors.line.copy(alpha = 0.85f))
     ) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
@@ -227,15 +235,6 @@ internal fun FundProfileCard(
                             }
                         }
                         FundNavTrend(profile)
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text(profile.navHistory.first().day, color = FundMuted, style = MarketType.caption)
-                            Text(
-                                "近 ${profile.navHistory.size} 个${if (moneyFund) "收益记录" else "净值点"}",
-                                color = FundMuted,
-                                style = MarketType.caption
-                            )
-                            Text(profile.navHistory.last().day, color = FundMuted, style = MarketType.caption)
-                        }
                     } else {
                         Text(profile.navError ?: "暂缺净值历史", color = FundMuted, style = MarketType.label)
                     }
@@ -305,6 +304,144 @@ internal fun FundProfileCard(
         }
     }
 }
+
+@Composable
+internal fun FundProfileSummary(
+    profile: FundProfile?,
+    isLoading: Boolean,
+    error: String?,
+    navEstimate: FundNavEstimate?,
+    onOpenDetails: () -> Unit,
+    onClose: () -> Unit,
+    onRetry: () -> Unit,
+    fallbackName: String? = null,
+    fallbackCode: String? = null,
+    onChange: (() -> Unit)? = null,
+    onUse: (() -> Unit)? = null
+) {
+    val current = profile
+    Card(
+        Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(17.dp),
+        colors = CardDefaults.cardColors(containerColor = FundPaper),
+        border = androidx.compose.foundation.BorderStroke(1.dp, MarketTheme.colors.line.copy(alpha = 0.85f))
+    ) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        current?.let { "${it.name} · ${it.code}" }
+                            ?: listOfNotNull(fallbackName, fallbackCode).joinToString(" · ").ifBlank { "基金详情" },
+                        color = FundInk,
+                        style = MarketType.number,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
+                    )
+                    Text(
+                        current?.let {
+                            listOfNotNull(it.fundType, it.managementCompany).joinToString(" · ").ifBlank { "基金画像" }
+                        } ?: if (isLoading) "正在读取基金画像" else "净值、估算、走势和披露重仓",
+                        color = FundMuted,
+                        style = MarketType.label
+                    )
+                }
+                onChange?.let {
+                    TextButton(onClick = it) { Text("更换", color = FundAccent, style = MarketType.label) }
+                }
+                TextButton(onClick = onClose) {
+                    MarketIcon("close", size = 14.dp, tint = FundMuted)
+                    Text("关闭", color = FundMuted, style = MarketType.label)
+                }
+            }
+            when {
+                isLoading && current == null -> Text("正在读取基金详情…", color = FundMuted, style = MarketType.label)
+                error != null && current == null -> {
+                    Text("基金详情读取失败：$error", color = FundAccent, style = MarketType.label)
+                    TextButton(onClick = onRetry) { Text("重试", color = FundInk, style = MarketType.label) }
+                }
+                current == null -> Text("等待基金详情", color = FundMuted, style = MarketType.label)
+                else -> {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        SummaryMetric("单位净值", current.unitNav.fundDecimal(), Modifier.weight(1f))
+                        SummaryMetric(
+                            "日涨跌", current.changePct.fundPercent(), Modifier.weight(1f),
+                            current.changePct?.takeIf { it.isFinite() }?.let {
+                                when {
+                                    it > 0 -> MarketTheme.colors.up
+                                    it < 0 -> MarketTheme.colors.down
+                                    else -> FundInk
+                                }
+                            } ?: FundInk
+                        )
+                        SummaryMetric("净值日期", current.navDate ?: "暂无", Modifier.weight(1f))
+                    }
+                    navEstimate?.estimatedUnitNav?.let { estimate ->
+                        Text(
+                            "盘中估算 ${estimate.fundDecimal()} · ${navEstimate.estimatedChangePct.fundPercent()} · ${navEstimate.grade.label()}",
+                            color = FundMuted,
+                            style = MarketType.label
+                        )
+                    }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            onClick = onOpenDetails,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(11.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = FundInk)
+                        ) { Text("查看详情", style = MarketType.label) }
+                        onUse?.let { action ->
+                            OutlinedButton(
+                                onClick = action,
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(11.dp),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = FundInk)
+                            ) { Text("用于记账", style = MarketType.label) }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SummaryMetric(label: String, value: String, modifier: Modifier = Modifier, color: Color = FundInk) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(label, color = FundMuted, style = MarketType.caption)
+        Text(value, color = color, style = MarketType.numberSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium)
+    }
+}
+
+/** Full-height detail layer with an explicit close affordance for the inline fund summary. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun FundDetailSheet(
+    onDismiss: () -> Unit,
+    content: @Composable () -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = MarketTheme.colors.paper
+    ) {
+        Column(
+            Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 4.dp)
+        ) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("基金详情", color = FundInk, style = MarketType.title)
+                Spacer(Modifier.weight(1f))
+                TextButton(onClick = onDismiss) {
+                    MarketIcon("close", size = 14.dp, tint = FundMuted)
+                    Text("关闭", color = FundMuted, style = MarketType.label)
+                }
+            }
+            content()
+            Spacer(Modifier.height(24.dp))
+        }
+    }
+}
+
 
 @Composable
 private fun FundMoneyYieldPanel(
@@ -646,26 +783,45 @@ private fun FundNavTrend(profile: FundProfile) {
     val range = (maximum - minimum).coerceAtLeast(0.000001)
     val gridColor = FundGrid
     val accentColor = FundAccent
-    Canvas(
-        Modifier.fillMaxWidth().height(76.dp).semantics {
-            contentDescription = "${profile.name} ${if (moneyFund) "万份收益" else "单位净值"}趋势，${points.first().day} 至 ${points.last().day}"
+    Row(Modifier.fillMaxWidth().height(112.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        Column(
+            Modifier.width(48.dp).fillMaxHeight(),
+            horizontalAlignment = Alignment.End,
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(maximum.fundDecimal(), color = FundMuted, style = MarketType.caption)
+            Text(((maximum + minimum) / 2.0).fundDecimal(), color = FundMuted, style = MarketType.caption)
+            Text(minimum.fundDecimal(), color = FundMuted, style = MarketType.caption)
         }
-    ) {
-        val left = 2.dp.toPx()
-        val right = size.width - 2.dp.toPx()
-        val top = 5.dp.toPx()
-        val bottom = size.height - 5.dp.toPx()
-        repeat(3) { index ->
-            val y = top + (bottom - top) * index / 2f
-            drawLine(gridColor, Offset(left, y), Offset(right, y), 1.dp.toPx())
+        Canvas(
+            Modifier.weight(1f).fillMaxHeight().semantics {
+                contentDescription = "${profile.name} ${if (moneyFund) "万份收益" else "单位净值"}趋势，${points.first().day} 至 ${points.last().day}"
+            }
+        ) {
+            val left = 2.dp.toPx()
+            val right = size.width - 2.dp.toPx()
+            val top = 5.dp.toPx()
+            val bottom = size.height - 5.dp.toPx()
+            repeat(3) { index ->
+                val y = top + (bottom - top) * index / 2f
+                drawLine(gridColor, Offset(left, y), Offset(right, y), 1.dp.toPx())
+            }
+            val line = Path()
+            points.forEachIndexed { index, point ->
+                val x = left + (right - left) * index / (points.lastIndex).coerceAtLeast(1)
+                val y = bottom - ((values[index] - minimum) / range).toFloat() * (bottom - top)
+                if (index == 0) line.moveTo(x, y) else line.lineTo(x, y)
+            }
+            drawPath(line, accentColor, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx()))
+            val lastX = left + (right - left)
+            val lastY = bottom - ((values.last() - minimum) / range).toFloat() * (bottom - top)
+            drawCircle(accentColor, radius = 3.dp.toPx(), center = Offset(lastX, lastY))
         }
-        val line = Path()
-        points.forEachIndexed { index, point ->
-            val x = left + (right - left) * index / (points.lastIndex).coerceAtLeast(1)
-            val y = bottom - ((values[index] - minimum) / range).toFloat() * (bottom - top)
-            if (index == 0) line.moveTo(x, y) else line.lineTo(x, y)
-        }
-        drawPath(line, accentColor, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx()))
+    }
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Text(points.first().day, color = FundMuted, style = MarketType.caption)
+        Text("${points.size} 个点", color = FundMuted, style = MarketType.caption)
+        Text(points.last().day, color = FundMuted, style = MarketType.caption)
     }
 }
 

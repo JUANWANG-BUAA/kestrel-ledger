@@ -339,11 +339,11 @@ private fun PortfolioTrendCard(
             if (points.size >= 2 && chartSpan > 0.005) {
                 PortfolioTrendChart(points, activeIndex, onPointSelected, Modifier.fillMaxWidth().height(154.dp))
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text(first?.day?.toString() ?: "", Modifier.weight(1f), color = Muted, fontSize = 9.sp)
-                    Text("${points.size} 个有效观察点", color = Muted, fontSize = 9.sp)
-                    Text(last?.day?.toString() ?: "", Modifier.weight(1f), color = Muted, fontSize = 9.sp, textAlign = androidx.compose.ui.text.style.TextAlign.End)
+                    Text(first?.day?.toString() ?: "", Modifier.weight(1f), color = Muted, fontSize = 11.sp)
+                    Text("${points.size} 个有效观察点", color = Muted, fontSize = 11.sp)
+                    Text(last?.day?.toString() ?: "", Modifier.weight(1f), color = Muted, fontSize = 11.sp, textAlign = androidx.compose.ui.text.style.TextAlign.End)
                 }
-                Text("拖动曲线查看单日记录；缺少价格的观察点不会补零。", color = Muted, fontSize = 10.sp)
+                Text("拖动曲线查看单日记录；缺少价格的观察点不会补零。", color = Muted, fontSize = 11.sp)
             } else {
                 Column(
                     Modifier.fillMaxWidth()
@@ -390,6 +390,8 @@ private fun PortfolioTrendChart(
     val change = points.last().value - points.first().value
     val lineColor = plColor(change)
     val canvasSurface = White
+    val gridColor = MarketTheme.colors.line.copy(alpha = 0.75f)
+    val cursorColor = MarketTheme.colors.ink.copy(alpha = 0.35f)
     val reveal = remember(points) { Animatable(0f) }
     LaunchedEffect(points) {
         reveal.snapTo(0f)
@@ -400,8 +402,12 @@ private fun PortfolioTrendChart(
         modifier.fillMaxWidth().graphicsLayer { alpha = reveal.value }
             .semantics { contentDescription = "资产走势，$accessibilitySummary" }
             .pointerInput(points) {
+                val touchSlop = viewConfiguration.touchSlop
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
+                    var totalDx = 0f
+                    var totalDy = 0f
+                    var selecting = false
                     fun selectAt(x: Float) {
                         val left = 8.dp.toPx()
                         val right = (size.width - 8.dp.toPx()).coerceAtLeast(left + 1f)
@@ -414,15 +420,25 @@ private fun PortfolioTrendChart(
                         } ?: 0
                         onPointSelected(nearest)
                     }
-                    selectAt(down.position.x)
                     do {
                         val event = awaitPointerEvent()
                         val changeEvent = event.changes.firstOrNull { it.id == down.id } ?: break
                         if (changeEvent.pressed) {
-                            selectAt(changeEvent.position.x)
-                            changeEvent.consume()
+                            val delta = changeEvent.position - changeEvent.previousPosition
+                            totalDx += delta.x
+                            totalDy += delta.y
+                            if (!selecting && kotlin.math.abs(totalDx) > touchSlop &&
+                                kotlin.math.abs(totalDx) > kotlin.math.abs(totalDy)
+                            ) selecting = true
+                            if (selecting) {
+                                selectAt(changeEvent.position.x)
+                                changeEvent.consume()
+                            }
                         }
                     } while (event.changes.any { it.pressed })
+                    if (!selecting && kotlin.math.abs(totalDx) <= touchSlop && kotlin.math.abs(totalDy) <= touchSlop) {
+                        selectAt(down.position.x)
+                    }
                 }
             }
     ) {
@@ -432,7 +448,7 @@ private fun PortfolioTrendChart(
         val bottom = size.height - 9.dp.toPx()
         repeat(4) { row ->
             val y = top + (bottom - top) * row / 3f
-            drawLine(Color(0xFFE9E7E1), Offset(left, y), Offset(right, y), 1.dp.toPx())
+            drawLine(gridColor, Offset(left, y), Offset(right, y), 1.dp.toPx())
         }
         val firstDay = points.first().day.toEpochDay().toDouble()
         val daySpan = (points.last().day.toEpochDay() - points.first().day.toEpochDay()).toDouble().coerceAtLeast(1.0)
@@ -457,7 +473,7 @@ private fun PortfolioTrendChart(
         val activeX = pointX(selected)
         val activeY = pointY(selected)
         drawLine(
-            Color(0xFFAAA9A2), Offset(activeX, top), Offset(activeX, bottom), 1.dp.toPx(),
+            cursorColor, Offset(activeX, top), Offset(activeX, bottom), 1.dp.toPx(),
             pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 4.dp.toPx()))
         )
         drawCircle(canvasSurface, radius = 6.dp.toPx(), center = Offset(activeX, activeY))

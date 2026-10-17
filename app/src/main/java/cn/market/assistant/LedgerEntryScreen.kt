@@ -158,6 +158,10 @@ internal fun RecordScreen(
     var cashAmount by draft.cashAmount
     var cashMemo by draft.cashMemo
     var cashEventType by draft.cashEventType
+    var fundDetailOpen by remember { mutableStateOf(false) }
+    LaunchedEffect(fundFeatureState.profileTarget?.code) {
+        if (fundFeatureState.profileTarget == null) fundDetailOpen = false
+    }
     val recentCashEvents = accountCashEvents.filter {
         it.type == AccountCashEventType.DEPOSIT || it.type == AccountCashEventType.WITHDRAWAL ||
             it.type == AccountCashEventType.DIVIDEND
@@ -393,7 +397,10 @@ internal fun RecordScreen(
                     isLoading = fundFeatureState.isSearching,
                     completedQuery = fundFeatureState.completedQuery,
                     error = fundFeatureState.searchError,
-                    onView = fundFeatureState::openProfile,
+                    onView = { result ->
+                        fundFeatureState.openProfile(result)
+                        fundDetailOpen = true
+                    },
                     onRetry = fundFeatureState::retrySearch,
                     onUse = { result ->
                         runCatching { ledger.addFundAsset(result.code, result.name, result.category) }
@@ -414,8 +421,19 @@ internal fun RecordScreen(
             }
             fundFeatureState.profileTarget?.let { target ->
                 if (filter == AssetKind.FUND && (selected == null || selected?.symbol == target.code)) {
-                    FundProfileCard(
-                        fundFeatureState.profile, fundFeatureState.isProfileLoading, fundFeatureState.profileError,
+                    FundProfileSummary(
+                        profile = fundFeatureState.profile,
+                        isLoading = fundFeatureState.isProfileLoading,
+                        error = fundFeatureState.profileError,
+                        navEstimate = fundFeatureState.navEstimate,
+                        onOpenDetails = { fundDetailOpen = true },
+                        onClose = {
+                            fundFeatureState.clearProfile()
+                            fundDetailOpen = false
+                        },
+                        onRetry = fundFeatureState::retryProfile,
+                        fallbackName = target.name,
+                        fallbackCode = target.code,
                         onUse = {
                             if (selected == null) {
                                 runCatching {
@@ -424,60 +442,43 @@ internal fun RecordScreen(
                                     .onSuccess { asset -> selected = asset; search = ""; onChanged() }
                                     .onFailure { error -> message = error.message ?: "无法添加该基金"; messageIsError = true }
                             }
-                        },
-                        onRetry = fundFeatureState::retryProfile,
-                        historyCache = fundFeatureState.navHistoryCache,
-                        isBackfillingHistory = fundFeatureState.isBackfillingHistory,
-                        historySyncMessage = fundFeatureState.historySyncMessage,
-                        onBackfillFullHistory = fundFeatureState::backfillFullHistory,
-                        isWatchlisted = fundFeatureState.isWatchlisted,
-                        watchlistMessage = fundFeatureState.watchlistMessage,
-                        onToggleWatchlist = { fundFeatureState.toggleWatchlist(onChanged) },
-                        navEstimate = fundFeatureState.navEstimate,
-                        isEstimatingNav = fundFeatureState.isEstimatingNav,
-                        onRefreshEstimate = if (canRefreshFundEstimate) ({
-                            viewedFundProfile?.let { fundFeatureState.estimateNav(it, trackingIndexQuote, forceRefresh = true) }
-                        }) else null,
-                        moneyYieldEstimate = fundFeatureState.moneyYieldEstimate,
-                        listedPriceComparison = fundFeatureState.listedPriceComparison,
-                        isRefreshingListedPrice = fundFeatureState.isRefreshingListedPrice,
-                        onRefreshListedPrice = {
-                            viewedFundProfile?.let { fundFeatureState.loadListedMarketPrice(it, forceRefresh = true) }
                         }
                     )
                 }
             }
         } else {
-            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(17.dp), colors = CardDefaults.cardColors(containerColor = SoftBlue)) {
-                Row(Modifier.padding(horizontal = 15.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text(selected!!.name, color = Ink, fontWeight = FontWeight.SemiBold)
-                        Text("${selected!!.category}  ·  ${selected!!.symbol}", color = Muted, fontSize = 11.sp)
+            val selectedIsFundProfile = selected?.kind == AssetKind.FUND &&
+                selected?.symbol == fundFeatureState.profileTarget?.code
+            if (!selectedIsFundProfile) {
+                Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(17.dp), colors = CardDefaults.cardColors(containerColor = SoftBlue)) {
+                    Row(Modifier.padding(horizontal = 15.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(selected!!.name, color = Ink, fontWeight = FontWeight.SemiBold)
+                            Text("${selected!!.category}  ·  ${selected!!.symbol}", color = Muted, fontSize = 11.sp)
+                        }
+                        TextButton(onClick = { selected = null; transferTarget = null; transferSearch = "" }) { Text("更换") }
                     }
-                    TextButton(onClick = { selected = null; transferTarget = null; transferSearch = "" }) { Text("更换") }
                 }
             }
-            if (selected?.kind == AssetKind.FUND && selected?.symbol == fundFeatureState.profileTarget?.code) {
-                FundProfileCard(
-                    fundFeatureState.profile, fundFeatureState.isProfileLoading, fundFeatureState.profileError,
-                    onRetry = fundFeatureState::retryProfile,
-                    historyCache = fundFeatureState.navHistoryCache,
-                    isBackfillingHistory = fundFeatureState.isBackfillingHistory,
-                    historySyncMessage = fundFeatureState.historySyncMessage,
-                    onBackfillFullHistory = fundFeatureState::backfillFullHistory,
-                    isWatchlisted = fundFeatureState.isWatchlisted,
-                    watchlistMessage = fundFeatureState.watchlistMessage,
-                    onToggleWatchlist = { fundFeatureState.toggleWatchlist(onChanged) },
+            if (selectedIsFundProfile) {
+                val target = fundFeatureState.profileTarget
+                FundProfileSummary(
+                    profile = fundFeatureState.profile,
+                    isLoading = fundFeatureState.isProfileLoading,
+                    error = fundFeatureState.profileError,
                     navEstimate = fundFeatureState.navEstimate,
-                    isEstimatingNav = fundFeatureState.isEstimatingNav,
-                    onRefreshEstimate = if (canRefreshFundEstimate) ({
-                        viewedFundProfile?.let { fundFeatureState.estimateNav(it, trackingIndexQuote, forceRefresh = true) }
-                    }) else null,
-                    moneyYieldEstimate = fundFeatureState.moneyYieldEstimate,
-                    listedPriceComparison = fundFeatureState.listedPriceComparison,
-                    isRefreshingListedPrice = fundFeatureState.isRefreshingListedPrice,
-                    onRefreshListedPrice = {
-                        viewedFundProfile?.let { fundFeatureState.loadListedMarketPrice(it, forceRefresh = true) }
+                    onOpenDetails = { fundDetailOpen = true },
+                    onClose = {
+                        fundFeatureState.clearProfile()
+                        fundDetailOpen = false
+                    },
+                    onRetry = fundFeatureState::retryProfile,
+                    fallbackName = target?.name ?: selected?.name,
+                    fallbackCode = target?.code ?: selected?.symbol,
+                    onChange = {
+                        selected = null
+                        transferTarget = null
+                        transferSearch = ""
                     }
                 )
             }
@@ -704,6 +705,47 @@ internal fun RecordScreen(
             },
             color = Muted, fontSize = 11.sp
         )
+    }
+
+    val detailTarget = fundFeatureState.profileTarget
+    if (fundDetailOpen && detailTarget != null) {
+        FundDetailSheet(onDismiss = { fundDetailOpen = false }) {
+            FundProfileCard(
+                profile = fundFeatureState.profile,
+                isLoading = fundFeatureState.isProfileLoading,
+                error = fundFeatureState.profileError,
+                onUse = if (selected == null) ({
+                    runCatching {
+                        ledger.addFundAsset(
+                            detailTarget.code,
+                            detailTarget.name,
+                            fundFeatureState.profile?.fundType ?: detailTarget.category
+                        )
+                    }
+                        .onSuccess { asset -> selected = asset; search = ""; onChanged() }
+                        .onFailure { error -> message = error.message ?: "无法添加该基金"; messageIsError = true }
+                }) else null,
+                onRetry = fundFeatureState::retryProfile,
+                historyCache = fundFeatureState.navHistoryCache,
+                isBackfillingHistory = fundFeatureState.isBackfillingHistory,
+                historySyncMessage = fundFeatureState.historySyncMessage,
+                onBackfillFullHistory = fundFeatureState::backfillFullHistory,
+                isWatchlisted = fundFeatureState.isWatchlisted,
+                watchlistMessage = fundFeatureState.watchlistMessage,
+                onToggleWatchlist = { fundFeatureState.toggleWatchlist(onChanged) },
+                navEstimate = fundFeatureState.navEstimate,
+                isEstimatingNav = fundFeatureState.isEstimatingNav,
+                onRefreshEstimate = if (canRefreshFundEstimate) ({
+                    viewedFundProfile?.let { fundFeatureState.estimateNav(it, trackingIndexQuote, forceRefresh = true) }
+                }) else null,
+                moneyYieldEstimate = fundFeatureState.moneyYieldEstimate,
+                listedPriceComparison = fundFeatureState.listedPriceComparison,
+                isRefreshingListedPrice = fundFeatureState.isRefreshingListedPrice,
+                onRefreshListedPrice = {
+                    viewedFundProfile?.let { fundFeatureState.loadListedMarketPrice(it, forceRefresh = true) }
+                }
+            )
+        }
     }
 
     confirmTarget?.let { trade ->

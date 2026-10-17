@@ -386,7 +386,7 @@ private fun AssistantHeader(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        AssistantIconButton("menu", "会话历史") { onOpenSheet(AssistantSheet.WORKFLOWS) }
+        AssistantIconButton("back", "返回行情", onBack)
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth().clickable { onRename() },
@@ -420,33 +420,61 @@ private fun AssistantHeader(
                 }
             }
         }
-        AssistantIconButton("edit", "新建会话", onNewWorkflow)
+        AssistantIconButton("plus", "新建会话", onNewWorkflow)
         Box {
             AssistantIconButton("more", "助手菜单") { onMenuOpenChange(true) }
             DropdownMenu(expanded = menuOpen, onDismissRequest = { onMenuOpenChange(false) }) {
-                DropdownMenuItem(text = { Text("会话工作流", fontSize = 12.sp) }, onClick = {
-                    onMenuOpenChange(false); onOpenSheet(AssistantSheet.WORKFLOWS)
-                })
-                DropdownMenuItem(text = { Text("我的技能", fontSize = 12.sp) }, onClick = {
-                    onMenuOpenChange(false); onOpenSheet(AssistantSheet.SKILLS)
-                })
-                DropdownMenuItem(text = { Text("使用习惯", fontSize = 12.sp) }, onClick = {
-                    onMenuOpenChange(false); onOpenSheet(AssistantSheet.HABITS)
-                })
+                DropdownMenuItem(
+                    text = { Text("会话工作流", fontSize = 12.sp) },
+                    leadingIcon = { MarketIcon("assets", size = 16.dp, tint = Ink) },
+                    onClick = {
+                        onMenuOpenChange(false); onOpenSheet(AssistantSheet.WORKFLOWS)
+                    }
+                )
+                DropdownMenuItem(
+                    text = { Text("我的技能", fontSize = 12.sp) },
+                    leadingIcon = { MarketIcon("spark", size = 16.dp, tint = Ink) },
+                    onClick = {
+                        onMenuOpenChange(false); onOpenSheet(AssistantSheet.SKILLS)
+                    }
+                )
+                DropdownMenuItem(
+                    text = { Text("使用习惯", fontSize = 12.sp) },
+                    leadingIcon = { MarketIcon("clock", size = 16.dp, tint = Ink) },
+                    onClick = {
+                        onMenuOpenChange(false); onOpenSheet(AssistantSheet.HABITS)
+                    }
+                )
                 if (state.currentWorkflow != null) {
-                    DropdownMenuItem(text = { Text("复制当前对话", fontSize = 12.sp) }, onClick = {
-                        onMenuOpenChange(false); onCopyCurrentWorkflow()
-                    })
-                    DropdownMenuItem(text = { Text("归档当前会话", fontSize = 12.sp) }, onClick = {
-                        onMenuOpenChange(false); onArchiveCurrentWorkflow()
-                    })
+                    DropdownMenuItem(
+                        text = { Text("复制当前对话", fontSize = 12.sp) },
+                        leadingIcon = { MarketIcon("copy", size = 16.dp, tint = Ink) },
+                        onClick = {
+                            onMenuOpenChange(false); onCopyCurrentWorkflow()
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("归档当前会话", fontSize = 12.sp) },
+                        leadingIcon = { MarketIcon("trash", size = 16.dp, tint = Ink) },
+                        onClick = {
+                            onMenuOpenChange(false); onArchiveCurrentWorkflow()
+                        }
+                    )
                 }
-                DropdownMenuItem(text = { Text("模型与扩展", fontSize = 12.sp) }, onClick = {
-                    onMenuOpenChange(false); onOpenSheet(AssistantSheet.SETTINGS)
-                })
-                DropdownMenuItem(text = { Text("返回行情", fontSize = 12.sp) }, onClick = {
-                    onMenuOpenChange(false); onBack()
-                })
+                DropdownMenuItem(
+                    text = { Text("模型与扩展", fontSize = 12.sp) },
+                    leadingIcon = { MarketIcon("sliders", size = 16.dp, tint = Ink) },
+                    onClick = {
+                        onMenuOpenChange(false); onOpenSheet(AssistantSheet.SETTINGS)
+                    }
+                )
+                DropdownMenuItem(
+                    text = { Text("返回行情", fontSize = 12.sp) },
+                    leadingIcon = { MarketIcon("back", size = 16.dp, tint = Ink) },
+                    onClick = {
+                        onMenuOpenChange(false); onBack()
+                    }
+                )
             }
         }
     }

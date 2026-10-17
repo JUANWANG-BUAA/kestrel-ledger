@@ -277,6 +277,11 @@ internal fun OverviewHeroCard(
     val onHero = Color.White
     val onHeroMuted = Color.White.copy(alpha = 0.74f)
     val heroShape = RoundedCornerShape(geometry.panel)
+    val heroGradient = if (MarketTheme.isDark) {
+        listOf(palette.accentSoft, palette.surface)
+    } else {
+        listOf(palette.accent, palette.accent.shade(0.74f))
+    }
 
     Box(
         Modifier
@@ -285,7 +290,7 @@ internal fun OverviewHeroCard(
             .clip(heroShape)
             .background(
                 Brush.linearGradient(
-                    listOf(palette.accent, palette.accent.shade(0.74f)),
+                    heroGradient,
                     start = androidx.compose.ui.geometry.Offset.Zero,
                     end = androidx.compose.ui.geometry.Offset(1200f, 1400f)
                 )

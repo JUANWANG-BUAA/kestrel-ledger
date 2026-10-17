@@ -109,6 +109,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.lightColorScheme
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -255,13 +256,34 @@ class MainActivity : ComponentActivity() {
                     window.statusBarColor = colors.paper.toArgb()
                     window.navigationBarColor = colors.paper.toArgb()
                 }
-                MaterialTheme(colorScheme = lightColorScheme(
+                val scheme = if (dark) darkColorScheme(
+                    primary = colors.accent,
+                    onPrimary = colors.paper,
+                    primaryContainer = colors.accentSoft,
+                    onPrimaryContainer = colors.ink,
+                    secondary = colors.accent,
+                    onSecondary = colors.paper,
+                    secondaryContainer = colors.accentSoft,
+                    onSecondaryContainer = colors.ink,
+                    background = colors.paper,
+                    onBackground = colors.ink,
+                    surface = colors.surface,
+                    onSurface = colors.ink,
+                    surfaceVariant = colors.surfaceAlt,
+                    onSurfaceVariant = colors.inkSoft,
+                    outline = colors.line,
+                    error = colors.up,
+                    onError = colors.paper,
+                    tertiary = colors.warn,
+                    onTertiary = colors.paper
+                ) else lightColorScheme(
                     primary = colors.accent, onPrimary = Color.White, secondary = colors.accent,
                     background = colors.paper, surface = colors.surface, onSurface = colors.ink,
                     onBackground = colors.ink, error = colors.up,
                     secondaryContainer = colors.accentSoft, onSecondaryContainer = colors.ink,
                     surfaceVariant = colors.surfaceAlt, outline = colors.line
-                )) {
+                )
+                MaterialTheme(colorScheme = scheme) {
                     LedgerStartup { ledger -> MarketApp(ledger) }
                 }
             }

@@ -73,8 +73,8 @@ internal fun MarketSeriesChart(
 ) {
     val palette = MarketTheme.colors
     val measurer = rememberTextMeasurer()
-    val axisStyle = TextStyle(fontSize = 9.sp, color = palette.muted, fontWeight = FontWeight.Normal)
-    val tooltipStyle = TextStyle(fontSize = 10.sp, color = palette.ink, fontWeight = FontWeight.Medium)
+    val axisStyle = TextStyle(fontSize = 11.sp, color = palette.muted, fontWeight = FontWeight.Normal)
+    val tooltipStyle = TextStyle(fontSize = 11.sp, color = palette.ink, fontWeight = FontWeight.Medium)
     val reveal = remember(lines) { Animatable(0f) }
     // Two short pulses after the series changes, then the chart settles: a refresh is visible without
     // an infinite animation redrawing and re-measuring text every frame.
@@ -109,8 +109,12 @@ internal fun MarketSeriesChart(
                 }
             }
             .pointerInput(labels) {
+                val touchSlop = viewConfiguration.touchSlop
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
+                    var totalDx = 0f
+                    var totalDy = 0f
+                    var selecting = false
                     fun pick(x: Float) {
                         if (labels.isEmpty()) return
                         val left = 4.dp.toPx()
@@ -118,15 +122,27 @@ internal fun MarketSeriesChart(
                         val fraction = ((x - left) / (right - left)).coerceIn(0f, 1f)
                         selected = (fraction * (labels.size - 1)).roundToInt()
                     }
-                    pick(down.position.x)
                     do {
                         val event = awaitPointerEvent()
                         val change = event.changes.firstOrNull { it.id == down.id } ?: break
                         if (change.pressed) {
-                            pick(change.position.x)
-                            change.consume()
+                            val delta = change.position - change.previousPosition
+                            totalDx += delta.x
+                            totalDy += delta.y
+                            // A vertical drag belongs to the page scroll; only claim mostly-horizontal
+                            // gestures for the crosshair after the touch slop is crossed.
+                            if (!selecting && kotlin.math.abs(totalDx) > touchSlop &&
+                                kotlin.math.abs(totalDx) > kotlin.math.abs(totalDy)
+                            ) selecting = true
+                            if (selecting) {
+                                pick(change.position.x)
+                                change.consume()
+                            }
                         }
                     } while (event.changes.any { it.pressed })
+                    if (!selecting && kotlin.math.abs(totalDx) <= touchSlop && kotlin.math.abs(totalDy) <= touchSlop) {
+                        pick(down.position.x)
+                    }
                 }
             }
     ) {
