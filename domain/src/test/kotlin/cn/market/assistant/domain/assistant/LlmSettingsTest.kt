@@ -112,7 +112,9 @@ class LlmSettingsTest {
 
         val definition = descriptor.toChatToolDefinition()
 
-        assertEquals("market.quote", definition.name)
+        assertEquals("market_quote", definition.name)
+        assertEquals("market.quote", definition.localToolId)
+        assertTrue(definition.name.matches(Regex("^[A-Za-z0-9_-]+$")))
         assertTrue(definition.parametersJsonSchema.contains("\"query\""))
         assertTrue(definition.parametersJsonSchema.contains("\"required\":[\"query\"]"))
         assertTrue(definition.parametersJsonSchema.contains("\"limit\""))

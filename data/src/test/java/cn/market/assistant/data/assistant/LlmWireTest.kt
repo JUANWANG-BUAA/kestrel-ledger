@@ -20,7 +20,7 @@ import org.junit.Test
 class LlmWireTest {
     private val tools = listOf(
         ChatToolDefinition(
-            name = "market.quote",
+            name = "market_quote",
             description = "查询报价",
             parametersJsonSchema = "{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\"}},\"required\":[\"query\"]}"
         )
@@ -118,7 +118,7 @@ class LlmWireTest {
                 ChatMessage(
                     ChatRole.ASSISTANT,
                     "",
-                    toolCalls = listOf(ChatToolCall("call-1", "market.quote", "{\"query\":\"沪深300\"}"))
+                    toolCalls = listOf(ChatToolCall("call-1", "market_quote", "{\"query\":\"沪深300\"}"))
                 ),
                 ChatMessage(ChatRole.TOOL, "- market.quote.price: 4166.01", toolCallId = "call-1")
             ),
@@ -137,9 +137,9 @@ class LlmWireTest {
         assertEquals("image_url", userContent.getJSONObject(1).getString("type"))
         assertTrue(userContent.getJSONObject(1).getJSONObject("image_url").getString("url").startsWith("data:image/png;base64,"))
         val assistant = messages.getJSONObject(2)
-        assertEquals("market.quote", assistant.getJSONArray("tool_calls").getJSONObject(0).getJSONObject("function").getString("name"))
+        assertEquals("market_quote", assistant.getJSONArray("tool_calls").getJSONObject(0).getJSONObject("function").getString("name"))
         assertEquals("call-1", messages.getJSONObject(3).getString("tool_call_id"))
-        assertEquals("market.quote", body.getJSONArray("tools").getJSONObject(0).getJSONObject("function").getString("name"))
+        assertEquals("market_quote", body.getJSONArray("tools").getJSONObject(0).getJSONObject("function").getString("name"))
         assertEquals("auto", body.getString("tool_choice"))
     }
 
@@ -168,13 +168,13 @@ class LlmWireTest {
         val response = OpenAiWire.parseResponse(
             """
             {"choices":[{"finish_reason":"tool_calls","message":{"role":"assistant","content":null,
-            "tool_calls":[{"id":"c1","type":"function","function":{"name":"market.quote","arguments":"{\"query\":\"x\"}"}}]}}],
+            "tool_calls":[{"id":"c1","type":"function","function":{"name":"market_quote","arguments":"{\"query\":\"x\"}"}}]}}],
             "usage":{"prompt_tokens":120,"completion_tokens":30,"completion_tokens_details":{"reasoning_tokens":8}}}
             """.trimIndent()
         )
 
         assertEquals(1, response.message.toolCalls.size)
-        assertEquals("market.quote", response.message.toolCalls[0].name)
+        assertEquals("market_quote", response.message.toolCalls[0].name)
         assertEquals(120, response.usage.promptTokens)
         assertEquals(30, response.usage.completionTokens)
         assertEquals(8, response.usage.reasoningTokens)
@@ -192,7 +192,7 @@ class LlmWireTest {
             """
             {"choices":[{"finish_reason":"tool_calls","message":{"role":"assistant","content":null,
             "reasoning_content":"需要先查行情","tool_calls":[{"id":"c1","type":"function",
-            "function":{"name":"market.quote","arguments":"{\"query\":\"黄金\"}"}}]}}]}
+            "function":{"name":"market_quote","arguments":"{\"query\":\"黄金\"}"}}]}}]}
             """.trimIndent()
         )
 
@@ -219,7 +219,7 @@ class LlmWireTest {
                     ChatRole.ASSISTANT,
                     "",
                     reasoningContent = "先检查图表",
-                    toolCalls = listOf(ChatToolCall("call-r1", "market.quote", "{\"query\":\"黄金\"}"))
+                    toolCalls = listOf(ChatToolCall("call-r1", "market_quote", "{\"query\":\"黄金\"}"))
                 ),
                 ChatMessage(ChatRole.TOOL, "金价 2,900", toolCallId = "call-r1")
             ),
@@ -243,7 +243,7 @@ class LlmWireTest {
         assertEquals("call-r1", input.getJSONObject(2).getString("call_id"))
         assertEquals("function_call_output", input.getJSONObject(3).getString("type"))
         assertEquals("call-r1", input.getJSONObject(3).getString("call_id"))
-        assertEquals("market.quote", body.getJSONArray("tools").getJSONObject(0).getString("name"))
+        assertEquals("market_quote", body.getJSONArray("tools").getJSONObject(0).getString("name"))
         assertEquals("auto", body.getString("tool_choice"))
     }
 
@@ -254,7 +254,7 @@ class LlmWireTest {
             {"status":"completed","output":[
               {"type":"reasoning","content":[{"type":"reasoning_text","text":"先取证"}]},
               {"type":"message","content":[{"type":"output_text","text":"黄金报价如下"}]},
-              {"type":"function_call","call_id":"r1","name":"market.quote","arguments":"{\"query\":\"黄金\"}"}
+              {"type":"function_call","call_id":"r1","name":"market_quote","arguments":"{\"query\":\"黄金\"}"}
             ],"usage":{"input_tokens":40,"output_tokens":12}}
             """.trimIndent()
         )
@@ -262,7 +262,7 @@ class LlmWireTest {
         assertEquals("黄金报价如下", parsed.message.content)
         assertEquals("先取证", parsed.message.reasoningContent)
         assertEquals("r1", parsed.message.toolCalls.single().id)
-        assertEquals("market.quote", parsed.message.toolCalls.single().name)
+        assertEquals("market_quote", parsed.message.toolCalls.single().name)
         assertEquals(40, parsed.usage.promptTokens)
         assertEquals(12, parsed.usage.completionTokens)
         assertEquals("completed", parsed.finishReason)
@@ -277,7 +277,7 @@ class LlmWireTest {
                 ChatMessage(
                     ChatRole.ASSISTANT,
                     "先查账本",
-                    toolCalls = listOf(ChatToolCall("t1", "portfolio.positions", "{\"scope\":\"detail\"}"))
+                    toolCalls = listOf(ChatToolCall("t1", "portfolio_positions", "{\"scope\":\"detail\"}"))
                 ),
                 ChatMessage(ChatRole.TOOL, "结果 A", toolCallId = "t1"),
                 ChatMessage(ChatRole.TOOL, "结果 B", toolCallId = "t2")
@@ -300,7 +300,7 @@ class LlmWireTest {
         assertEquals(2, toolResultBlocks.length())
         assertEquals("t1", toolResultBlocks.getJSONObject(0).getString("tool_use_id"))
         assertEquals("t2", toolResultBlocks.getJSONObject(1).getString("tool_use_id"))
-        assertEquals("market.quote", body.getJSONArray("tools").getJSONObject(0).getString("name"))
+        assertEquals("market_quote", body.getJSONArray("tools").getJSONObject(0).getString("name"))
         assertTrue(body.getJSONArray("tools").getJSONObject(0).has("input_schema"))
     }
 
@@ -316,7 +316,7 @@ class LlmWireTest {
         val parsed = AnthropicWire.parseResponse(
             """
             {"stop_reason":"tool_use","content":[{"type":"text","text":"查一下"},
-            {"type":"tool_use","id":"tu1","name":"market.quote","input":{"query":"黄金"}}],
+            {"type":"tool_use","id":"tu1","name":"market_quote","input":{"query":"黄金"}}],
             "usage":{"input_tokens":80,"output_tokens":20}}
             """.trimIndent()
         )

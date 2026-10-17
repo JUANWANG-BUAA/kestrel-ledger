@@ -29,7 +29,14 @@ data class ChatMessage(
     val reasoningContent: String? = null
 )
 
-data class ChatToolDefinition(val name: String, val description: String, val parametersJsonSchema: String)
+data class ChatToolDefinition(
+    /** Provider-safe function name used on the wire. */
+    val name: String,
+    val description: String,
+    val parametersJsonSchema: String,
+    /** Stable in-app tool ID, which may use characters forbidden by provider protocols. */
+    val localToolId: String = name
+)
 
 data class ChatRequest(
     val messages: List<ChatMessage>,
@@ -65,15 +72,16 @@ interface ChatModel {
 }
 
 /** Turns declared tool parameters into the JSON schema mainstream providers expect. */
-fun AgentToolDescriptor.toChatToolDefinition(): ChatToolDefinition {
+fun AgentToolDescriptor.toChatToolDefinition(name: String = id.replace('.', '_')): ChatToolDefinition {
     val properties = parameters.joinToString(",") { parameter ->
         "\"${parameter.name}\":{\"type\":\"string\",\"description\":\"${parameter.description.jsonEscaped()}\"}"
     }
     val required = parameters.filter { it.required }.joinToString(",") { "\"${it.name}\"" }
     return ChatToolDefinition(
-        name = id,
+        name = name,
         description = description,
-        parametersJsonSchema = "{\"type\":\"object\",\"properties\":{$properties},\"required\":[$required]}"
+        parametersJsonSchema = "{\"type\":\"object\",\"properties\":{$properties},\"required\":[$required]}",
+        localToolId = id
     )
 }
 

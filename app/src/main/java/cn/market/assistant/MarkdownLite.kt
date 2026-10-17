@@ -290,7 +290,7 @@ private fun MarkdownTable(
     onOpenMarket: (String) -> Unit
 ) {
     Surface(color = MarketTheme.colors.surfaceAlt, shape = RoundedCornerShape(12.dp)) {
-        Column(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(7.dp)) {
+        Column(Modifier.fillMaxWidth().padding(7.dp)) {
             TableRow(table.headers, bodyColor, header = true, onOpenMarket = onOpenMarket)
             table.rows.take(30).forEach { row -> TableRow(row, bodyColor, header = false, onOpenMarket = onOpenMarket) }
         }

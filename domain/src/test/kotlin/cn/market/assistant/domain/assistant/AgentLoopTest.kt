@@ -37,10 +37,12 @@ class AgentLoopTest {
         override val displayName = "fake-model"
         var calls = 0
         var lastRequest: ChatRequest? = null
+        val requests = mutableListOf<ChatRequest>()
 
         override suspend fun complete(request: ChatRequest): ChatResponse {
             calls++
             lastRequest = request
+            requests += request
             failWith?.let { throw ChatModelException(it) }
             return responses.getOrElse(calls - 1) { responses.last() }
         }
@@ -87,7 +89,7 @@ class AgentLoopTest {
                     ChatMessage(
                         ChatRole.ASSISTANT,
                         "",
-                        toolCalls = listOf(ChatToolCall("call-1", "market.quote", "{\"query\":\"沪深300\"}"))
+                        toolCalls = listOf(ChatToolCall("call-1", "market_quote", "{\"query\":\"沪深300\"}"))
                     )
                 ),
                 ChatResponse(ChatMessage(ChatRole.ASSISTANT, "沪深300 现价 5.12"))
@@ -104,9 +106,59 @@ class AgentLoopTest {
         assertEquals(listOf("market.quote"), result.reply.usedToolIds)
         assertEquals("market.quote.price", result.reply.citations.single().factKey)
         assertEquals(2, result.rounds)
+        assertEquals(
+            "market_quote",
+            model.requests.first().tools.first { it.localToolId == "market.quote" }.name
+        )
+        assertEquals(
+            "market_quote",
+            model.requests[1].messages.first { it.role == ChatRole.ASSISTANT }.toolCalls.single().name
+        )
         assertTrue(events.any { it is AgentEvent.ToolCallStarted && it.toolId == "market.quote" })
         assertTrue(events.any { it is AgentEvent.ToolCallFinished && it.succeeded })
         assertTrue(events.any { it is AgentEvent.Answer })
+    }
+
+    @Test
+    fun providerSafeToolNamesStayUniqueAndMapBackToLocalIds() = runTest {
+        val localRegistry = AgentToolRegistry(
+            listOf(
+                FakeTool(
+                    "price.search",
+                    listOf(fact("price.search.result", "first", FactSensitivity.PUBLIC_MARKET))
+                ),
+                FakeTool(
+                    "price_search",
+                    listOf(fact("price_search.result", "second", FactSensitivity.PUBLIC_MARKET))
+                )
+            )
+        )
+        val model = FakeModel(
+            listOf(
+                ChatResponse(
+                    ChatMessage(
+                        ChatRole.ASSISTANT,
+                        "",
+                        toolCalls = listOf(ChatToolCall("call-1", "price_search_2", "{\"query\":\"gold\"}"))
+                    )
+                ),
+                ChatResponse(ChatMessage(ChatRole.ASSISTANT, "已查询"))
+            )
+        )
+
+        val result = AgentLoop(model, localRegistry).run(
+            "查询报价",
+            emptyList(),
+            emptyList(),
+            AgentToolAuthorization(setOf("price.search", "price_search")),
+            settings
+        )
+
+        val providerNames = model.requests.first().tools.map { it.name }
+        assertEquals(listOf("price_search", "price_search_2"), providerNames)
+        assertTrue(providerNames.all { it.matches(Regex("^[A-Za-z0-9_-]+$")) })
+        assertEquals(listOf("price_search"), result.toolCallIds)
+        assertEquals("price_search.result", result.reply.citations.single().factKey)
     }
 
     @Test
@@ -124,7 +176,7 @@ class AgentLoopTest {
                     ChatMessage(
                         ChatRole.ASSISTANT,
                         "",
-                        toolCalls = listOf(ChatToolCall("call-1", "portfolio.propose_change", "{}"))
+                        toolCalls = listOf(ChatToolCall("call-1", "portfolio_propose_change", "{}"))
                     )
                 )
             )
@@ -163,7 +215,7 @@ class AgentLoopTest {
                     ChatMessage(
                         ChatRole.ASSISTANT,
                         "",
-                        toolCalls = listOf(ChatToolCall("call-1", "broken.tool", "{}"))
+                        toolCalls = listOf(ChatToolCall("call-1", "broken_tool", "{}"))
                     )
                 ),
                 ChatResponse(ChatMessage(ChatRole.ASSISTANT, "该数据暂不可得"))
@@ -185,7 +237,7 @@ class AgentLoopTest {
                     ChatMessage(
                         ChatRole.ASSISTANT,
                         "",
-                        toolCalls = listOf(ChatToolCall("call-1", "portfolio.positions", "{}"))
+                        toolCalls = listOf(ChatToolCall("call-1", "portfolio_positions", "{}"))
                     )
                 ),
                 ChatResponse(ChatMessage(ChatRole.ASSISTANT, "没有授权明细"))
@@ -220,7 +272,7 @@ class AgentLoopTest {
                     ChatMessage(
                         ChatRole.ASSISTANT,
                         "",
-                        toolCalls = listOf(ChatToolCall("call-$it", "market.quote", "{\"query\":\"x\"}"))
+                        toolCalls = listOf(ChatToolCall("call-$it", "market_quote", "{\"query\":\"x\"}"))
                     )
                 )
             }

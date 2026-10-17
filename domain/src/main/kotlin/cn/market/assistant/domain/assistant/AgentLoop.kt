@@ -55,10 +55,22 @@ class AgentLoop(
             )
         }
         val toolDefinitions = if (settings.toolsEnabled) {
-            registry.descriptors(authorization.allowedToolIds).map { it.toChatToolDefinition() }
+            val usedFunctionNames = mutableSetOf<String>()
+            registry.descriptors(authorization.allowedToolIds).map { descriptor ->
+                val baseName = descriptor.id.replace(Regex("[^A-Za-z0-9_-]"), "_").take(64)
+                var functionName = baseName
+                var suffix = 2
+                while (!usedFunctionNames.add(functionName)) {
+                    val suffixText = "_$suffix"
+                    functionName = baseName.take(64 - suffixText.length) + suffixText
+                    suffix++
+                }
+                descriptor.toChatToolDefinition(functionName)
+            }
         } else {
             emptyList()
         }
+        val localToolIdsByFunctionName = toolDefinitions.associate { it.name to it.localToolId }
         val messages = mutableListOf<ChatMessage>()
         messages += ChatMessage(ChatRole.SYSTEM, settings.systemPrompt)
         messages += history
@@ -128,12 +140,18 @@ class AgentLoop(
                 reasoningContent = response.message.reasoningContent
             )
             toolCalls.take(MAX_TOOL_CALLS_PER_ROUND).forEach { call ->
+                val localToolId = localToolIdsByFunctionName[call.name] ?: call.name
                 val arguments = parseStringArguments(call.argumentsJson)
-                onEvent(AgentEvent.ToolCallStarted(call.name, arguments.entries.joinToString(", ") { "${it.key}=${it.value}" }))
-                val result = registry.execute(call.name, AgentToolRequest(arguments), authorization)
-                onEvent(AgentEvent.ToolCallFinished(call.name, result.errorCode == null, result.facts.size))
+                onEvent(
+                    AgentEvent.ToolCallStarted(
+                        localToolId,
+                        arguments.entries.joinToString(", ") { "${it.key}=${it.value}" }
+                    )
+                )
+                val result = registry.execute(localToolId, AgentToolRequest(arguments), authorization)
+                onEvent(AgentEvent.ToolCallFinished(localToolId, result.errorCode == null, result.facts.size))
                 result.actionProposal?.let { proposal ->
-                    if (call.name !in usedToolIds) usedToolIds += call.name
+                    if (localToolId !in usedToolIds) usedToolIds += localToolId
                     return AgentRunResult(
                         reply = AssistantReply(
                             text = "我整理好了这项本地更改，请核对内容后确认。",
@@ -147,13 +165,13 @@ class AgentLoop(
                 }
                 if (result.errorCode == null && result.facts.isNotEmpty()) {
                     collectedFacts += result.facts
-                    if (call.name !in usedToolIds) usedToolIds += call.name
+                    if (localToolId !in usedToolIds) usedToolIds += localToolId
                     messages += ChatMessage(ChatRole.TOOL, result.facts.toToolResultText(), toolCallId = call.id)
                 } else {
                     val reason = result.errorCode ?: "EMPTY_RESULT"
                     messages += ChatMessage(
                         ChatRole.TOOL,
-                        "工具 ${call.name} 返回错误：$reason。请改用其他依据或在回答中说明该数据暂不可得。",
+                        "工具 $localToolId 返回错误：$reason。请改用其他依据或在回答中说明该数据暂不可得。",
                         toolCallId = call.id
                     )
                 }
