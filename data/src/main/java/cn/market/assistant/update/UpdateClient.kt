@@ -133,7 +133,7 @@ class UpdateClient(
     }
 
     private fun downloadTo(url: String, target: File, expectedSize: Long, onProgress: (Long, Long) -> Unit) {
-        val connection = open(url)
+        val connection = openFollowingRedirects(url)
         try {
             val total = connection.contentLengthLong.takeIf { it > 0 } ?: expectedSize
             connection.inputStream.use { input ->
@@ -157,7 +157,7 @@ class UpdateClient(
     }
 
     private fun httpGet(url: String): String {
-        val connection = open(url)
+        val connection = openFollowingRedirects(url)
         return try {
             val stream = if (connection.responseCode in 200..299) connection.inputStream else connection.errorStream
             val body = stream?.let { readUpdateText(it) } ?: ""
@@ -170,12 +170,26 @@ class UpdateClient(
         }
     }
 
+    private fun openFollowingRedirects(url: String): HttpURLConnection {
+        var current = url
+        repeat(6) {
+            val connection = open(current)
+            val code = connection.responseCode
+            if (code !in 300..399) return connection
+            val next = resolveTrustedRedirect(current, connection.getHeaderField("Location"))
+            connection.disconnect()
+            require(next != null) { "更新重定向到了不受信任的地址" }
+            current = next
+        }
+        error("更新重定向次数过多")
+    }
+
     private fun open(url: String): HttpURLConnection {
-        require(url.startsWith("https://")) { "更新源必须使用 HTTPS" }
+        require(isTrustedUpdateUrl(url)) { "更新源不受信任或不是 HTTPS" }
         val connection = URL(url).openConnection() as HttpURLConnection
         connection.connectTimeout = timeoutMs
         connection.readTimeout = timeoutMs
-        connection.instanceFollowRedirects = true
+        connection.instanceFollowRedirects = false
         connection.setRequestProperty("User-Agent", userAgent)
         connection.setRequestProperty("Accept", "application/vnd.github+json")
         return connection
