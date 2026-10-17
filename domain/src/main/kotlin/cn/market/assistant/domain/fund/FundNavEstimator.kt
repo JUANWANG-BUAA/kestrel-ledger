@@ -15,6 +15,7 @@ object FundNavEstimator {
     private const val TRAINING_WINDOW = 60
     private const val VALIDATION_WINDOW = 20
     private const val MIN_VALIDATION_COUNT = 15
+    private const val MIN_ESTIMATION_OBSERVATIONS = 120
     private const val MAX_QUOTE_AGE_SECONDS = 36 * 60 * 60L
     private const val MAX_HOLDINGS_REPORT_AGE_DAYS = 180L
     private const val MIN_HOLDING_QUOTE_COUNT = 3
@@ -49,6 +50,10 @@ object FundNavEstimator {
 
     internal fun isBaseNavFresh(baseNavDay: String, quoteDay: String): Boolean =
         baseNavAgeDays(baseNavDay, quoteDay)?.let { it <= MAX_BASE_NAV_AGE_DAYS } == true
+
+    /** The mobile release gate requires 120 aligned observations, not just one training window. */
+    internal fun hasSufficientEstimationHistory(observations: Int): Boolean =
+        observations >= MIN_ESTIMATION_OBSERVATIONS
 
     /**
      * The T1 regression walks current disclosed holdings back through history. That is a backfill,
@@ -280,11 +285,11 @@ object FundNavEstimator {
                 val indexReturn = indexReturns[day] ?: return@mapNotNull null
                 if (fundReturn.isFinite() && indexReturn.isFinite()) ReturnPair(day, indexReturn, fundReturn) else null
             }
-        if (paired.size < TRAINING_WINDOW + MIN_VALIDATION_COUNT) {
+        if (!hasSufficientEstimationHistory(paired.size)) {
             return emptyResult(
                 profile,
                 FundEstimateGrade.UNAVAILABLE,
-                "对齐净值与指数历史不足 ${TRAINING_WINDOW + MIN_VALIDATION_COUNT} 个交易日",
+                "对齐净值与指数历史仅 ${paired.size} 个交易日，需要至少 $MIN_ESTIMATION_OBSERVATIONS 日",
                 indexQuote,
                 coverage = coveragePct(paired.size, profile.navHistory.size)
             )
@@ -680,9 +685,11 @@ object FundNavEstimator {
                 val fundPct = fundReturns[day] ?: return@mapNotNull null
                 if (basketPct.isFinite() && fundPct.isFinite()) ReturnPair(day, basketPct, fundPct) else null
             }
-        val minimumHistory = T1_TRAINING_WINDOW + T1_MIN_VALIDATION_COUNT
-        if (paired.size < minimumHistory) {
-            return HoldingsRegressionAttempt(null, "对齐的基金净值与披露股池日线仅 ${paired.size} 个交易日，需要至少 $minimumHistory 日")
+        if (!hasSufficientEstimationHistory(paired.size)) {
+            return HoldingsRegressionAttempt(
+                null,
+                "对齐的基金净值与披露股池日线仅 ${paired.size} 个交易日，需要至少 $MIN_ESTIMATION_OBSERVATIONS 日"
+            )
         }
 
         val validationStart = (paired.size - T1_VALIDATION_WINDOW).coerceAtLeast(T1_TRAINING_WINDOW)
