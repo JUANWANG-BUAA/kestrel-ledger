@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<data-extraction-rules>
+    <!-- The SQLCipher key lives in Android Keystore and must never leave the device. Explicitly
+         exclude the encrypted database, preferences and exported files from cloud backup and
+         device-to-device transfer; the app has its own password-protected backup flow. -->
+    <cloud-backup disableIfNoEncryptionCapabilities="true">
+        <exclude domain="database" path="." />
+        <exclude domain="sharedpref" path="." />
+        <exclude domain="file" path="." />
+        <exclude domain="external" path="." />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="database" path="." />
+        <exclude domain="sharedpref" path="." />
+        <exclude domain="file" path="." />
+        <exclude domain="external" path="." />
+    </device-transfer>
+</data-extraction-rules>
