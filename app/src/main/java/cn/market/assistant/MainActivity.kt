@@ -480,6 +480,12 @@ private fun MarketApp(ledger: Ledger) {
         syncLinkedPortfolioQuotes(marketQuotes)
         refreshMarket()
     }
+    LaunchedEffect(ledger) {
+        val updated = withContext(Dispatchers.IO) {
+            runCatching { ledger.syncFundNavQuotes() }.getOrDefault(0)
+        }
+        if (updated > 0) revision++
+    }
     val positions = remember(revision) { ledger.positions() }
     LaunchedEffect(positions, revision) {
         val now = Instant.now()

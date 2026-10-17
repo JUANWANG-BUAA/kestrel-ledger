@@ -9,6 +9,7 @@ private val portfolioQuoteTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-d
 
 internal fun portfolioQuoteSourceLabel(source: String?): String = when (source) {
     "MANUAL" -> "手动报价"
+    "FUND_NAV" -> "基金净值"
     "MANUAL_BANK_BUYBACK" -> "银行报价 · 回购价估值"
     "sge-au9999" -> "上海黄金交易所 · Au99.99"
     "tencent" -> "腾讯行情"

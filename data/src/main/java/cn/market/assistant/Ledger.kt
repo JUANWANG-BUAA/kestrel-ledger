@@ -806,7 +806,35 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
         } finally {
             endSerializedTransaction(db)
         }
+        syncFundNavQuote(normalizedCode)
         return uniquePoints.size
+    }
+
+    /**
+     * Marks fund positions with their latest published NAV so a position does not require the user to
+     * copy a number the app already caches. Returns the number of quotes written.
+     */
+    fun syncFundNavQuotes(): Int = assets(AssetKind.FUND).count { asset -> syncFundNavQuote(asset.symbol) }
+
+    private fun syncFundNavQuote(code: String): Boolean {
+        val asset = findAsset(code) ?: return false
+        if (asset.kind != AssetKind.FUND) return false
+        val latest = fundNavHistory(code, limit = 1).points.lastOrNull() ?: return false
+        val navDate = runCatching { LocalDate.parse(latest.day) }.getOrNull() ?: return false
+        val today = LocalDate.now(ZoneId.of("Asia/Shanghai"))
+        if (navDate.isAfter(today)) return false
+        val observedAt = fundNavQuoteObservedAt(latest.day) ?: return false
+        val existing = readableDatabase.rawQuery(
+            "SELECT observed_at,source FROM quotes WHERE asset_id=?", arrayOf(code)
+        ).use { cursor ->
+            if (cursor.moveToFirst()) cursor.getString(0) to cursor.getString(1) else null
+        }
+        if (existing?.second == "FUND_NAV") {
+            val existingTime = runCatching { Instant.parse(existing.first) }.getOrNull()
+            if (existingTime != null && !existingTime.isBefore(observedAt)) return false
+        }
+        saveAssetQuote(asset, BigDecimal.valueOf(latest.unitNav), observedAt, "FUND_NAV")
+        return true
     }
 
     fun fundNavHistory(code: String, limit: Int? = null): FundNavHistoryCache {
