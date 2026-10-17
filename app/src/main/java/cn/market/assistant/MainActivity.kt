@@ -121,6 +121,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -354,16 +355,18 @@ private fun MarketApp(ledger: Ledger, alertRequestId: Int = 0) {
     }
     val marketBoardState = rememberMarketBoardFeatureState(marketRepository)
     val dataHealthState = rememberDataHealthFeatureState(marketRepository)
-    var tab by remember { mutableStateOf(Tab.HOME) }
-    var concealOverviewAmounts by remember { mutableStateOf(false) }
+    var tab by rememberSaveable { mutableStateOf(Tab.HOME) }
+    var concealOverviewAmounts by rememberSaveable { mutableStateOf(false) }
     var revision by remember { mutableStateOf(0) }
     var marketQuotes by remember { mutableStateOf(emptyMap<String, MarketQuote>()) }
     var marketLoading by remember { mutableStateOf(false) }
     var marketMessage by remember { mutableStateOf("") }
     var goldMessage by remember { mutableStateOf("") }
     var goldLoading by remember { mutableStateOf(false) }
-    var selectedMarket by remember { mutableStateOf<String?>(if (alertRequestId > 0) ALERT_ROUTE else null) }
-    var showSectors by remember { mutableStateOf(false) }
+    var selectedMarket by rememberSaveable {
+        mutableStateOf<String?>(if (alertRequestId > 0) ALERT_ROUTE else null)
+    }
+    var showSectors by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(alertRequestId) {
         if (alertRequestId > 0) {
             tab = Tab.HOME
