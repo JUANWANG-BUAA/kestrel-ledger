@@ -17,10 +17,15 @@ internal object AlertObservations {
         nowMillis: Long = System.currentTimeMillis()
     ): Map<String, AlertObservation> {
         val accountCost = positions.fold(BigDecimal.ZERO) { sum, position -> sum + position.cost }
-        val accountProfit = positions.fold(BigDecimal.ZERO) { sum, position ->
-            sum + (position.holdingProfit ?: BigDecimal.ZERO)
-        }
-        val accountProfitPct = if (accountCost.signum() > 0) {
+        val valuationComplete = positions.isNotEmpty() && positions.all { it.value != null }
+        // A missing quote is unknown, not zero: suppress account P&L alerts until every holding has
+        // a value. Add realized P&L so the percentage matches the account's cumulative result.
+        val accountProfit = if (valuationComplete) {
+            positions.fold(BigDecimal.ZERO) { sum, position ->
+                sum + (position.holdingProfit ?: BigDecimal.ZERO) + position.realized
+            }
+        } else null
+        val accountProfitPct = if (accountCost.signum() > 0 && accountProfit != null) {
             accountProfit.multiply(BigDecimal("100")).divide(accountCost, 4, RoundingMode.HALF_UP).toDouble()
         } else {
             null
@@ -32,8 +37,12 @@ internal object AlertObservations {
         } else {
             null
         }
-        val newestQuoteMillis = quotes.values.maxOfOrNull { it.fetchedAt * 1_000 } ?: 0L
-        val staleHours = if (newestQuoteMillis > 0) (nowMillis - newestQuoteMillis) / 3_600_000.0 else null
+        // Staleness is the oldest cached quote, not the newest: one fresh index quote must not hide
+        // an old fund/GOLD quote that a rule may actually depend on.
+        val oldestQuoteMillis = quotes.values
+            .mapNotNull { quote -> quote.fetchedAt.takeIf { it > 0 }?.times(1_000) }
+            .minOrNull()
+        val staleHours = oldestQuoteMillis?.let { (nowMillis - it) / 3_600_000.0 }
 
         return rules.associate { rule ->
             val observation = when (rule.kind) {
@@ -89,7 +98,7 @@ internal object AlertObservations {
                 AlertRuleKind.QUOTE_STALE -> AlertObservation(
                     value = staleHours,
                     source = "本机行情缓存",
-                    observedAtMillis = newestQuoteMillis.takeIf { it > 0 },
+                    observedAtMillis = oldestQuoteMillis,
                     description = "以最新缓存报价计算"
                 )
             }
