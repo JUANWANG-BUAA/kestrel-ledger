@@ -178,59 +178,59 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
             db.execSQL("DROP TABLE quotes_v1")
         }
         if (oldVersion < 3) {
-            createQuoteHistory(db)
+            LedgerSchema.createQuoteHistory(db)
             db.execSQL("""INSERT OR IGNORE INTO quote_history(asset_id,price,observed_at,source)
                 SELECT asset_id,price,observed_at,source FROM quotes""")
         }
         if (oldVersion < 4) {
-            createMarketSchema(db)
+            LedgerSchema.createMarketSchema(db)
             seedWatchlist(db)
         }
-        if (oldVersion < 5) createMarketChartSchema(db)
-        if (oldVersion < 6 && !hasColumn(db, "market_chart_bars", "volume")) {
+        if (oldVersion < 5) LedgerSchema.createMarketChartSchema(db)
+        if (oldVersion < 6 && !LedgerSchema.hasColumn(db, "market_chart_bars", "volume")) {
             db.execSQL("ALTER TABLE market_chart_bars ADD COLUMN volume REAL NOT NULL DEFAULT 0")
         }
-        if (oldVersion < 7) createPortfolioSnapshotSchema(db)
-        if (oldVersion < 8) createAccountCashSchema(db)
-        if (oldVersion < 9) addAccountValueSnapshotColumns(db)
-        if (oldVersion < 10) addTwrBoundaryColumns(db)
-        if (oldVersion < 11) addReversalAndSnapshotValidityColumns(db)
-        if (oldVersion < 12) createMarketBoardSchema(db)
-        if (oldVersion < 13 && !hasColumn(db, "transactions", "memo")) {
+        if (oldVersion < 7) LedgerSchema.createPortfolioSnapshotSchema(db)
+        if (oldVersion < 8) LedgerSchema.createAccountCashSchema(db)
+        if (oldVersion < 9) LedgerSchema.addAccountValueSnapshotColumns(db)
+        if (oldVersion < 10) LedgerSchema.addTwrBoundaryColumns(db)
+        if (oldVersion < 11) LedgerSchema.addReversalAndSnapshotValidityColumns(db)
+        if (oldVersion < 12) LedgerSchema.createMarketBoardSchema(db)
+        if (oldVersion < 13 && !LedgerSchema.hasColumn(db, "transactions", "memo")) {
             db.execSQL("ALTER TABLE transactions ADD COLUMN memo TEXT NOT NULL DEFAULT ''")
         }
-        if (oldVersion < 14 && !hasColumn(db, "transactions", "share_factor")) {
+        if (oldVersion < 14 && !LedgerSchema.hasColumn(db, "transactions", "share_factor")) {
             db.execSQL("ALTER TABLE transactions ADD COLUMN share_factor TEXT")
         }
         if (oldVersion < 15) {
-            if (!hasColumn(db, "transactions", "related_asset_id")) {
+            if (!LedgerSchema.hasColumn(db, "transactions", "related_asset_id")) {
                 db.execSQL("ALTER TABLE transactions ADD COLUMN related_asset_id TEXT")
             }
-            if (!hasColumn(db, "transactions", "related_units")) {
+            if (!LedgerSchema.hasColumn(db, "transactions", "related_units")) {
                 db.execSQL("ALTER TABLE transactions ADD COLUMN related_units TEXT")
             }
         }
-        if (oldVersion < 16) createDataSourceRunSchema(db)
-        if (oldVersion < 17) createFundNavSchema(db)
-        if (oldVersion < 18) createFundNavResidualSchema(db)
+        if (oldVersion < 16) LedgerSchema.createDataSourceRunSchema(db)
+        if (oldVersion < 17) LedgerSchema.createFundNavSchema(db)
+        if (oldVersion < 18) LedgerSchema.createFundNavResidualSchema(db)
         if (oldVersion < 19) {
-            if (!hasColumn(db, "assets", "market_quote_secid")) {
+            if (!LedgerSchema.hasColumn(db, "assets", "market_quote_secid")) {
                 db.execSQL("ALTER TABLE assets ADD COLUMN market_quote_secid TEXT")
             }
             db.execSQL("UPDATE assets SET market_quote_secid='GOLD.SGE.AU9999' WHERE id='GOLD.SGE.AU9999' AND kind='GOLD'")
             db.execSQL("UPDATE assets SET market_quote_secid='1.518880' WHERE id='518880' AND kind='FUND'")
         }
-        if (oldVersion < 20) createManualGoldQuoteSchema(db)
-        if (oldVersion < 21 && !hasColumn(db, "market_chart_bars", "source")) {
+        if (oldVersion < 20) LedgerSchema.createManualGoldQuoteSchema(db)
+        if (oldVersion < 21 && !LedgerSchema.hasColumn(db, "market_chart_bars", "source")) {
             db.execSQL("ALTER TABLE market_chart_bars ADD COLUMN source TEXT NOT NULL DEFAULT ''")
         }
-        if (oldVersion < 22) createMarketBoardMemberSchema(db)
+        if (oldVersion < 22) LedgerSchema.createMarketBoardMemberSchema(db)
         if (oldVersion < 23) {
             createAssistantSchema(db)
             seedAssistantSkills(db)
         }
-        if (oldVersion < 24) createAlertSchema(db)
-        if (oldVersion < 25) createGoldHistorySchema(db)
+        if (oldVersion < 24) LedgerSchema.createAlertSchema(db)
+        if (oldVersion < 25) LedgerSchema.createGoldHistorySchema(db)
     }
 
     private fun createSchema(db: SQLiteDatabase) {
@@ -246,68 +246,27 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
         db.execSQL("""CREATE TABLE IF NOT EXISTS quotes (
             asset_id TEXT PRIMARY KEY, price TEXT NOT NULL, observed_at TEXT NOT NULL,
             source TEXT NOT NULL DEFAULT 'MANUAL')""")
-        createQuoteHistory(db)
-        createManualGoldQuoteSchema(db)
-        createMarketSchema(db)
-        createGoldHistorySchema(db)
-        createMarketBoardSchema(db)
-        createMarketBoardMemberSchema(db)
-        createMarketChartSchema(db)
-        createDataSourceRunSchema(db)
-        createFundNavSchema(db)
-        createFundNavResidualSchema(db)
-        createPortfolioSnapshotSchema(db)
-        createAccountCashSchema(db)
+        LedgerSchema.createQuoteHistory(db)
+        LedgerSchema.createManualGoldQuoteSchema(db)
+        LedgerSchema.createMarketSchema(db)
+        LedgerSchema.createGoldHistorySchema(db)
+        LedgerSchema.createMarketBoardSchema(db)
+        LedgerSchema.createMarketBoardMemberSchema(db)
+        LedgerSchema.createMarketChartSchema(db)
+        LedgerSchema.createDataSourceRunSchema(db)
+        LedgerSchema.createFundNavSchema(db)
+        LedgerSchema.createFundNavResidualSchema(db)
+        LedgerSchema.createPortfolioSnapshotSchema(db)
+        LedgerSchema.createAccountCashSchema(db)
         createAssistantSchema(db)
-        createAlertSchema(db)
+        LedgerSchema.createAlertSchema(db)
         seedWatchlist(db)
         seedAssistantSkills(db)
     }
 
-    private fun createQuoteHistory(db: SQLiteDatabase) {
-        db.execSQL("""CREATE TABLE IF NOT EXISTS quote_history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT, asset_id TEXT NOT NULL, price TEXT NOT NULL,
-            observed_at TEXT NOT NULL, source TEXT NOT NULL DEFAULT 'MANUAL',
-            UNIQUE(asset_id, observed_at))""")
-        db.execSQL("CREATE INDEX IF NOT EXISTS idx_quote_history_asset_time ON quote_history(asset_id,observed_at)")
-    }
 
-    private fun createManualGoldQuoteSchema(db: SQLiteDatabase) {
-        db.execSQL("""CREATE TABLE IF NOT EXISTS manual_gold_quotes (
-            asset_id TEXT PRIMARY KEY, bank_buyback_price TEXT NOT NULL, bank_sell_price TEXT NOT NULL,
-            observed_at TEXT NOT NULL, valid_until TEXT NOT NULL)""")
-        db.execSQL("""CREATE TABLE IF NOT EXISTS manual_gold_quote_history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT, asset_id TEXT NOT NULL,
-            bank_buyback_price TEXT NOT NULL, bank_sell_price TEXT NOT NULL,
-            observed_at TEXT NOT NULL, valid_until TEXT NOT NULL,
-            UNIQUE(asset_id,observed_at))""")
-        db.execSQL("CREATE INDEX IF NOT EXISTS idx_manual_gold_quote_history ON manual_gold_quote_history(asset_id,observed_at)")
-    }
 
-    private fun createMarketSchema(db: SQLiteDatabase) {
-        db.execSQL("""CREATE TABLE IF NOT EXISTS watchlist (
-            secid TEXT PRIMARY KEY, added_at TEXT NOT NULL)""")
-        db.execSQL("""CREATE TABLE IF NOT EXISTS market_quotes (
-            secid TEXT PRIMARY KEY, name TEXT NOT NULL, price REAL NOT NULL, change REAL NOT NULL,
-            change_pct REAL NOT NULL, quote_time INTEGER NOT NULL, fetched_at INTEGER NOT NULL,
-            source TEXT NOT NULL)""")
-        db.execSQL("""CREATE TABLE IF NOT EXISTS market_daily_bars (
-            secid TEXT NOT NULL, trade_date TEXT NOT NULL, close REAL NOT NULL, cached_at INTEGER NOT NULL,
-            PRIMARY KEY(secid,trade_date))""")
-        db.execSQL("CREATE INDEX IF NOT EXISTS idx_market_bars_date ON market_daily_bars(secid,trade_date)")
-    }
 
-    private fun createMarketBoardSchema(db: SQLiteDatabase) {
-        db.execSQL("""CREATE TABLE IF NOT EXISTS market_boards (
-            id TEXT PRIMARY KEY, board_type TEXT NOT NULL, name TEXT NOT NULL, price REAL NOT NULL,
-            change REAL NOT NULL, change_pct REAL NOT NULL, turnover_amount REAL, turnover_rate_pct REAL,
-            market_cap REAL, advancing_count INTEGER NOT NULL, declining_count INTEGER NOT NULL,
-            quote_time INTEGER NOT NULL, fetched_at INTEGER NOT NULL, source TEXT NOT NULL)""")
-        db.execSQL("CREATE INDEX IF NOT EXISTS idx_market_boards_type_name ON market_boards(board_type,name)")
-        db.execSQL("""CREATE TABLE IF NOT EXISTS market_board_snapshots (
-            board_type TEXT PRIMARY KEY, expected_count INTEGER NOT NULL, fetched_at INTEGER NOT NULL,
-            source TEXT NOT NULL)""")
-    }
 
     private fun createAssistantSchema(db: SQLiteDatabase) {
         db.execSQL("""CREATE TABLE IF NOT EXISTS assistant_skills (
@@ -522,27 +481,7 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
      * quote, so this table is the app's own daily record and is what the trend chart and the
      * assistant read; nothing here is presented as an exchange-provided history.
      */
-    private fun createGoldHistorySchema(db: SQLiteDatabase) {
-        db.execSQL("""CREATE TABLE IF NOT EXISTS gold_daily_history (
-            day TEXT NOT NULL, metric TEXT NOT NULL, value REAL NOT NULL,
-            source TEXT NOT NULL, observed_at TEXT NOT NULL,
-            PRIMARY KEY(day, metric))""")
-        db.execSQL("CREATE INDEX IF NOT EXISTS idx_gold_history_metric ON gold_daily_history(metric, day)")
-    }
 
-    private fun createAlertSchema(db: SQLiteDatabase) {
-        db.execSQL("""CREATE TABLE IF NOT EXISTS alert_rules (
-            id TEXT PRIMARY KEY, kind TEXT NOT NULL, target_id TEXT, target_label TEXT,
-            threshold REAL NOT NULL, enabled INTEGER NOT NULL DEFAULT 1,
-            required_breaches INTEGER NOT NULL DEFAULT 1, cooldown_minutes INTEGER NOT NULL DEFAULT 60,
-            quiet_start INTEGER, quiet_end INTEGER, last_fired_at INTEGER NOT NULL DEFAULT 0,
-            trigger_count INTEGER NOT NULL DEFAULT 0, consecutive_breaches INTEGER NOT NULL DEFAULT 0,
-            created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, note TEXT NOT NULL DEFAULT '')""")
-        db.execSQL("""CREATE TABLE IF NOT EXISTS alert_events (
-            id INTEGER PRIMARY KEY AUTOINCREMENT, rule_id TEXT NOT NULL, rule_kind TEXT NOT NULL,
-            title TEXT NOT NULL, body TEXT NOT NULL, fired_at INTEGER NOT NULL, target_value REAL)""")
-        db.execSQL("CREATE INDEX IF NOT EXISTS idx_alert_events_time ON alert_events(fired_at DESC)")
-    }
 
     override suspend fun alertRules(): List<AlertRule> = buildList {
         readableDatabase.rawQuery(
@@ -642,104 +581,16 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
         writes.delete("alert_events", null, null)
     }
 
-    private fun createMarketBoardMemberSchema(db: SQLiteDatabase) {
-        db.execSQL("""CREATE TABLE IF NOT EXISTS market_board_members (
-            board_id TEXT NOT NULL, secid TEXT NOT NULL, code TEXT NOT NULL, name TEXT NOT NULL,
-            price REAL NOT NULL, change_pct REAL NOT NULL, turnover_rate_pct REAL, market_cap REAL,
-            quote_time INTEGER NOT NULL, fetched_at INTEGER NOT NULL, source TEXT NOT NULL,
-            PRIMARY KEY(board_id, secid))""")
-        db.execSQL("CREATE INDEX IF NOT EXISTS idx_board_members_change ON market_board_members(board_id,change_pct)")
-        db.execSQL("""CREATE TABLE IF NOT EXISTS market_board_member_snapshots (
-            board_id TEXT PRIMARY KEY, board_name TEXT NOT NULL, total_count INTEGER NOT NULL,
-            fetched_at INTEGER NOT NULL, source TEXT NOT NULL)""")
-    }
 
-    private fun createDataSourceRunSchema(db: SQLiteDatabase) {
-        db.execSQL("""CREATE TABLE IF NOT EXISTS data_source_runs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT, source TEXT NOT NULL, dataset TEXT NOT NULL,
-            status TEXT NOT NULL, requested_at INTEGER NOT NULL, item_count INTEGER NOT NULL,
-            expected_count INTEGER, error_code TEXT)""")
-        db.execSQL("CREATE INDEX IF NOT EXISTS idx_data_source_runs_time ON data_source_runs(requested_at DESC,id DESC)")
-    }
 
-    private fun createFundNavSchema(db: SQLiteDatabase) {
-        db.execSQL("""CREATE TABLE IF NOT EXISTS fund_nav_points (
-            fund_code TEXT NOT NULL, nav_date TEXT NOT NULL, unit_nav REAL NOT NULL,
-            accumulated_nav REAL, change_pct REAL, cached_at INTEGER NOT NULL,
-            PRIMARY KEY(fund_code,nav_date))""")
-        db.execSQL("CREATE INDEX IF NOT EXISTS idx_fund_nav_date ON fund_nav_points(fund_code,nav_date)")
-    }
 
-    private fun createFundNavResidualSchema(db: SQLiteDatabase) {
-        db.execSQL("""CREATE TABLE IF NOT EXISTS fund_nav_residuals (
-            fund_code TEXT NOT NULL, route_key TEXT NOT NULL, observation_day TEXT NOT NULL,
-            residual_pct REAL NOT NULL, model_abs_error_pct REAL NOT NULL,
-            baseline_abs_error_pct REAL NOT NULL, stored_at INTEGER NOT NULL,
-            PRIMARY KEY(fund_code,route_key,observation_day))""")
-    }
 
-    private fun createMarketChartSchema(db: SQLiteDatabase) {
-        db.execSQL("""CREATE TABLE IF NOT EXISTS market_chart_bars (
-            secid TEXT NOT NULL, period TEXT NOT NULL, trade_date TEXT NOT NULL,
-            open REAL NOT NULL, high REAL NOT NULL, low REAL NOT NULL, close REAL NOT NULL, volume REAL NOT NULL DEFAULT 0,
-            cached_at INTEGER NOT NULL, source TEXT NOT NULL DEFAULT '', PRIMARY KEY(secid,period,trade_date))""")
-        db.execSQL("CREATE INDEX IF NOT EXISTS idx_market_chart_time ON market_chart_bars(secid,period,trade_date)")
-    }
 
-    private fun createPortfolioSnapshotSchema(db: SQLiteDatabase) {
-        db.execSQL("""CREATE TABLE IF NOT EXISTS portfolio_snapshots (
-            day TEXT PRIMARY KEY, observed_at TEXT NOT NULL, position_count INTEGER NOT NULL,
-            priced_position_count INTEGER NOT NULL, market_value TEXT, cost TEXT NOT NULL,
-            holding_profit TEXT, realized_profit TEXT NOT NULL, total_profit TEXT,
-            cash_balance TEXT, total_value TEXT, external_net_flow TEXT,
-            valuation_fresh INTEGER NOT NULL DEFAULT 0, valid INTEGER NOT NULL DEFAULT 1)""")
-        db.execSQL("""CREATE TABLE IF NOT EXISTS position_snapshots (
-            day TEXT NOT NULL, asset_id TEXT NOT NULL, units TEXT NOT NULL, cost TEXT NOT NULL,
-            market_value TEXT, holding_profit TEXT, realized_profit TEXT NOT NULL,
-            quote_observed_at TEXT, quote_source TEXT,
-            PRIMARY KEY(day,asset_id))""")
-        db.execSQL("CREATE INDEX IF NOT EXISTS idx_position_snapshots_asset_day ON position_snapshots(asset_id,day)")
-    }
 
-    private fun addAccountValueSnapshotColumns(db: SQLiteDatabase) {
-        if (!hasColumn(db, "portfolio_snapshots", "cash_balance")) db.execSQL("ALTER TABLE portfolio_snapshots ADD COLUMN cash_balance TEXT")
-        if (!hasColumn(db, "portfolio_snapshots", "total_value")) db.execSQL("ALTER TABLE portfolio_snapshots ADD COLUMN total_value TEXT")
-        if (!hasColumn(db, "portfolio_snapshots", "external_net_flow")) db.execSQL("ALTER TABLE portfolio_snapshots ADD COLUMN external_net_flow TEXT")
-    }
 
-    private fun addTwrBoundaryColumns(db: SQLiteDatabase) {
-        if (!hasColumn(db, "portfolio_snapshots", "valuation_fresh")) {
-            db.execSQL("ALTER TABLE portfolio_snapshots ADD COLUMN valuation_fresh INTEGER NOT NULL DEFAULT 0")
-        }
-        if (!hasColumn(db, "account_cash_events", "occurred_at")) db.execSQL("ALTER TABLE account_cash_events ADD COLUMN occurred_at TEXT")
-        if (!hasColumn(db, "account_cash_events", "portfolio_value_before")) db.execSQL("ALTER TABLE account_cash_events ADD COLUMN portfolio_value_before TEXT")
-        if (!hasColumn(db, "account_cash_events", "valuation_complete")) {
-            db.execSQL("ALTER TABLE account_cash_events ADD COLUMN valuation_complete INTEGER NOT NULL DEFAULT 0")
-        }
-    }
 
-    private fun addReversalAndSnapshotValidityColumns(db: SQLiteDatabase) {
-        if (!hasColumn(db, "transactions", "reversed_at")) db.execSQL("ALTER TABLE transactions ADD COLUMN reversed_at TEXT")
-        if (!hasColumn(db, "transactions", "reversal_reason")) db.execSQL("ALTER TABLE transactions ADD COLUMN reversal_reason TEXT")
-        if (!hasColumn(db, "portfolio_snapshots", "valid")) {
-            db.execSQL("ALTER TABLE portfolio_snapshots ADD COLUMN valid INTEGER NOT NULL DEFAULT 1")
-        }
-    }
 
-    private fun createAccountCashSchema(db: SQLiteDatabase) {
-        db.execSQL("""CREATE TABLE IF NOT EXISTS account_cash_events (
-            id INTEGER PRIMARY KEY AUTOINCREMENT, day TEXT NOT NULL, type TEXT NOT NULL,
-            amount TEXT NOT NULL, memo TEXT NOT NULL DEFAULT '', transaction_id INTEGER UNIQUE,
-            occurred_at TEXT, portfolio_value_before TEXT, valuation_complete INTEGER NOT NULL DEFAULT 0)""")
-        db.execSQL("CREATE INDEX IF NOT EXISTS idx_account_cash_day ON account_cash_events(day,id)")
-    }
 
-    private fun hasColumn(db: SQLiteDatabase, table: String, column: String): Boolean =
-        db.rawQuery("PRAGMA table_info($table)", null).use { cursor ->
-            val nameIndex = cursor.getColumnIndex("name")
-            while (cursor.moveToNext()) if (cursor.getString(nameIndex) == column) return@use true
-            false
-        }
 
     private fun canonicalDailyTradeDate(value: String): String = runCatching {
         val trimmed = value.trim()
