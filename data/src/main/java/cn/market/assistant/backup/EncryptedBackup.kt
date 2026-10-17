@@ -1,5 +1,6 @@
 package cn.market.assistant.backup
 
+import org.json.JSONException
 import org.json.JSONObject
 import java.nio.charset.StandardCharsets
 import java.security.SecureRandom
@@ -69,7 +70,11 @@ object EncryptedBackup {
         return try {
             require(password.size >= 12) { "备份密码至少需要 12 个字符" }
             require(payload.length <= MAX_FILE_BYTES) { "备份文件超过允许大小" }
-            val root = JSONObject(payload)
+            val root = try {
+                JSONObject(payload)
+            } catch (error: JSONException) {
+                throw IllegalArgumentException("备份文件格式无效", error)
+            }
             require(root.optString("format") == FORMAT) { "文件不是加密账本备份" }
             require(root.optInt("version") == VERSION) { "加密备份版本不受支持" }
             require(root.optString("kdf") == KDF && root.optString("cipher") == CIPHER) { "加密参数不受支持" }
