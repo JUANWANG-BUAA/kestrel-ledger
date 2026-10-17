@@ -146,8 +146,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
 import java.math.BigDecimal
-import java.io.ByteArrayOutputStream
-import java.io.InputStream
 import java.time.Instant
 import java.time.LocalDate
 import kotlinx.coroutines.Dispatchers
@@ -196,28 +194,6 @@ private const val ASSISTANT_ROUTE = "__assistant__"
 private const val ALERT_ROUTE = "__alerts__"
 private const val APPEARANCE_ROUTE = "__appearance__"
 private const val UPDATE_ROUTE = "__update__"
-
-private fun readBackupText(inputStream: InputStream): String = inputStream.use { input ->
-    val output = ByteArrayOutputStream()
-    val buffer = ByteArray(8 * 1024)
-    var totalBytes = 0
-    while (true) {
-        val count = input.read(buffer)
-        if (count < 0) break
-        if (count == 0) {
-            val byte = input.read()
-            if (byte < 0) break
-            require(totalBytes < EncryptedBackup.MAX_FILE_BYTES) { "备份文件超过 128 MB" }
-            output.write(byte)
-            totalBytes++
-            continue
-        }
-        require(count <= EncryptedBackup.MAX_FILE_BYTES - totalBytes) { "备份文件超过 128 MB" }
-        output.write(buffer, 0, count)
-        totalBytes += count
-    }
-    String(output.toByteArray(), Charsets.UTF_8)
-}
 
 private enum class Tab(val label: String, val icon: String) {
     HOME("总览", "home"), WATCHLIST("自选", "star"), RECORD("记账", "plus"), ASSETS("持仓", "assets"), ANALYSIS("分析", "chart")
