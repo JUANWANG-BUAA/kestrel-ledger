@@ -50,6 +50,15 @@ object FundNavEstimator {
     internal fun isBaseNavFresh(baseNavDay: String, quoteDay: String): Boolean =
         baseNavAgeDays(baseNavDay, quoteDay)?.let { it <= MAX_BASE_NAV_AGE_DAYS } == true
 
+    /**
+     * The T1 regression walks current disclosed holdings back through history. That is a backfill,
+     * not a historical holdings model, so it must never be shown as a high-confidence estimate.
+     */
+    internal fun disclosedHoldingsGradeForBackfill(): FundEstimateGrade = FundEstimateGrade.LOW
+
+    internal const val DISCLOSED_HOLDINGS_LOOKAHEAD_REASON =
+        "回溯回归使用当前披露持仓而非历史持仓，存在前视偏差；仅作低置信参考"
+
     fun classificationText(profile: FundProfile): String = "${profile.name} ${profile.fundType.orEmpty()}"
 
     /** Short-duration debt where the research pipeline proved the model noise exceeds the signal. */
@@ -457,7 +466,7 @@ object FundNavEstimator {
         }
 
         val fundReturns = fundReturns(profile.navHistory)
-        val benchmarkReturns = shiftReturnsByLag(indexReturns(indexBars), spec.lagDays)
+        val benchmarkReturns = shiftReturnsByTradingSessions(indexReturns(indexBars), spec.lagDays)
         val paired = fundReturns.keys.intersect(benchmarkReturns.keys).sorted()
             .filter { it < quoteDay }
             .mapNotNull { day ->
@@ -565,12 +574,23 @@ object FundNavEstimator {
         )
     }
 
-    private fun shiftReturnsByLag(returns: Map<String, Double>, lagDays: Int): Map<String, Double> {
+    /**
+     * QDII benchmarks close before the domestic NAV date. Shift along the benchmark's own trading
+     * sessions instead of calendar days, otherwise a Friday return would be mapped to Saturday and
+     * never pair with Monday's NAV.
+     */
+    internal fun shiftReturnsByTradingSessions(
+        returns: Map<String, Double>,
+        lagDays: Int
+    ): Map<String, Double> {
         if (lagDays <= 0) return returns
-        return returns.mapNotNull { (day, value) ->
-            val date = runCatching { LocalDate.parse(day) }.getOrNull() ?: return@mapNotNull null
-            date.plusDays(lagDays.toLong()).toString() to value
-        }.toMap()
+        val days = returns.keys.sorted()
+        return buildMap {
+            days.forEachIndexed { index, day ->
+                val target = days.getOrNull(index + lagDays) ?: return@forEachIndexed
+                returns[day]?.let { put(target, it) }
+            }
+        }
     }
 
     private fun estimateDisclosedHoldings(
@@ -705,11 +725,7 @@ object FundNavEstimator {
             ?: return HoldingsRegressionAttempt(null, "最近 60 日回归无法稳定拟合")
         val estimatePct = model.predict(currentBasketPct)
         if (!estimatePct.isFinite()) return HoldingsRegressionAttempt(null, "当前股池回归结果无效")
-        val grade = when {
-            rSquared >= 0.90 && mae <= 0.30 -> FundEstimateGrade.HIGH
-            rSquared >= 0.65 && mae <= 0.60 -> FundEstimateGrade.MEDIUM
-            else -> FundEstimateGrade.LOW
-        }
+        val grade = disclosedHoldingsGradeForBackfill()
         val sourceTime = supported.minOfOrNull { it.quote.quoteTime }
         val source = (supported.map { it.quote.source } + "tencent-qfq").distinct().joinToString("+")
         return HoldingsRegressionAttempt(
@@ -731,7 +747,7 @@ object FundNavEstimator {
                 trainingCount = T1_TRAINING_WINDOW,
                 validationCount = validationPredictions.size,
                 inputCoveragePct = coverage,
-                reason = if (grade == FundEstimateGrade.LOW) "T1 模型虽胜过零收益基线，但样本外误差仍偏高" else null,
+                reason = DISCLOSED_HOLDINGS_LOOKAHEAD_REASON,
                 inputHoldingsReportDate = reportDate.toString(),
                 calibrationRouteKey = routeKey,
                 calibrationSamples = calibrationSamples
