@@ -1,6 +1,7 @@
 package cn.market.assistant.domain.assistant
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -97,6 +98,25 @@ class LlmSettingsTest {
         assertTrue(prompt.contains("不提供买卖建议"))
         assertTrue(prompt.contains("估算，非官方净值"))
         assertTrue(prompt.contains("来源与时点"))
+    }
+
+    @Test
+    fun legacyDefaultPromptIsMigratedButCustomPromptsAreNot() {
+        assertTrue(
+            LlmSettings.isLegacyDefaultPrompt(
+                "你是「养基助手」的本地数据分析助手。规则：\n5. 用简体中文回答，先给结论再给依据，控制在 400 字以内；"
+            )
+        )
+        assertFalse(LlmSettings.isLegacyDefaultPrompt("保持我的自定义风格，只输出三句话。"))
+    }
+
+    @Test
+    fun structuredPromptRequiresTablesAndDataGaps() {
+        val contract = LlmSettings.STRUCTURED_ANSWER_CONTRACT
+        assertTrue(contract.contains("Markdown 表格"))
+        assertTrue(contract.contains("portfolio.positions"))
+        assertTrue(contract.contains("## 数据缺口"))
+        assertTrue(contract.contains("chart"))
     }
 
     @Test

@@ -188,6 +188,13 @@ internal fun AssistantTurnCard(
             ) {
                 AssistantTypingDots(Modifier.padding(start = 2.dp, top = 2.dp, bottom = 2.dp))
             }
+            val structuredFacts = turn.steps.asSequence()
+                .flatMap { it.facts.asSequence() }
+                .distinctBy { it.key to it.observedAt }
+                .toList()
+            if (structuredFacts.isNotEmpty()) {
+                AssistantFactsPanel(structuredFacts)
+            }
             AnimatedVisibility(
                 visible = turn.answer.isNotBlank(),
                 enter = fadeIn(tween(170)) + expandVertically(tween(220)),

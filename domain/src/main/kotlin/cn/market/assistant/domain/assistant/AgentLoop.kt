@@ -6,7 +6,12 @@ import java.util.concurrent.CancellationException
 sealed interface AgentEvent {
     data class ModelCallStarted(val round: Int) : AgentEvent
     data class ToolCallStarted(val toolId: String, val argumentSummary: String) : AgentEvent
-    data class ToolCallFinished(val toolId: String, val succeeded: Boolean, val factCount: Int) : AgentEvent
+    data class ToolCallFinished(
+        val toolId: String,
+        val succeeded: Boolean,
+        val factCount: Int,
+        val facts: List<AssistantFact> = emptyList()
+    ) : AgentEvent
     data class Answer(val text: String, val toolCallIds: List<String>) : AgentEvent
     data class ChartReady(val chart: AssistantChart) : AgentEvent
     data class Failed(val reason: String) : AgentEvent
@@ -154,7 +159,7 @@ class AgentLoop(
                     )
                 )
                 val result = registry.execute(localToolId, AgentToolRequest(arguments), authorization)
-                onEvent(AgentEvent.ToolCallFinished(localToolId, result.errorCode == null, result.facts.size))
+                onEvent(AgentEvent.ToolCallFinished(localToolId, result.errorCode == null, result.facts.size, result.facts))
                 result.actionProposal?.let { proposal ->
                     if (localToolId !in usedToolIds) usedToolIds += localToolId
                     return AgentRunResult(

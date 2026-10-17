@@ -106,6 +106,43 @@ class LocalPortfolioAgentTool(private val ledger: Ledger) : AgentTool {
                     observedAt = position.quoteTime ?: observedAt,
                     sensitivity = FactSensitivity.PRIVATE_DETAIL
                 )
+                facts += AssistantFact(
+                    key = "portfolio.position.${position.asset.symbol}.units",
+                    value = position.units.stripTrailingZeros().toPlainString(),
+                    unit = "units",
+                    source = "本地加密账本",
+                    observedAt = observedAt,
+                    sensitivity = FactSensitivity.PRIVATE_DETAIL
+                )
+                facts += AssistantFact(
+                    key = "portfolio.position.${position.asset.symbol}.cost_cny",
+                    value = position.cost.setScale(2, RoundingMode.HALF_UP).toPlainString(),
+                    unit = "CNY",
+                    source = "本地加密账本",
+                    observedAt = observedAt,
+                    sensitivity = FactSensitivity.PRIVATE_DETAIL
+                )
+                position.holdingProfit?.let { profit ->
+                    facts += AssistantFact(
+                        key = "portfolio.position.${position.asset.symbol}.profit_cny",
+                        value = profit.setScale(2, RoundingMode.HALF_UP).toPlainString(),
+                        unit = "CNY",
+                        source = "本地账本",
+                        observedAt = observedAt,
+                        sensitivity = FactSensitivity.PRIVATE_DETAIL
+                    )
+                    if (position.cost.signum() > 0) {
+                        facts += AssistantFact(
+                            key = "portfolio.position.${position.asset.symbol}.profit_pct",
+                            value = profit.multiply(BigDecimal("100"))
+                                .divide(position.cost, 2, RoundingMode.HALF_UP).toPlainString(),
+                            unit = "%",
+                            source = "本地账本",
+                            observedAt = observedAt,
+                            sensitivity = FactSensitivity.PRIVATE_DETAIL
+                        )
+                    }
+                }
                 weight?.let {
                     facts += AssistantFact(
                         key = "portfolio.position.${position.asset.symbol}.weight_pct",

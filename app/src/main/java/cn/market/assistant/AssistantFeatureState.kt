@@ -64,7 +64,8 @@ internal data class AssistantToolStepUi(
     val status: AssistantStepStatus,
     val factCount: Int = 0,
     val startedAtMillis: Long = 0L,
-    val durationMillis: Long? = null
+    val durationMillis: Long? = null,
+    val facts: List<AssistantFact> = emptyList()
 )
 
 internal data class AssistantAttachmentUi(
@@ -593,6 +594,7 @@ internal class AssistantFeatureState(
         val systemPrompt = buildString {
             append(AssistantSkillMatcher.composeSystemPrompt(settings.systemPrompt, skill))
             habitPrompt?.let { append("\n\n").append(it) }
+            append("\n\n").append(LlmSettings.STRUCTURED_ANSWER_CONTRACT)
         }
         val turnId = "turn-${turnCounter++}-${nowMillis()}"
         val startedAt = nowMillis()
@@ -921,7 +923,8 @@ internal class AssistantFeatureState(
                             step.copy(
                                 status = if (event.succeeded) AssistantStepStatus.DONE else AssistantStepStatus.FAILED,
                                 factCount = event.factCount,
-                                durationMillis = (now - step.startedAtMillis).coerceAtLeast(0)
+                                durationMillis = (now - step.startedAtMillis).coerceAtLeast(0),
+                                facts = event.facts
                             )
                         } else step
                     }

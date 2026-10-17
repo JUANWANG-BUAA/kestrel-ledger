@@ -30,6 +30,9 @@ class AssistantSettingsStore(context: Context) {
         } else {
             storedBaseUrl
         }
+        val storedPrompt = preferences.getString(KEY_SYSTEM_PROMPT, null) ?: LlmSettings.DEFAULT_SYSTEM_PROMPT
+        val promptMigrated = preferences.getInt(KEY_PROMPT_VERSION, 0) < 1 &&
+            LlmSettings.isLegacyDefaultPrompt(storedPrompt)
         val settings = LlmSettings(
             provider = provider,
             baseUrl = baseUrl,
@@ -41,11 +44,11 @@ class AssistantSettingsStore(context: Context) {
             toolsEnabled = preferences.getBoolean(KEY_TOOLS_ENABLED, true),
             sharePrivateDetails = preferences.getBoolean(KEY_SHARE_PRIVATE, false),
             allowLocalChanges = preferences.getBoolean(KEY_ALLOW_LOCAL_CHANGES, false),
-            systemPrompt = preferences.getString(KEY_SYSTEM_PROMPT, null) ?: LlmSettings.DEFAULT_SYSTEM_PROMPT,
+            systemPrompt = if (promptMigrated) LlmSettings.DEFAULT_SYSTEM_PROMPT else storedPrompt,
             imageInputEnabled = if (migrateLegacyDeepSeek) false else
                 preferences.getBoolean(KEY_IMAGE_INPUT_ENABLED, false)
         ).normalized()
-        if (migrateLegacyDeepSeek) save(settings)
+        if (migrateLegacyDeepSeek || promptMigrated) save(settings)
         return settings
     }
 
@@ -64,6 +67,7 @@ class AssistantSettingsStore(context: Context) {
             .putBoolean(KEY_ALLOW_LOCAL_CHANGES, normalized.allowLocalChanges)
             .putString(KEY_SYSTEM_PROMPT, normalized.systemPrompt)
             .putBoolean(KEY_IMAGE_INPUT_ENABLED, normalized.imageInputEnabled)
+            .putInt(KEY_PROMPT_VERSION, 1)
             .apply()
     }
 
@@ -78,7 +82,10 @@ class AssistantSettingsStore(context: Context) {
 
     /** Resets the prompt to a preset without touching provider credentials. */
     fun saveSystemPrompt(prompt: String) {
-        preferences.edit().putString(KEY_SYSTEM_PROMPT, prompt.take(4_000)).apply()
+        preferences.edit()
+            .putString(KEY_SYSTEM_PROMPT, prompt.take(4_000))
+            .putInt(KEY_PROMPT_VERSION, 1)
+            .apply()
     }
 
     private companion object {
@@ -93,6 +100,7 @@ class AssistantSettingsStore(context: Context) {
         const val KEY_TOOLS_ENABLED = "tools_enabled"
         const val KEY_SHARE_PRIVATE = "share_private"
         const val KEY_ALLOW_LOCAL_CHANGES = "allow_local_changes"
+        const val KEY_PROMPT_VERSION = "prompt_version"
         const val KEY_SYSTEM_PROMPT = "system_prompt"
         const val KEY_ENABLED_TOOLS = "enabled_tools"
         const val KEY_IMAGE_INPUT_ENABLED = "image_input_enabled"

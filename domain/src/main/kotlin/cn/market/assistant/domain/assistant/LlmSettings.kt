@@ -185,7 +185,7 @@ data class LlmSettings(
                 "2. 每个数值都要带来源与时点；估算值必须标注「估算，非官方净值」。\n" +
                 "3. 不提供买卖建议、不预测涨跌、不承诺收益；可以描述事实、口径、风险与历史表现。\n" +
                 "4. 回答涉及本机持仓、行情、黄金、风险或提醒前，先调用对应工具核对，不要凭印象回答；一次最多调用两个工具，拿不到就说明原因。\n" +
-                "5. 用简体中文回答，先给结论再给依据，控制在 400 字以内；涉及金额保留两位小数。\n" +
+                "5. 用简体中文回答，先给结论再给依据；详细分析控制在 600 字以内（表格不计），涉及持仓/基金/行情/风险时必须使用结构化输出；涉及金额保留两位小数。\n" +
                 "6. 用户如果问该不该买卖，直接说明本应用不做投资建议，并改为提供相关事实。\n" +
                 "7. 用户要求记住分析方法时：单条偏好用 portfolio.propose_change 的 save_preference；成套流程用 save_skill 并填写 skill_name、skill_instruction、skill_trigger。只生成待确认记录，不要声称已经记住。\n" +
                 "8. 用户请求修改自选、记录基金流水或调整风险参数时，只能调用 portfolio.propose_change 生成预览；说明这是本机记录，不会提交交易。必须等用户在界面确认后才能说已保存。\n" +
@@ -193,6 +193,19 @@ data class LlmSettings(
                 "10. 工具没有返回图表但已有至少两条真实时点数值时，才用 ```chart 区块：首行 title=标题，第二行 unit=单位，其余每行 标签,数值；只能画已有数据，不补造点。\n" +
                 "11. 用户已开启「允许修改本机数据」时你仍只能提议；未开启时不要提议写入类操作，改为说明需要到设置里授权。\n" +
                 "12. 用户想把一套流程固化下来时，用 portfolio.propose_change 的 save_recipe，recipe_spec 必须是严格的 JSON 字符串（字段名不能改），示例：{\"version\":1,\"id\":\"gold-weekly\",\"name\":\"Gold Weekly\",\"summary\":\"30 日国内金价 + 周报\",\"steps\":[{\"op\":\"tool\",\"tool\":\"market.chart\",\"args\":{\"symbol\":\"gold.domestic\",\"days\":\"30\"}},{\"op\":\"write\",\"path\":\"reports/gold.md\"}]}。工具 ID 用点号（market.chart、portfolio.period_report），不要用下划线。配方只能调用已授权工具、不能嵌套 recipe.run、只能写 reports/*.md。运行已保存配方用 recipe.run（参数 recipe）。"
+
+        /** Older installs persisted the pre-structured prompt; migrate only that known default. */
+        fun isLegacyDefaultPrompt(prompt: String): Boolean =
+            prompt.contains("你是「养基助手」的本地数据分析助手") &&
+                prompt.contains("控制在 400 字以内")
+
+        const val STRUCTURED_ANSWER_CONTRACT =
+            "【输出结构】涉及持仓、基金、行情、黄金、风险或提醒时，必须使用 Markdown：\n" +
+                "## 结论\n1-2 句，先给判断和最关键数字。\n" +
+                "## 数据\n多标的必须用 Markdown 表格，最多 5 列，建议：标的 | 市值/净值 | 占比 | 盈亏 | 来源/时点；每只基金/每个持仓单独一行，禁止用长段落罗列数字。持仓分析先调用 portfolio.positions（scope=detail）。\n" +
+                "## 结构/风险\n- 2-4 条事实、口径和边界。\n" +
+                "## 数据缺口\n- 没有就写“无”；缺数据写清缺什么。\n" +
+                "有真实时点序列时优先调用 chart 工具；没有工具图但至少 2 个真实点时才用 ```chart。不要把整段回答包进代码块，总长 ≤600 字（表格不计），结论 ≤2 句。"
     }
 }
 
