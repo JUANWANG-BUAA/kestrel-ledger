@@ -160,7 +160,7 @@ internal class FundFeatureState(
                 if (generation == profileGeneration) {
                     profile = loaded
                     moneyYieldEstimate = FundMoneyYieldEstimator.estimate(loaded)
-                    navHistoryCache = repository.cachedNavHistory(result.code, limit = 120)
+                    navHistoryCache = repository.cachedNavHistory(result.code)
                     isWatchlisted = repository.isFundWatchlisted(result.code)
                 }
             } catch (cancelled: CancellationException) {

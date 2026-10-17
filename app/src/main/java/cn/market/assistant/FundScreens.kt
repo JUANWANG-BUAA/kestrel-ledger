@@ -3,6 +3,7 @@ package cn.market.assistant
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -21,6 +22,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -31,6 +33,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -45,10 +48,12 @@ import cn.market.assistant.domain.fund.FundMarketPriceComparison
 import cn.market.assistant.domain.fund.FundEstimateGrade
 import cn.market.assistant.domain.fund.FundEstimateMethod
 import cn.market.assistant.domain.fund.FundNavEstimate
+import cn.market.assistant.domain.fund.FundPerformanceAnalytics
 import cn.market.assistant.domain.fund.FundNavEstimator
 import cn.market.assistant.domain.fund.FundNavHistoryCache
 import cn.market.assistant.domain.fund.FundMoneyYieldEstimate
 import cn.market.assistant.domain.fund.FundWatchlistEntry
+import java.math.BigDecimal
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -222,6 +227,9 @@ internal fun FundProfileCard(
                             isRefreshing = isRefreshingListedPrice,
                             onRefresh = onRefreshListedPrice
                         )
+                    }
+                    if (!moneyFund) {
+                        FundPerformanceSection(profile, historyCache)
                     }
                     if (profile.navHistory.size > 1) {
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -442,6 +450,147 @@ internal fun FundDetailSheet(
     }
 }
 
+
+@Composable
+internal fun FundPerformanceSection(profile: FundProfile, historyCache: FundNavHistoryCache?) {
+    val points = historyCache?.points?.takeIf { it.size > profile.navHistory.size } ?: profile.navHistory
+    val report = remember(profile.code, points) { FundPerformanceAnalytics.analyze(points) }
+    if (report == null) return
+    val palette = MarketTheme.colors
+    val oneYear = report.periodReturns.firstOrNull { it.label == "1Y" }
+    val headline = oneYear?.takeIf { it.returnPct != null }
+        ?: report.periodReturns.firstOrNull { it.label == "6M" }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("业绩与风险", color = FundInk, style = MarketType.section, modifier = Modifier.weight(1f))
+            Text("${report.basis} · ${report.pointCount} 点", color = FundMuted, style = MarketType.caption)
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            PerformanceMetric(
+                if (headline?.label == "6M") "近6月" else "近1年",
+                headline?.returnPct,
+                signed = true,
+                modifier = Modifier.weight(1f)
+            )
+            PerformanceMetric(
+                if (oneYear?.annualizedPct == null) "年化 · 不足1年" else "年化",
+                oneYear?.annualizedPct,
+                signed = true,
+                modifier = Modifier.weight(1f)
+            )
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            PerformanceMetric(
+                "最大回撤",
+                report.drawdown.maxDrawdownPct?.let { -it },
+                signed = false,
+                modifier = Modifier.weight(1f),
+                color = palette.down
+            )
+            PerformanceMetric(
+                "年化波动", report.risk.annualizedVolatilityPct, signed = false,
+                modifier = Modifier.weight(1f), color = FundInk
+            )
+        }
+        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(palette.surfaceAlt)) {
+            PerformanceTableHeader()
+            report.periodReturns.forEach { period ->
+                PerformanceTableRow(period.label.performanceLabel(), period.returnPct, period.annualizedPct)
+                Box(Modifier.fillMaxWidth().height(1.dp).background(palette.line.copy(alpha = 0.7f)))
+            }
+        }
+        Text(
+            "夏普 ${report.risk.sharpe.performanceRatio()} · 索提诺 ${report.risk.sortino.performanceRatio()} · " +
+                "卡玛 ${report.risk.calmar.performanceRatio()} · 正收益日 ${report.risk.positiveDayRatioPct.performancePct()}",
+            color = FundMuted, style = MarketType.caption, lineHeight = 16.sp
+        )
+        Text(
+            buildString {
+                append("最大回撤 ")
+                append(report.drawdown.maxDrawdownPct?.let { "-${String.format(Locale.US, "%.2f", it)}%" } ?: "—")
+                report.drawdown.peakDay?.let { append(" · $it") }
+                report.drawdown.troughDay?.let { append(" → $it") }
+                append(" · 修复 ")
+                append(report.drawdown.recoveryDay ?: "仍在修复")
+                append(" · 当前回撤 ")
+                append(report.drawdown.currentDrawdownPct?.let { "-${String.format(Locale.US, "%.2f", it)}%" } ?: "—")
+            },
+            color = FundMuted, style = MarketType.caption, lineHeight = 16.sp
+        )
+        report.risk.missingReason?.let { Text(it, color = FundMuted, style = MarketType.caption) }
+        report.dataNote?.let { Text(it, color = FundMuted, style = MarketType.caption, lineHeight = 16.sp) }
+        val missing = report.periodReturns.filter { it.returnPct == null }.map { it.label.performanceLabel() }
+        if (missing.isNotEmpty()) {
+            Text("样本不足：${missing.distinct().joinToString(" / ")}；补齐完整净值历史后可算。", color = FundMuted, style = MarketType.caption)
+        }
+    }
+}
+
+@Composable
+private fun PerformanceMetric(
+    label: String,
+    value: Double?,
+    signed: Boolean,
+    modifier: Modifier = Modifier,
+    color: androidx.compose.ui.graphics.Color? = null
+) {
+    val palette = MarketTheme.colors
+    val resolved = color ?: value?.let { plColor(BigDecimal.valueOf(it)) } ?: palette.muted
+    Surface(
+        modifier,
+        color = palette.surface,
+        shape = RoundedCornerShape(12.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, palette.line.copy(alpha = 0.8f))
+    ) {
+        Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(label, color = palette.muted, style = MarketType.caption)
+            Text(
+                value.performancePct(signed),
+                color = resolved,
+                style = MarketType.numberSmall,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                maxLines = 1
+            )
+        }
+    }
+}
+
+@Composable
+private fun PerformanceTableHeader() {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text("区间", Modifier.weight(1f), color = FundMuted, style = MarketType.caption, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+        Text("收益", Modifier.weight(1.2f), color = FundMuted, style = MarketType.caption, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, textAlign = androidx.compose.ui.text.style.TextAlign.End)
+        Text("年化", Modifier.weight(1.2f), color = FundMuted, style = MarketType.caption, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, textAlign = androidx.compose.ui.text.style.TextAlign.End)
+    }
+}
+
+@Composable
+private fun PerformanceTableRow(label: String, returnPct: Double?, annualizedPct: Double?) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, Modifier.weight(1f), color = FundInk, style = MarketType.label)
+        Text(returnPct.performancePct(signed = true), Modifier.weight(1.2f), color = returnPct?.let { plColor(BigDecimal.valueOf(it)) } ?: FundMuted, style = MarketType.caption, textAlign = androidx.compose.ui.text.style.TextAlign.End)
+        Text(annualizedPct.performancePct(signed = true), Modifier.weight(1.2f), color = annualizedPct?.let { plColor(BigDecimal.valueOf(it)) } ?: FundMuted, style = MarketType.caption, textAlign = androidx.compose.ui.text.style.TextAlign.End)
+    }
+}
+
+private fun String.performanceLabel(): String = when (this) {
+    "1M" -> "1月"
+    "3M" -> "3月"
+    "6M" -> "6月"
+    "1Y" -> "1年"
+    "3Y" -> "3年"
+    "5Y" -> "5年"
+    else -> this
+}
+
+private fun Double?.performancePct(signed: Boolean = false): String {
+    if (this == null || !isFinite()) return "—"
+    val prefix = if (signed && this > 0) "+" else ""
+    return prefix + String.format(Locale.US, "%.2f", this) + "%"
+}
+
+private fun Double?.performanceRatio(): String =
+    if (this == null || !isFinite()) "—" else String.format(Locale.US, "%.2f", this)
 
 @Composable
 private fun FundMoneyYieldPanel(
