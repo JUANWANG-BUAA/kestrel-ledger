@@ -494,13 +494,15 @@ private fun AllocationCompositionCard(
     basisLabel: String,
     onSliceSelected: (String) -> Unit
 ) {
+    val palette = MarketTheme.colors
+    val geometry = MarketTheme.geometry
     Card(
         Modifier.fillMaxWidth().animateContentSize(tween(240)),
-        shape = TacticalPanel,
-        colors = CardDefaults.cardColors(containerColor = White),
-        border = BorderStroke(1.dp, Color(0xFFD8D8D2))
+        shape = RoundedCornerShape(geometry.card),
+        colors = CardDefaults.cardColors(containerColor = palette.surface),
+        border = BorderStroke(1.dp, palette.line)
     ) {
-        Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.padding(geometry.lg), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("账户组成", color = Ink, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
@@ -614,15 +616,17 @@ private fun PeriodReportCard(
         startDay != null && endDay != null && !snapshot.day.isBefore(startDay) && !snapshot.day.isAfter(endDay) &&
             if (accountBased) snapshot.accountComplete else snapshot.totalProfit != null
     }
+    val palette = MarketTheme.colors
+    val geometry = MarketTheme.geometry
     Card(
         onClick = { expanded = !expanded },
         modifier = Modifier.fillMaxWidth().animateContentSize(tween(240)),
-        shape = CutCornerShape(topStart = 2.dp, topEnd = 17.dp, bottomEnd = 2.dp, bottomStart = 17.dp),
-        colors = CardDefaults.cardColors(containerColor = White),
-        border = BorderStroke(1.dp, Color(0xFFD8D8D2)),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp, pressedElevation = 5.dp)
+        shape = RoundedCornerShape(geometry.card),
+        colors = CardDefaults.cardColors(containerColor = palette.surface),
+        border = BorderStroke(1.dp, palette.line),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp, pressedElevation = 1.dp)
     ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
+        Column(Modifier.padding(geometry.lg), verticalArrangement = Arrangement.spacedBy(11.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Text(facts.period.title, color = Ink, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
