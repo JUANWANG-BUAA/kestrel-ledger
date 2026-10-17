@@ -19,6 +19,7 @@ import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -262,7 +263,18 @@ internal fun AssistantScreen(
                 if (state.turns.isEmpty()) {
                     item { AssistantOnboarding(state = state, onOpenSheet = { sheet = it }, onUsePrompt = ::usePrompt) }
                 }
-                items(state.turns, key = { it.id }) { turn -> AssistantTurnCard(turn, state, onOpenMarket) }
+                items(state.turns, key = { it.id }) { turn ->
+                    AssistantTurnCard(
+                        turn,
+                        state,
+                        onOpenMarket,
+                        Modifier.animateItem(
+                            fadeInSpec = tween(180),
+                            placementSpec = spring(dampingRatio = 0.84f, stiffness = 520f),
+                            fadeOutSpec = tween(100)
+                        )
+                    )
+                }
                 item { Spacer(Modifier.height(4.dp)) }
             }
             Column(
@@ -534,7 +546,12 @@ private fun AssistantIconButton(icon: String, label: String, onClick: () -> Unit
 }
 
 @Composable
-private fun AssistantTurnCard(turn: AssistantTurnUi, state: AssistantFeatureState, onOpenMarket: (String) -> Unit) {
+private fun AssistantTurnCard(
+    turn: AssistantTurnUi,
+    state: AssistantFeatureState,
+    onOpenMarket: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
     val context = LocalContext.current
     val palette = MarketTheme.colors
     var processExpanded by remember(turn.id) { mutableStateOf(false) }
@@ -548,7 +565,7 @@ private fun AssistantTurnCard(turn: AssistantTurnUi, state: AssistantFeatureStat
         }
     }
 
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(9.dp)) {
         Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(5.dp)) {
             if (turn.attachments.isNotEmpty()) {
                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.End) {
@@ -558,7 +575,7 @@ private fun AssistantTurnCard(turn: AssistantTurnUi, state: AssistantFeatureStat
             Surface(
                 modifier = Modifier.widthIn(max = 340.dp),
                 color = palette.surfaceAlt,
-                shape = RoundedCornerShape(20.dp)
+                shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomEnd = 6.dp, bottomStart = 20.dp)
             ) {
                 Text(turn.question, color = Ink, fontSize = 15.sp, lineHeight = 22.sp, modifier = Modifier.padding(horizontal = 15.dp, vertical = 11.dp))
             }
@@ -587,10 +604,22 @@ private fun AssistantTurnCard(turn: AssistantTurnUi, state: AssistantFeatureStat
             }
             AnimatedVisibility(
                 visible = turn.answer.isNotBlank(),
-                enter = fadeIn(tween(150)) + expandVertically(tween(180)),
+                enter = fadeIn(tween(170)) + expandVertically(tween(220)),
                 exit = fadeOut(tween(90)) + shrinkVertically(tween(120))
             ) {
-                MarkdownLite(turn.answer, onOpenMarket = onOpenMarket)
+                Surface(
+                    modifier = Modifier.fillMaxWidth().animateContentSize(tween(220)),
+                    color = palette.surface,
+                    shape = RoundedCornerShape(topStart = 5.dp, topEnd = 18.dp, bottomEnd = 18.dp, bottomStart = 18.dp),
+                    border = BorderStroke(1.dp, palette.line),
+                    shadowElevation = 1.dp
+                ) {
+                    MarkdownLite(
+                        turn.answer,
+                        onOpenMarket = onOpenMarket,
+                        modifier = Modifier.padding(horizontal = 15.dp, vertical = 13.dp)
+                    )
+                }
             }
             if (turn.steps.isNotEmpty()) {
                 TextButton(
