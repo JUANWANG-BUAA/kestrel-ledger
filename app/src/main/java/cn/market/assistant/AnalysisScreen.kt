@@ -213,7 +213,7 @@ internal fun AnalysisScreen(
             range = trendRange,
             onPointSelected = { selectedTrendIndex = it }
         )
-        Text("资产规模变化会受到入金和出金影响；累计盈亏来自已记录的持仓快照。", color = Muted, fontSize = 10.sp, lineHeight = 15.sp)
+        Text("资产规模变化会受到入金和出金影响；累计盈亏来自已记录的持仓快照。", color = Muted, fontSize = 11.sp, lineHeight = 15.sp)
         PortfolioRiskCard(accountRisk, riskParameters, riskFeatureState::update)
         MarketSectionHeader("周期基准对比", caption = "通用参考指数，不含股息")
         PortfolioBenchmarkCard(benchmarkFeatureState)
@@ -245,11 +245,11 @@ internal fun AnalysisScreen(
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Text("周期复盘", color = Ink, fontSize = 19.sp, fontWeight = FontWeight.SemiBold)
-                Text("按每日观察快照计算；报价缺失时不补零", color = Muted, fontSize = 10.sp)
+                Text("按每日观察快照计算；报价缺失时不补零", color = Muted, fontSize = 11.sp)
             }
             TextButton(onClick = onRecordSnapshot) { Text("记录观察点") }
         }
-        Text("已记录 ${snapshots.size} 个有效观察日 · Modified Dietz 为资金流调整近似值；未启用现金跟踪时按持仓口径计算", color = Muted, fontSize = 10.sp, lineHeight = 15.sp)
+        Text("已记录 ${snapshots.size} 个有效观察日 · Modified Dietz 为资金流调整近似值；未启用现金跟踪时按持仓口径计算", color = Muted, fontSize = 11.sp, lineHeight = 15.sp)
         ReportPeriod.entries.forEach { period ->
             val facts = PortfolioAnalytics.facts(
                 period, today, snapshots, positionSnapshots, trades, cashEvents, benchmarkFeatureState.series
@@ -322,7 +322,7 @@ private fun PortfolioTrendCard(
                         metric == TrendMetric.ASSET && changePct != null -> "${if (changePct.signum() > 0) "+" else ""}${changePct.toPlainString()}% · ${if (change.signum() > 0) "+" else ""}¥${change.money()}"
                         else -> "区间变化 ${if (change.signum() > 0) "+" else ""}¥${change.money()}"
                     }
-                    Text(changeLabel, color = change?.let { value -> plColor(value) } ?: Muted, fontSize = 10.sp)
+                    Text(changeLabel, color = change?.let { value -> plColor(value) } ?: Muted, fontSize = 11.sp)
                 }
             }
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -499,7 +499,7 @@ private fun AllocationCompositionCard(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("账户组成", color = Ink, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                    Text("$basisLabel · ${slices.size} 项", color = Muted, fontSize = 10.sp)
+                    Text("$basisLabel · ${slices.size} 项", color = Muted, fontSize = 11.sp)
                 }
                 Text("¥${total.money()}", color = Ink, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
             }
@@ -519,15 +519,15 @@ private fun AllocationCompositionCard(
                             Surface(Modifier.size(8.dp), shape = CircleShape, color = slice.color) {}
                             Spacer(Modifier.width(7.dp))
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                Text(slice.name, color = Ink, fontSize = 10.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1)
-                                Text("¥${slice.value.money()}", color = Muted, fontSize = 9.sp, maxLines = 1)
+                                Text(slice.name, color = Ink, fontSize = 11.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1)
+                                Text("¥${slice.value.money()}", color = Muted, fontSize = 11.sp, maxLines = 1)
                             }
-                            Text("${percent.toPlainString()}%", color = Ink, fontSize = 10.sp, fontWeight = FontWeight.Medium)
+                            Text("${percent.toPlainString()}%", color = Ink, fontSize = 11.sp, fontWeight = FontWeight.Medium)
                         }
                     }
                 }
             }
-            Text("点选图例可聚焦单项；市值口径要求全部持仓有有效价格。", color = Muted, fontSize = 10.sp)
+            Text("点选图例可聚焦单项；市值口径要求全部持仓有有效价格。", color = Muted, fontSize = 11.sp)
         }
     }
 }
@@ -571,11 +571,11 @@ private fun AllocationDonut(
             }
         }
         Column(Modifier.fillMaxWidth(0.72f), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text(selected?.name ?: "账户总额", color = Muted, fontSize = 9.sp, maxLines = 1)
+            Text(selected?.name ?: "账户总额", color = Muted, fontSize = 11.sp, maxLines = 1)
             Text("¥${(selected?.value ?: total).money()}", color = Ink, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
             if (selected != null) {
                 val percent = selected.value.multiply(BigDecimal("100")).divide(total, 1, RoundingMode.HALF_UP)
-                Text("${percent.toPlainString()}%", color = selected.color, fontSize = 10.sp, fontWeight = FontWeight.Medium)
+                Text("${percent.toPlainString()}%", color = selected.color, fontSize = 11.sp, fontWeight = FontWeight.Medium)
             }
         }
     }
@@ -621,28 +621,28 @@ private fun PeriodReportCard(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Text(facts.period.title, color = Ink, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-                    Text("${facts.start} — ${facts.end}", color = Muted, fontSize = 10.sp)
+                    Text("${facts.start} — ${facts.end}", color = Muted, fontSize = 11.sp)
                 }
                 TextButton(
                     onClick = { onExport(ReportExportFormat.MARKDOWN) },
                     contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
-                ) { Text("导出 MD", color = Blue, fontSize = 10.sp) }
+                ) { Text("导出 MD", color = Blue, fontSize = 11.sp) }
                 TextButton(
                     onClick = { onExport(ReportExportFormat.CSV) },
                     contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
-                ) { Text("CSV", color = Blue, fontSize = 10.sp) }
+                ) { Text("CSV", color = Blue, fontSize = 11.sp) }
                 Text(if (expanded) "收起⌃" else "详情⌄", color = Blue, fontSize = 11.sp, fontWeight = FontWeight.Medium)
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                    Text(if (accountBased) "账户区间盈亏" else "持仓区间盈亏", color = Muted, fontSize = 10.sp)
+                    Text(if (accountBased) "账户区间盈亏" else "持仓区间盈亏", color = Muted, fontSize = 11.sp)
                     Text(
                         displayProfit?.let { "${if (it.signum() > 0) "+" else ""}¥${it.money()}" } ?: "暂不可算",
                         color = displayProfit?.let { value -> plColor(value) } ?: Muted, fontSize = 21.sp, fontWeight = FontWeight.SemiBold
                     )
                 }
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                    Text(if (accountBased) "账户 Modified Dietz" else "持仓 Modified Dietz", color = Muted, fontSize = 10.sp)
+                    Text(if (accountBased) "账户 Modified Dietz" else "持仓 Modified Dietz", color = Muted, fontSize = 11.sp)
                     Text(displayRate?.let { "${if (it.signum() > 0) "+" else ""}${it.toPlainString()}%" } ?: "—",
                         color = displayRate?.let { value -> plColor(value) } ?: Muted, fontSize = 21.sp, fontWeight = FontWeight.SemiBold)
                 }
@@ -651,9 +651,9 @@ private fun PeriodReportCard(
             if (facts.missingReason != null) {
                 Text(requireNotNull(facts.missingReason), color = Blue, fontSize = 11.sp, lineHeight = 16.sp)
             } else if (!accountBased) {
-                Text("当前为持仓口径；${facts.accountMissingReason ?: "完整账户快照不可用"}", color = Blue, fontSize = 10.sp, lineHeight = 15.sp)
+                Text("当前为持仓口径；${facts.accountMissingReason ?: "完整账户快照不可用"}", color = Blue, fontSize = 11.sp, lineHeight = 15.sp)
             } else if (facts.accountProfit == null) {
-                Text(facts.accountMissingReason ?: "账户估值数据暂不可用", color = Blue, fontSize = 10.sp, lineHeight = 15.sp)
+                Text(facts.accountMissingReason ?: "账户估值数据暂不可用", color = Blue, fontSize = 11.sp, lineHeight = 15.sp)
             } else {
                 val opening = requireNotNull(facts.opening)
                 val end = requireNotNull(facts.closing)
@@ -664,7 +664,7 @@ private fun PeriodReportCard(
                 val fromTime = runCatching { java.time.Instant.parse(opening.observedAt).atZone(zone).format(timeFormat) }.getOrDefault("未知")
                 val toTime = runCatching { java.time.Instant.parse(end.observedAt).atZone(zone).format(timeFormat) }.getOrDefault("未知")
                 Text("观察 $fromTime → $toTime · 报价覆盖 ${end.pricedPositionCount}/${end.positionCount}${if (sources.isBlank()) "" else " · $sources"}",
-                    color = Muted, fontSize = 10.sp)
+                    color = Muted, fontSize = 11.sp)
             }
             if (facts.period != ReportPeriod.DAY && facts.benchmarkName != null) {
                 val benchmarkText = facts.benchmarkReturnPct?.let { rate ->
@@ -673,7 +673,7 @@ private fun PeriodReportCard(
                     } ?: " · 账户 TWR 暂不可用"
                     "${facts.benchmarkName} 价格收益 ${if (rate.signum() > 0) "+" else ""}${rate.toPlainString()}%$excess"
                 } ?: "${facts.benchmarkName} 暂不可比 · ${facts.benchmarkMissingReason ?: "基准日线不足"}"
-                Text(benchmarkText, color = Blue, fontSize = 10.sp, lineHeight = 15.sp)
+                Text(benchmarkText, color = Blue, fontSize = 11.sp, lineHeight = 15.sp)
             }
             AnimatedVisibility(
                 visible = expanded,
@@ -687,11 +687,11 @@ private fun PeriodReportCard(
                     }
                     Text(
                         "已确认交易手续费 ¥${facts.transactionFeeAmount.money()} · 分红代扣税 ¥${facts.dividendWithholdingTax.money()}（不含未确认和已冲正流水）",
-                        color = Muted, fontSize = 10.sp, lineHeight = 15.sp
+                        color = Muted, fontSize = 11.sp, lineHeight = 15.sp
                     )
                     if (facts.contributors.isNotEmpty()) {
                         Text("资产盈亏贡献 · 持仓利润快照期末减期初；占净盈亏比例可能超过 ±100%",
-                            color = Muted, fontSize = 10.sp, lineHeight = 15.sp, fontWeight = FontWeight.Medium)
+                            color = Muted, fontSize = 11.sp, lineHeight = 15.sp, fontWeight = FontWeight.Medium)
                         val endRowsByName = positionSnapshots[closing?.day]?.associateBy { it.asset.name }.orEmpty()
                         val visibleContributions = facts.contributors.take(3)
                         visibleContributions.forEach { contribution ->
@@ -724,7 +724,7 @@ private fun PeriodReportCard(
                             if (contributionTotal.compareTo(reported) == 0) "贡献合计与持仓区间盈亏一致"
                             else "贡献合计与持仓区间盈亏相差 ¥${(contributionTotal - reported).money()}"
                         }
-                        Text(reconciliation ?: "持仓区间盈亏暂不可核对", color = Muted, fontSize = 10.sp)
+                        Text(reconciliation ?: "持仓区间盈亏暂不可核对", color = Muted, fontSize = 11.sp)
                     }
                     if (facts.period == ReportPeriod.MONTH && accountBased) {
                         val xirrText = when (val xirr = facts.accountXirr) {
@@ -755,7 +755,7 @@ private fun PeriodReportCard(
                             facts.benchmarkMissingReason?.let { append(" · $it") }
                             append("。指数为价格收益，未含股息；超额收益以账户 TWR 减基准价格收益计算。")
                         }
-                        Text(benchmarkDetails, color = Muted, fontSize = 10.sp, lineHeight = 15.sp)
+                        Text(benchmarkDetails, color = Muted, fontSize = 11.sp, lineHeight = 15.sp)
                     }
                     if (accountBased && facts.period != ReportPeriod.DAY) {
                         val drawdownText = facts.accountMaxDrawdownPct?.let { value ->
@@ -774,7 +774,7 @@ private fun PeriodReportCard(
                     }
                     if (accountBased) {
                         if (facts.accountAllocationMissingReason != null) {
-                            Text("账户配置暂不可用 · ${facts.accountAllocationMissingReason}", color = Muted, fontSize = 10.sp, lineHeight = 15.sp)
+                            Text("账户配置暂不可用 · ${facts.accountAllocationMissingReason}", color = Muted, fontSize = 11.sp, lineHeight = 15.sp)
                         } else {
                             if (facts.period != ReportPeriod.DAY) {
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -783,29 +783,29 @@ private fun PeriodReportCard(
                                 }
                             }
                             if (facts.period == ReportPeriod.MONTH) {
-                                Text("账户配置 · 含现金", color = Muted, fontSize = 10.sp, fontWeight = FontWeight.Medium)
+                                Text("账户配置 · 含现金", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.Medium)
                                 facts.accountAllocations.take(5).forEach { allocation ->
                                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                         Text(allocation.name, Modifier.weight(1f), color = Ink, fontSize = 11.sp, maxLines = 1)
                                         Text("${allocation.weightPct.toPlainString()}% · ¥${allocation.marketValue.money()}",
-                                            color = Muted, fontSize = 10.sp)
+                                            color = Muted, fontSize = 11.sp)
                                     }
                                 }
                             }
                             Text(if (facts.period == ReportPeriod.DAY) "相较昨日配置变化 · 百分点" else "期初至期末权重变化 · 百分点",
-                                color = Muted, fontSize = 10.sp, fontWeight = FontWeight.Medium)
+                                color = Muted, fontSize = 11.sp, fontWeight = FontWeight.Medium)
                             if (facts.accountAllocationChanges.isNotEmpty()) {
                                 facts.accountAllocationChanges.take(3).forEach { change ->
                                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                                        Text(change.name, Modifier.weight(1f), color = Ink, fontSize = 10.sp, maxLines = 1)
+                                        Text(change.name, Modifier.weight(1f), color = Ink, fontSize = 11.sp, maxLines = 1)
                                         Text("${if (change.changePercentagePoints.signum() > 0) "+" else ""}${change.changePercentagePoints.toPlainString()} pp",
-                                            color = plColor(change.changePercentagePoints), fontSize = 10.sp)
+                                            color = plColor(change.changePercentagePoints), fontSize = 11.sp)
                                     }
                                 }
-                            } else Text("权重没有变化", color = Muted, fontSize = 10.sp)
+                            } else Text("权重没有变化", color = Muted, fontSize = 11.sp)
                         }
                     }
-                    Text(if (accountBased) "账户盈亏已扣除外部净入金；Modified Dietz 按日期加权近似。TWR 与回撤使用逐日流量调整收益；回撤要求每日快照连续、报价新鲜且流水估值完整。月度 XIRR 按实际天数年化。" else "当前仅能核算持仓口径。启用现金跟踪并积累完整账户快照后，才计算账户盈亏、收益率和 XIRR。", color = Muted, fontSize = 10.sp, lineHeight = 15.sp)
+                    Text(if (accountBased) "账户盈亏已扣除外部净入金；Modified Dietz 按日期加权近似。TWR 与回撤使用逐日流量调整收益；回撤要求每日快照连续、报价新鲜且流水估值完整。月度 XIRR 按实际天数年化。" else "当前仅能核算持仓口径。启用现金跟踪并积累完整账户快照后，才计算账户盈亏、收益率和 XIRR。", color = Muted, fontSize = 11.sp, lineHeight = 15.sp)
                 }
             }
         }

@@ -54,15 +54,15 @@ internal fun PortfolioRiskCard(
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text("账户风险观察", color = Ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                Text("历史 · 252 交易日窗口", color = Muted, fontSize = 9.sp)
+                Text("历史 · 252 交易日窗口", color = Muted, fontSize = 11.sp)
             }
-            Text("风险参数 · ${if (parameters.updatedAtMillis == 0L) "默认" else portfolioRiskParameterTime(parameters.updatedAtMillis)}", color = Muted, fontSize = 9.sp)
+            Text("风险参数 · ${if (parameters.updatedAtMillis == 0L) "默认" else portfolioRiskParameterTime(parameters.updatedAtMillis)}", color = Muted, fontSize = 11.sp)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                 OutlinedTextField(
                     value = riskFreeDraft,
                     onValueChange = { riskFreeDraft = it.filter { char -> char.isDigit() || char == '.' || char == '-' }.take(10) },
                     modifier = Modifier.weight(1f),
-                    label = { Text("无风险年利率 (%)", fontSize = 10.sp) },
+                    label = { Text("无风险年利率 (%)", fontSize = 11.sp) },
                     singleLine = true,
                     shape = RoundedCornerShape(12.dp),
                     colors = fieldColors()
@@ -71,7 +71,7 @@ internal fun PortfolioRiskCard(
                     value = minimumReturnDraft,
                     onValueChange = { minimumReturnDraft = it.filter { char -> char.isDigit() || char == '.' || char == '-' }.take(10) },
                     modifier = Modifier.weight(1f),
-                    label = { Text("最低年收益 (%)", fontSize = 10.sp) },
+                    label = { Text("最低年收益 (%)", fontSize = 11.sp) },
                     singleLine = true,
                     shape = RoundedCornerShape(12.dp),
                     colors = fieldColors()
@@ -97,7 +97,7 @@ internal fun PortfolioRiskCard(
                         .onFailure { parameterError = it.message ?: "参数重置失败" }
                 }) { Text("恢复 0%", color = Muted, fontSize = 11.sp) }
             }
-            parameterError?.let { Text(it, color = ErrorColor, fontSize = 10.sp, lineHeight = 14.sp) }
+            parameterError?.let { Text(it, color = ErrorColor, fontSize = 11.sp, lineHeight = 14.sp) }
             summary.missingReason?.let { reason ->
                 Text(
                     if (reason.startsWith("风险统计计算中")) "正在计算" else "暂不可计算",
@@ -107,7 +107,7 @@ internal fun PortfolioRiskCard(
             } ?: run {
                 Text(
                     "${summary.startDay} — ${summary.endDay} · ${summary.observationCount} 个连续有效日收益",
-                    color = Muted, fontSize = 10.sp
+                    color = Muted, fontSize = 11.sp
                 )
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                     RiskMetricTile("年化波动", summary.annualizedVolatilityPct?.let { "${it.toPlainString()}%" } ?: "—", Modifier.weight(1f))
@@ -115,10 +115,10 @@ internal fun PortfolioRiskCard(
                     RiskMetricTile("Sortino", summary.sortinoRatio?.toPlainString() ?: "—", Modifier.weight(1f))
                 }
                 val ratioReasons = listOfNotNull(summary.sharpeMissingReason, summary.sortinoMissingReason).distinct()
-                if (ratioReasons.isNotEmpty()) Text(ratioReasons.joinToString("；"), color = Muted, fontSize = 9.sp, lineHeight = 14.sp)
+                if (ratioReasons.isNotEmpty()) Text(ratioReasons.joinToString("；"), color = Muted, fontSize = 11.sp, lineHeight = 14.sp)
                 val tailMissingReason = summary.tailMissingReason
                 if (tailMissingReason != null) {
-                    Text(tailMissingReason, color = Muted, fontSize = 10.sp, lineHeight = 15.sp)
+                    Text(tailMissingReason, color = Muted, fontSize = 11.sp, lineHeight = 15.sp)
                 } else {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                         RiskMetricTile(
@@ -134,27 +134,27 @@ internal fun PortfolioRiskCard(
                     }
                 }
                 Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                    Text("持仓收益相关性", color = Muted, fontSize = 10.sp, fontWeight = FontWeight.Medium)
+                    Text("持仓收益相关性", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.Medium)
                     if (summary.correlations.isEmpty()) {
-                        Text(summary.correlationMissingReason ?: "共同历史样本不足", color = Muted, fontSize = 10.sp, lineHeight = 15.sp)
+                        Text(summary.correlationMissingReason ?: "共同历史样本不足", color = Muted, fontSize = 11.sp, lineHeight = 15.sp)
                     } else {
                         summary.correlations.forEach { pair ->
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Text(
                                     "${pair.firstAssetName} · ${pair.secondAssetName}",
-                                    Modifier.weight(1f), color = Ink, fontSize = 10.sp, maxLines = 1
+                                    Modifier.weight(1f), color = Ink, fontSize = 11.sp, maxLines = 1
                                 )
-                                Text("${pair.correlation.toPlainString()} · ${pair.observationCount} 日", color = Muted, fontSize = 10.sp)
+                                Text("${pair.correlation.toPlainString()} · ${pair.observationCount} 日", color = Muted, fontSize = 11.sp)
                             }
                         }
                         summary.correlationMissingReason?.let {
-                            Text(it, color = Muted, fontSize = 9.sp, lineHeight = 13.sp)
+                            Text(it, color = Muted, fontSize = 11.sp, lineHeight = 13.sp)
                         }
                     }
                 }
                 Text(
                     "按本地工作日取样并以 252 日年化，未接入各市场节假日日历；Sharpe 无风险率 ${parameters.riskFreeAnnualRate.asPercentInput()}%，Sortino 目标收益 ${parameters.minimumAcceptableAnnualReturn.asPercentInput()}%。相关性基于持仓单位估值收益，分红、拆分和转移日不参与。1 日 VaR/CVaR 是历史尾部损失统计，不代表最大可能损失。",
-                    color = Muted, fontSize = 9.sp, lineHeight = 14.sp
+                    color = Muted, fontSize = 11.sp, lineHeight = 14.sp
                 )
             }
         }
@@ -167,7 +167,7 @@ private fun RiskMetricTile(label: String, value: String, modifier: Modifier = Mo
         modifier.background(RiskPanel, RoundedCornerShape(12.dp)).padding(horizontal = 10.dp, vertical = 9.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        Text(label, color = Muted, fontSize = 9.sp)
+        Text(label, color = Muted, fontSize = 11.sp)
         Text(value, color = Ink, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
     }
 }

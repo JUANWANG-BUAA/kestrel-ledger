@@ -291,7 +291,7 @@ internal fun GoldDashboardScreen(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text("华安黄金 ETF · 518880", color = Ink, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                            Text("${etfQuote?.displayTime() ?: "暂无报价"} · ${etfQuote?.displaySource() ?: "等待数据"}", color = Muted, fontSize = 10.sp)
+                            Text("${etfQuote?.displayTime() ?: "暂无报价"} · ${etfQuote?.displaySource() ?: "等待数据"}", color = Muted, fontSize = 11.sp)
                         }
                         AnimatedTicker(price?.let { "¥${String.format("%.3f", it)}" } ?: "—", Ink, 17.sp)
                         Spacer(Modifier.width(6.dp))
@@ -314,7 +314,7 @@ internal fun GoldDashboardScreen(
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                                 Text(position.asset.name, color = Ink, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                                Text("持有 ${position.units.portfolioQtyDisplay()} 克 · 成本 ¥${position.cost.portfolioMoneyGrouped()}", color = Muted, fontSize = 10.sp)
+                                Text("持有 ${position.units.portfolioQtyDisplay()} 克 · 成本 ¥${position.cost.portfolioMoneyGrouped()}", color = Muted, fontSize = 11.sp)
                             }
                             Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(3.dp)) {
                                 Text(
@@ -323,16 +323,16 @@ internal fun GoldDashboardScreen(
                                     color = if (position.quoteExpired) ErrorColor else Ink, fontSize = 11.sp
                                 )
                                 Text(position.holdingProfit?.let { "盈亏 ${if (it.signum() > 0) "+" else ""}¥${it.portfolioMoney()}" } ?: "估值待补",
-                                    color = position.holdingProfit?.let { value -> plColor(value) } ?: Muted, fontSize = 10.sp)
+                                    color = position.holdingProfit?.let { value -> plColor(value) } ?: Muted, fontSize = 11.sp)
                             }
                         }
                         if (position.quote != null) Text(
                             "${portfolioQuoteSourceLabel(position.quoteSource)} · ${portfolioQuoteTimeLabel(position.quoteTime)}",
-                            color = Muted, fontSize = 9.sp
+                            color = Muted, fontSize = 11.sp
                         )
                     }
                     Text("Au99.99 可按上金所报价计价；银行积存金请录入账户实际克价。国际现货不用于推算银行报价。",
-                        color = Muted, fontSize = 10.sp, lineHeight = 15.sp)
+                        color = Muted, fontSize = 11.sp, lineHeight = 15.sp)
                 }
             }
         }
@@ -403,17 +403,17 @@ internal fun GoldDashboardScreen(
                     exit = fadeOut(tween(120)) + shrinkVertically(tween(180))
                 ) { IndicatorPane(visibleBars, selectedIndex, macd = true) }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text(visibleBars.firstOrNull()?.let { chartDate(it.day) } ?: "—", color = Muted, fontSize = 9.sp)
-                    Text(selectedBar?.let { "${chartDate(it.day)} · 收 ¥${String.format("%.3f", it.close)}" } ?: "拖动图表查看", color = Blue, fontSize = 10.sp)
-                    Text(visibleBars.lastOrNull()?.let { chartDate(it.day) } ?: "—", color = Muted, fontSize = 9.sp)
+                    Text(visibleBars.firstOrNull()?.let { chartDate(it.day) } ?: "—", color = Muted, fontSize = 11.sp)
+                    Text(selectedBar?.let { "${chartDate(it.day)} · 收 ¥${String.format("%.3f", it.close)}" } ?: "拖动图表查看", color = Blue, fontSize = 11.sp)
+                    Text(visibleBars.lastOrNull()?.let { chartDate(it.day) } ?: "—", color = Muted, fontSize = 11.sp)
                 }
-                if (message.isNotBlank()) Text(message, color = Muted, fontSize = 10.sp)
+                if (message.isNotBlank()) Text(message, color = Muted, fontSize = 11.sp)
             }
         }
         Button(onClick = onOpenEtf, modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(14.dp),
             colors = ButtonDefaults.buttonColors(containerColor = Blue)) { Text("查看 518880 完整行情与指标") }
         if (message.isNotBlank()) Text(message, color = Muted, fontSize = 11.sp)
-        Text("国际金价直接显示 XAU/USD 美元 / 金衡盎司报价。国内溢价比较会另按汇率和金衡盎司重量折算为人民币 / 克；ETF 图表仅观察国内交易品种走势。行情可能延迟。", color = Muted, fontSize = 10.sp, lineHeight = 15.sp)
+        Text("国际金价直接显示 XAU/USD 美元 / 金衡盎司报价。国内溢价比较会另按汇率和金衡盎司重量折算为人民币 / 克；ETF 图表仅观察国内交易品种走势。行情可能延迟。", color = Muted, fontSize = 11.sp, lineHeight = 15.sp)
     }
 }
 

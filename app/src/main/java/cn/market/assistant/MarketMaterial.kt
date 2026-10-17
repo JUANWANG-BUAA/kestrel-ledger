@@ -39,10 +39,10 @@ internal val MarketNavBarClearance = 104.dp
  * on flat ones; dark mode drops the shadow and lets border contrast carry the same hierarchy.
  */
 internal object MarketElevation {
-    val card = 2.dp
-    val raised = 7.dp
-    val floating = 16.dp
-    val modal = 28.dp
+    val card = 1.dp
+    val raised = 4.dp
+    val floating = 10.dp
+    val modal = 24.dp
 }
 
 /** Soft drop shadow. No-op in dark mode, where surfaces separate by hairline instead of by light. */
@@ -68,10 +68,10 @@ internal fun Modifier.marketShadow(shape: Shape, level: Dp): Modifier = composed
 @Composable
 internal fun MarketBackButton(label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val palette = MarketTheme.colors
-    val shape = RoundedCornerShape(13.dp)
+    val shape = RoundedCornerShape(10.dp)
     Row(
         modifier
-            .height(40.dp)
+            .height(38.dp)
             .marketShadow(shape, MarketElevation.card)
             .clip(shape)
             .background(palette.surface)
@@ -98,7 +98,7 @@ internal data class MarketNavItem(val label: String, val icon: String)
 internal fun MarketMenuButton(modifier: Modifier = Modifier) {
     val openDrawer = LocalOpenDrawer.current
     val palette = MarketTheme.colors
-    val shape = RoundedCornerShape(14.dp)
+    val shape = RoundedCornerShape(12.dp)
     Box(
         modifier
             .size(44.dp)
@@ -134,12 +134,12 @@ internal fun MarketNavBar(
 ) {
     val palette = MarketTheme.colors
     val geometry = MarketTheme.geometry
-    val shape = RoundedCornerShape(26.dp)
+    val shape = RoundedCornerShape(18.dp)
     Column(modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
         Spacer(
             Modifier
                 .fillMaxWidth()
-                .height(26.dp)
+                .height(20.dp)
                 .background(
                     Brush.verticalGradient(
                         listOf(Color.Transparent, palette.paper.copy(alpha = 0.96f))
@@ -149,13 +149,13 @@ internal fun MarketNavBar(
         Box(
             Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp)
-                .padding(bottom = 10.dp)
+                .padding(horizontal = 10.dp)
+                .padding(bottom = 8.dp)
                 .marketShadow(shape, MarketElevation.floating)
                 .clip(shape)
                 .background(palette.surface)
                 .border(1.dp, palette.line.copy(alpha = 0.9f), shape)
-                .padding(horizontal = 6.dp, vertical = 6.dp)
+                .padding(horizontal = 5.dp, vertical = 5.dp)
         ) {
             Row(
                 Modifier.fillMaxWidth(),
@@ -174,13 +174,13 @@ internal fun MarketNavBar(
                             .clip(RoundedCornerShape(geometry.card))
                             .background(capsule)
                             .marketPressable(scaleDown = 0.93f) { onSelect(index) }
-                            .padding(vertical = 6.dp),
+                            .padding(vertical = 7.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(3.dp)
                     ) {
                         MarketIcon(
                             item.icon,
-                            size = 22.dp,
+                            size = 21.dp,
                             tint = if (selected) palette.accent else palette.muted,
                             filled = selected,
                             onFilled = palette.accent
@@ -188,7 +188,7 @@ internal fun MarketNavBar(
                         Text(
                             item.label,
                             color = if (selected) palette.accent else palette.muted,
-                            fontSize = 10.sp,
+                            fontSize = 11.sp,
                             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
                         )
                     }

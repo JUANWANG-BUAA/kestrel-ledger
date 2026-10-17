@@ -209,7 +209,7 @@ internal fun DataHealthScreen(
                     Text(
                         if (sourceQuotes.all { it.isFreshAt(now) }) "时点正常" else "有旧报价",
                         color = if (sourceQuotes.all { it.isFreshAt(now) }) MarketDown else Gold,
-                        fontSize = 10.sp, fontWeight = FontWeight.Medium
+                        fontSize = 11.sp, fontWeight = FontWeight.Medium
                     )
                 }
             }
@@ -229,7 +229,7 @@ internal fun DataHealthScreen(
                     Text(
                         if (coverage == null) "暂无缓存日线" else
                             "$barCount 根 · ${coverage.firstDay}—${coverage.lastDay} · 更新 ${coverage.lastFetchedAt.healthTime()}",
-                        color = Muted, fontSize = 10.sp
+                        color = Muted, fontSize = 11.sp
                     )
                     Text(
                         when {
@@ -239,7 +239,7 @@ internal fun DataHealthScreen(
                             else -> "近 ${coverage.expectedSessions} 个参考交易日缺 ${coverage.missingSessions.size} 日：${coverage.missingSessions.take(4).joinToString("、")}${if (coverage.missingSessions.size > 4) "…" else ""}"
                         },
                         color = if (coverage?.calendarAvailable == true && coverage.missingSessions.isEmpty()) MarketDown else Gold,
-                        fontSize = 10.sp,
+                        fontSize = 11.sp,
                         lineHeight = 14.sp
                     )
                 }
@@ -287,7 +287,7 @@ internal fun DataHealthScreen(
                                 Text("${run.source.displayHealthSource()} · ${run.dataset.displayHealthDataset()}", color = Ink, fontSize = 11.sp, fontWeight = FontWeight.Medium)
                                 Text(
                                     "${run.itemCount} 项${run.expectedCount?.let { " / $it" } ?: ""} · ${run.requestedAt.healthTime()}${run.errorCode?.let { " · $it" } ?: ""}",
-                                    color = Muted, fontSize = 10.sp
+                                    color = Muted, fontSize = 11.sp
                                 )
                             }
                             Text(
@@ -297,7 +297,7 @@ internal fun DataHealthScreen(
                                     DataFetchStatus.PARTIAL -> Gold
                                     DataFetchStatus.FAILURE -> HealthError
                                 },
-                                fontSize = 10.sp,
+                                fontSize = 11.sp,
                                 fontWeight = FontWeight.SemiBold
                             )
                         }
@@ -345,7 +345,7 @@ private fun DataHealthRow(label: String, value: String, detail: String, detailCo
             Text(label, Modifier.weight(1f), color = Muted, fontSize = 11.sp)
             Text(value, color = Ink, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
         }
-        Text(detail, color = detailColor, fontSize = 10.sp, lineHeight = 15.sp)
+        Text(detail, color = detailColor, fontSize = 11.sp, lineHeight = 15.sp)
     }
     Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0xFFE9E8E2)))
 }

@@ -314,8 +314,8 @@ private fun DrawScope.drawTooltip(
     muted: Color,
     ink: Color
 ) {
-    val title = measurer.measure(label, TextStyle(fontSize = 9.sp, color = muted))
-    val rowLayouts = rows.map { (_, text) -> measurer.measure(text, TextStyle(fontSize = 10.sp, color = ink)) }
+    val title = measurer.measure(label, TextStyle(fontSize = 11.sp, color = muted))
+    val rowLayouts = rows.map { (_, text) -> measurer.measure(text, TextStyle(fontSize = 11.sp, color = ink)) }
     val contentWidth = (listOf(title.size.width) + rowLayouts.map { it.size.width }).maxOrNull() ?: 0
     val lineHeight = rowLayouts.firstOrNull()?.size?.height ?: title.size.height
     val boxWidth = contentWidth + 20.dp.toPx()

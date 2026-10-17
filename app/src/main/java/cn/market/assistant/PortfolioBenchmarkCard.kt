@@ -39,7 +39,7 @@ internal fun PortfolioBenchmarkCard(state: PortfolioBenchmarkFeatureState) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Text("参考指数", color = Ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                    Text("价格收益对比仅作通用参照，不代表个性化投资基准", color = Muted, fontSize = 10.sp)
+                    Text("价格收益对比仅作通用参照，不代表个性化投资基准", color = Muted, fontSize = 11.sp)
                 }
                 if (option != null) {
                     TextButton(onClick = { state.load(forceRefresh = true) }, enabled = !state.loading) {
@@ -80,12 +80,12 @@ internal fun PortfolioBenchmarkCard(state: PortfolioBenchmarkFeatureState) {
                     Text(
                         "${chart.bars.size} 根日线 · $range · ${chart.source ?: "来源未记录"}" +
                             (cachedAt?.let { " · 本机更新 $it" } ?: ""),
-                        color = Muted, fontSize = 10.sp, lineHeight = 15.sp
+                        color = Muted, fontSize = 11.sp, lineHeight = 15.sp
                     )
-                    state.error?.let { Text(it, color = Gold, fontSize = 10.sp, lineHeight = 15.sp) }
+                    state.error?.let { Text(it, color = Gold, fontSize = 11.sp, lineHeight = 15.sp) }
                 }
-                state.error != null -> Text("${state.error}。周报与月报会说明基准缺口。", color = Gold, fontSize = 10.sp, lineHeight = 15.sp)
-                else -> Text("尚无可用日线。周报与月报会说明基准缺口。", color = Muted, fontSize = 10.sp)
+                state.error != null -> Text("${state.error}。周报与月报会说明基准缺口。", color = Gold, fontSize = 11.sp, lineHeight = 15.sp)
+                else -> Text("尚无可用日线。周报与月报会说明基准缺口。", color = Muted, fontSize = 11.sp)
             }
         }
     }

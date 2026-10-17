@@ -1158,17 +1158,17 @@ internal fun GoldOverviewCard(domestic: MarketQuote?, international: MarketQuote
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        Text("国内 · Au99.99", color = Muted, fontSize = 10.sp)
+                        Text("国内 · Au99.99", color = Muted, fontSize = 11.sp)
                         AnimatedTicker(domestic?.let { "¥${String.format("%.2f", it.price)}" } ?: "—", Ink, 18.sp)
-                        Text("人民币 / 克", color = Muted, fontSize = 9.sp)
+                        Text("人民币 / 克", color = Muted, fontSize = 11.sp)
                     }
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        Text("国际现货 · XAU/USD", color = Muted, fontSize = 10.sp)
+                        Text("国际现货 · XAU/USD", color = Muted, fontSize = 11.sp)
                         AnimatedTicker(international?.let { "US\$${String.format("%,.2f", it.price)}" } ?: "—", Ink, 17.sp)
-                        Text("USD / troy oz · 美元 / 金衡盎司原始报价", color = Muted, fontSize = 9.sp, maxLines = 1)
+                        Text("USD / troy oz · 美元 / 金衡盎司原始报价", color = Muted, fontSize = 11.sp, maxLines = 1)
                     }
                 }
-                Text("国内按元/克 · 国际按美元/盎司 · ETF ${etf?.changePct?.asSignedPercent() ?: "—"}", color = Muted, fontSize = 10.sp)
+                Text("国内按元/克 · 国际按美元/盎司 · ETF ${etf?.changePct?.asSignedPercent() ?: "—"}", color = Muted, fontSize = 11.sp)
             }
             Text("进入行情  ›", color = Blue, fontSize = 11.sp, fontWeight = FontWeight.Medium)
         }

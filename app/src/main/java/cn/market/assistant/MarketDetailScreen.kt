@@ -178,14 +178,14 @@ internal fun MarketDetailScreen(
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(instrument?.name ?: "行情详情", color = MarketDetailInk, fontSize = 25.sp, fontWeight = FontWeight.SemiBold)
             Surface(shape = CircleShape, color = MarketDetailSoftAccent) {
-                Text(instrument?.market ?: "市场", Modifier.padding(horizontal = 10.dp, vertical = 5.dp), color = MarketDetailAccent, fontSize = 10.sp)
+                Text(instrument?.market ?: "市场", Modifier.padding(horizontal = 10.dp, vertical = 5.dp), color = MarketDetailAccent, fontSize = 11.sp)
             }
         }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(displayedQuote?.let { if (it.source == "daily-close") "最近收盘 ${it.displayTime()}" else "行情更新 ${it.displayTime()}" } ?: "行情暂无报价", Modifier.weight(1f), color = MarketDetailMuted, fontSize = 11.sp)
             if (period == ChartPeriod.INTRADAY) {
                 FilterChip(selected = autoLive, onClick = { autoLive = !autoLive },
-                    label = { Text(if (autoLive) "实时 · 15秒刷新" else "实时 · 已暂停", fontSize = 10.sp) }, colors = assetChipColors())
+                    label = { Text(if (autoLive) "实时 · 15秒刷新" else "实时 · 已暂停", fontSize = 11.sp) }, colors = assetChipColors())
             }
         }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
@@ -202,7 +202,7 @@ internal fun MarketDetailScreen(
             Row(Modifier.fillMaxWidth().padding(horizontal = 13.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 listOf("开盘" to summaryOpen, "最高" to summaryHigh, "最低" to summaryLow, "收盘" to summaryClose).forEach { (label, value) ->
                     Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                        Text(label, color = MarketDetailMuted, fontSize = 10.sp)
+                        Text(label, color = MarketDetailMuted, fontSize = 11.sp)
                         Text(value?.let { String.format("%.2f", it) } ?: "—", color = MarketDetailInk, fontSize = 11.sp, fontWeight = FontWeight.Medium, maxLines = 1)
                     }
                 }
@@ -225,7 +225,7 @@ internal fun MarketDetailScreen(
                             ChartPeriod.FIVE_DAY -> "30分钟"
                             else -> "${visibleBars.size} 根"
                         }
-                        Text(if (visibleBars.isEmpty()) "等待历史数据" else "${chartDate(visibleBars.first().day)} — ${chartDate(visibleBars.last().day)}  ·  $interval", color = MarketDetailMuted, fontSize = 10.sp)
+                        Text(if (visibleBars.isEmpty()) "等待历史数据" else "${chartDate(visibleBars.first().day)} — ${chartDate(visibleBars.last().day)}  ·  $interval", color = MarketDetailMuted, fontSize = 11.sp)
                     }
                     TextButton(onClick = { load(force = true) }, enabled = !loading) { Text(if (loading) "加载中" else "更新") }
                 }
@@ -251,9 +251,9 @@ internal fun MarketDetailScreen(
                     }
                 }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text(visibleBars.firstOrNull()?.let { chartDate(it.day) } ?: "—", color = MarketDetailMuted, fontSize = 9.sp)
-                    Text(selectedBar?.let { "已选 ${chartDate(it.day)}" } ?: "拖动图表查看", color = MarketDetailAccent, fontSize = 9.sp, fontWeight = FontWeight.Medium)
-                    Text(visibleBars.lastOrNull()?.let { chartDate(it.day) } ?: "—", color = MarketDetailMuted, fontSize = 9.sp)
+                    Text(visibleBars.firstOrNull()?.let { chartDate(it.day) } ?: "—", color = MarketDetailMuted, fontSize = 11.sp)
+                    Text(selectedBar?.let { "已选 ${chartDate(it.day)}" } ?: "拖动图表查看", color = MarketDetailAccent, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                    Text(visibleBars.lastOrNull()?.let { chartDate(it.day) } ?: "—", color = MarketDetailMuted, fontSize = 11.sp)
                 }
                 AnimatedVisibility(
                     visible = showRsi,
@@ -275,24 +275,24 @@ internal fun MarketDetailScreen(
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                 listOf("开" to selected.open, "高" to selected.high, "低" to selected.low, "收" to selected.close).forEach { (label, value) ->
                                     Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                        Text(label, color = MarketDetailMuted, fontSize = 9.sp)
+                                        Text(label, color = MarketDetailMuted, fontSize = 11.sp)
                                         Text(String.format("%.2f", value), color = MarketDetailInk, fontSize = 11.sp, fontWeight = FontWeight.Medium)
                                     }
                                 }
                             }
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                Text("成交量 ${formatVolume(selected.volume)}", color = MarketDetailMuted, fontSize = 10.sp, modifier = Modifier.weight(1f))
-                                if (showMa5) Text("MA5 ${ma5?.let { String.format("%.2f", it) } ?: "—"}", color = MarketDetailGold, fontSize = 10.sp)
-                                if (showMa20) Text("MA20 ${ma20?.let { String.format("%.2f", it) } ?: "—"}", color = Color(0xFF8B78C8), fontSize = 10.sp)
+                                Text("成交量 ${formatVolume(selected.volume)}", color = MarketDetailMuted, fontSize = 11.sp, modifier = Modifier.weight(1f))
+                                if (showMa5) Text("MA5 ${ma5?.let { String.format("%.2f", it) } ?: "—"}", color = MarketDetailGold, fontSize = 11.sp)
+                                if (showMa20) Text("MA20 ${ma20?.let { String.format("%.2f", it) } ?: "—"}", color = Color(0xFF8B78C8), fontSize = 11.sp)
                             }
                         }
                     } else Text("触摸图表可查看单根行情", color = MarketDetailMuted, fontSize = 11.sp)
                 }
-                Text("拖动图表查看单根数据；点选 MA5 / MA20 与成交量切换指标。", color = MarketDetailMuted, fontSize = 10.sp)
+                Text("拖动图表查看单根数据；点选 MA5 / MA20 与成交量切换指标。", color = MarketDetailMuted, fontSize = 11.sp)
             }
         }
         if (message.isNotBlank()) Text(message, color = MarketDetailMuted, fontSize = 11.sp)
-        Text("公开市场 OHLC 数据可能延迟；缺失周期不会用其他周期数据补画。不能替代交易终端报价。", color = MarketDetailMuted, fontSize = 10.sp, lineHeight = 15.sp)
+        Text("公开市场 OHLC 数据可能延迟；缺失周期不会用其他周期数据补画。不能替代交易终端报价。", color = MarketDetailMuted, fontSize = 11.sp, lineHeight = 15.sp)
     }
 }
 

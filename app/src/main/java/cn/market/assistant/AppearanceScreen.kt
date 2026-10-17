@@ -53,7 +53,7 @@ internal fun AppearanceScreen(onBack: () -> Unit, modifier: Modifier = Modifier)
             MarketBackButton(label = "总览", onClick = onBack)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text("外观", color = colors.ink, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
-                Text("配色、密度、字号与圆角 · 只影响本机显示", color = colors.muted, fontSize = 10.sp)
+                Text("配色、密度、字号与圆角 · 只影响本机显示", color = colors.muted, fontSize = 11.sp)
             }
             TextButton(onClick = { state.reset() }) { Text("恢复默认", color = colors.muted, fontSize = 11.sp) }
         }
@@ -78,7 +78,7 @@ internal fun AppearanceScreen(onBack: () -> Unit, modifier: Modifier = Modifier)
         Text(
             "换肤即时生效并保存在本机；清空应用数据会回到默认的电蓝浅色主题。深色模式用分层表面与描边" +
                 "承担层次，涨跌色与强调色会自动提高对比度。",
-            color = colors.muted, fontSize = 10.sp, lineHeight = 14.sp, modifier = Modifier.padding(bottom = 24.dp)
+            color = colors.muted, fontSize = 11.sp, lineHeight = 14.sp, modifier = Modifier.padding(bottom = 24.dp)
         )
     }
 }
@@ -134,7 +134,7 @@ private fun AppearancePreview(selectedAccent: MarketAccent) {
                     )
                 }
                 Spacer(Modifier.width(4.dp))
-                Text("强调色样本", color = colors.muted, fontSize = 9.sp)
+                Text("强调色样本", color = colors.muted, fontSize = 11.sp)
             }
         }
     }
@@ -144,7 +144,7 @@ private fun AppearancePreview(selectedAccent: MarketAccent) {
 private fun PreviewStat(label: String, value: String, valueColor: androidx.compose.ui.graphics.Color) {
     val colors = MarketTheme.colors
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Text(label, color = colors.muted, fontSize = 9.sp)
+        Text(label, color = colors.muted, fontSize = 11.sp)
         Text(value, color = valueColor, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
     }
 }

@@ -147,7 +147,7 @@ private fun AssistantSettingsPanel(state: AssistantFeatureState, modifier: Modif
                 Text(
                     if (state.isLive) "${state.settings.provider.label} · ${state.settings.model}"
                     else "配置模型、回复习惯与本地数据权限",
-                    color = Muted, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis
+                    color = Muted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis
                 )
             }
             Surface(
@@ -155,7 +155,7 @@ private fun AssistantSettingsPanel(state: AssistantFeatureState, modifier: Modif
                 shape = RoundedCornerShape(20.dp)
             ) {
                 Text(if (state.isLive) "已连接" else "未连接", color = if (state.isLive) AssistantDown else Muted,
-                    fontSize = 10.sp, fontWeight = FontWeight.Medium,
+                    fontSize = 11.sp, fontWeight = FontWeight.Medium,
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp))
             }
         }
@@ -213,14 +213,14 @@ private fun AssistantSettingsPanel(state: AssistantFeatureState, modifier: Modif
                                         reasoningEffort = next.reasoningEffort
                                         maxTokens = next.maxTokens
                                     },
-                                    label = { Text(option.label, fontSize = 10.sp, maxLines = 1) },
+                                    label = { Text(option.label, fontSize = 11.sp, maxLines = 1) },
                                     colors = settingsChipColors()
                                 )
                             }
                         }
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(provider.consoleHint, color = Muted, fontSize = 10.sp, modifier = Modifier.weight(1f))
-                            Text("接口协议", color = Ink, fontSize = 10.sp, fontWeight = FontWeight.Medium)
+                            Text(provider.consoleHint, color = Muted, fontSize = 11.sp, modifier = Modifier.weight(1f))
+                            Text("接口协议", color = Ink, fontSize = 11.sp, fontWeight = FontWeight.Medium)
                         }
                         Row(
                             Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
@@ -234,7 +234,7 @@ private fun AssistantSettingsPanel(state: AssistantFeatureState, modifier: Modif
                                         protocol = next.protocol
                                         baseUrl = next.baseUrl
                                     },
-                                    label = { Text(option.label.replace("OpenAI ", "").replace("Anthropic ", ""), fontSize = 9.sp, maxLines = 1) },
+                                    label = { Text(option.label.replace("OpenAI ", "").replace("Anthropic ", ""), fontSize = 11.sp, maxLines = 1) },
                                     colors = settingsChipColors()
                                 )
                             }
@@ -246,8 +246,8 @@ private fun AssistantSettingsPanel(state: AssistantFeatureState, modifier: Modif
                         val capabilities = listedModels.firstOrNull { it.modelId == model }
                         Surface(color = MarketTheme.colors.surface, shape = RoundedCornerShape(13.dp)) {
                             Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 9.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                Text("请求地址预览", color = Muted, fontSize = 9.sp)
-                                Text(endpoint, color = Ink, fontSize = 10.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                Text("请求地址预览", color = Muted, fontSize = 11.sp)
+                                Text(endpoint, color = Ink, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                             }
                         }
                         OutlinedTextField(
@@ -272,7 +272,7 @@ private fun AssistantSettingsPanel(state: AssistantFeatureState, modifier: Modif
                                             model = option
                                             imageInputEnabled = false
                                         },
-                                        label = { Text(option, fontSize = 9.sp, maxLines = 1) },
+                                        label = { Text(option, fontSize = 11.sp, maxLines = 1) },
                                         colors = settingsChipColors()
                                     )
                                 }
@@ -280,7 +280,7 @@ private fun AssistantSettingsPanel(state: AssistantFeatureState, modifier: Modif
                         }
                         if (listedModels.isNotEmpty()) {
                             Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                                Text("此密钥可用的模型", color = Ink, fontSize = 10.sp, fontWeight = FontWeight.Medium)
+                                Text("此密钥可用的模型", color = Ink, fontSize = 11.sp, fontWeight = FontWeight.Medium)
                                 Row(
                                     Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                                     horizontalArrangement = Arrangement.spacedBy(5.dp)
@@ -296,7 +296,7 @@ private fun AssistantSettingsPanel(state: AssistantFeatureState, modifier: Modif
                                                     option.reasoningEfforts?.contains(reasoningEffort) == false
                                                 ) reasoningEffort = "auto"
                                             },
-                                            label = { Text(option.displayName ?: option.modelId, fontSize = 9.sp, maxLines = 1) },
+                                            label = { Text(option.displayName ?: option.modelId, fontSize = 11.sp, maxLines = 1) },
                                             colors = settingsChipColors()
                                         )
                                     }
@@ -317,7 +317,7 @@ private fun AssistantSettingsPanel(state: AssistantFeatureState, modifier: Modif
                             textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp)
                         )
                         if (provider == LlmProvider.DEEPSEEK) {
-                            Text("DeepSeek 密钥通常以 sk- 开头。", color = Muted, fontSize = 9.sp)
+                            Text("DeepSeek 密钥通常以 sk- 开头。", color = Muted, fontSize = 11.sp)
                         }
                         Surface(color = MarketTheme.colors.surface, shape = RoundedCornerShape(14.dp)) {
                             Column(
@@ -329,7 +329,7 @@ private fun AssistantSettingsPanel(state: AssistantFeatureState, modifier: Modif
                                         Text("模型能力", color = Ink, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                                         Text(
                                             capabilities?.let { "当前密钥可用的模型能力" } ?: "读取模型目录并发现当前密钥可用模型",
-                                            color = Muted, fontSize = 9.sp
+                                            color = Muted, fontSize = 11.sp
                                         )
                                     }
                                     TextButton(
@@ -337,7 +337,7 @@ private fun AssistantSettingsPanel(state: AssistantFeatureState, modifier: Modif
                                         onClick = { saveSettings(); state.readAvailableModels() },
                                         contentPadding = PaddingValues(horizontal = 6.dp)
                                     ) {
-                                        Text(if (state.checkingModelCapabilities) "获取中…" else "获取模型", color = Blue, fontSize = 10.sp)
+                                        Text(if (state.checkingModelCapabilities) "获取中…" else "获取模型", color = Blue, fontSize = 11.sp)
                                     }
                                 }
                                 val contextWindow = capabilities?.contextWindow
@@ -349,14 +349,14 @@ private fun AssistantSettingsPanel(state: AssistantFeatureState, modifier: Modif
                                 }
                                 Text(
                                     "$inputLimit   ·   输出上限：${capabilities?.maxOutputTokens?.formatTokenCount() ?: "未提供"}",
-                                    color = Ink, fontSize = 9.sp
+                                    color = Ink, fontSize = 11.sp
                                 )
                                 Text(
                                     "输入：${capabilities?.inputModalities?.takeIf { it.isNotEmpty() }?.joinToString("、") ?: "服务未声明"}   ·   思考：${capabilities?.reasoningEfforts?.takeIf { it.isNotEmpty() }?.joinToString(" / ") ?: "服务未声明"}",
-                                    color = Muted, fontSize = 9.sp
+                                    color = Muted, fontSize = 11.sp
                                 )
                                 state.modelCapabilitiesMessage?.takeIf { capabilities != null || !it.startsWith("已读取") }?.let { message ->
-                                    Text(message, color = if (message.startsWith("已读取")) AssistantDown else AssistantUp, fontSize = 9.sp)
+                                    Text(message, color = if (message.startsWith("已读取")) AssistantDown else AssistantUp, fontSize = 11.sp)
                                 }
                             }
                         }
@@ -394,7 +394,7 @@ private fun AssistantSettingsPanel(state: AssistantFeatureState, modifier: Modif
                                 FilterChip(
                                     selected = reasoningEffort == effort,
                                     onClick = { reasoningEffort = effort },
-                                    label = { Text(effortLabel(effort), fontSize = 9.sp) },
+                                    label = { Text(effortLabel(effort), fontSize = 11.sp) },
                                     colors = settingsChipColors()
                                 )
                             }
@@ -407,14 +407,14 @@ private fun AssistantSettingsPanel(state: AssistantFeatureState, modifier: Modif
                                 provider == LlmProvider.DEEPSEEK && reasoningEffort != "none" -> "DeepSeek 思考模式下 temperature 不生效；思考级别按模型目录映射。"
                                 provider == LlmProvider.ANTHROPIC && reasoningEffort != "none" -> "Claude 会按模型能力使用 adaptive thinking 或 token budget；读取能力后才能验证档位。"
                                 else -> "关闭思考；temperature 按所选协议发送。"
-                            }, color = Muted, fontSize = 9.sp, lineHeight = 13.sp
+                            }, color = Muted, fontSize = 11.sp, lineHeight = 13.sp
                         )
                         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             AssistantPromptPresets.all.forEach { preset ->
                                 FilterChip(
                                     selected = systemPrompt == preset.prompt,
                                     onClick = { systemPrompt = preset.prompt; state.applyPromptPreset(preset.id) },
-                                    label = { Text(preset.label, fontSize = 10.sp) },
+                                    label = { Text(preset.label, fontSize = 11.sp) },
                                     colors = settingsChipColors()
                                 )
                             }
@@ -427,7 +427,7 @@ private fun AssistantSettingsPanel(state: AssistantFeatureState, modifier: Modif
                                 valueRange = 0f..(if (provider == LlmProvider.ANTHROPIC) 1f else 2f),
                                 modifier = Modifier.weight(1f)
                             )
-                            Text(String.format(java.util.Locale.US, "%.1f", temperature), color = Muted, fontSize = 10.sp)
+                            Text(String.format(java.util.Locale.US, "%.1f", temperature), color = Muted, fontSize = 11.sp)
                         }
                         OutlinedTextField(
                             value = maxTokens.toString(),
@@ -494,7 +494,7 @@ private fun AssistantSettingsPanel(state: AssistantFeatureState, modifier: Modif
                                         } else {
                                             descriptor.description
                                         },
-                                        color = Muted, fontSize = 9.sp, lineHeight = 12.sp,
+                                        color = Muted, fontSize = 11.sp, lineHeight = 12.sp,
                                         maxLines = 2, overflow = TextOverflow.Ellipsis
                                     )
                                 }
@@ -512,7 +512,7 @@ private fun AssistantSettingsPanel(state: AssistantFeatureState, modifier: Modif
 
         state.connectionCheck?.takeIf { selectedTab == AssistantSettingsTab.MODEL }?.let { message ->
             Text(message, color = if (message.startsWith("连接成功")) AssistantDown else AssistantUp,
-                fontSize = 10.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
         Row(
             Modifier.fillMaxWidth().background(MarketTheme.colors.surface, RoundedCornerShape(16.dp)).padding(4.dp),
@@ -537,7 +537,7 @@ private fun AssistantSettingsPanel(state: AssistantFeatureState, modifier: Modif
                 }
             }
             if (selectedTab == AssistantSettingsTab.MODEL && state.hasApiKey) {
-                TextButton(onClick = { state.clearApiKey() }) { Text("清除密钥", color = AssistantUp, fontSize = 10.sp) }
+                TextButton(onClick = { state.clearApiKey() }) { Text("清除密钥", color = AssistantUp, fontSize = 11.sp) }
             }
         }
     }
@@ -555,7 +555,7 @@ private fun settingsChipColors() = androidx.compose.material3.FilterChipDefaults
 private fun SettingsGroupTitle(title: String, subtitle: String) {
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text(title, color = Ink, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-        Text(subtitle, color = Muted, fontSize = 9.sp)
+        Text(subtitle, color = Muted, fontSize = 11.sp)
     }
 }
 
@@ -588,7 +588,7 @@ private fun AssistantSettingSwitch(
     ) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(title, color = Ink, fontSize = 11.sp, fontWeight = FontWeight.Medium)
-            Text(detail, color = Muted, fontSize = 9.sp, lineHeight = 12.sp)
+            Text(detail, color = Muted, fontSize = 11.sp, lineHeight = 12.sp)
         }
         Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
     }
@@ -599,7 +599,7 @@ private fun AssistantSkillsPanel(state: AssistantFeatureState, onEditSkill: (Ass
     Row(verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text("我的技能", color = Ink, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-            Text("技能 = 一段可复用指令 + 可选工具范围；输入 /技能ID 或命中触发词时自动启用。", color = Muted, fontSize = 10.sp, lineHeight = 14.sp)
+            Text("技能 = 一段可复用指令 + 可选工具范围；输入 /技能ID 或命中触发词时自动启用。", color = Muted, fontSize = 11.sp, lineHeight = 14.sp)
         }
         TextButton(onClick = { onEditSkill(null) }) { Text("新建", color = Blue) }
     }
@@ -616,21 +616,21 @@ private fun AssistantSkillsPanel(state: AssistantFeatureState, onEditSkill: (Ass
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text("${skill.name}  /${skill.id}", color = Ink, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                        Text(skill.description.ifBlank { "（无描述）" }, color = Muted, fontSize = 10.sp)
+                        Text(skill.description.ifBlank { "（无描述）" }, color = Muted, fontSize = 11.sp)
                     }
                     Switch(checked = skill.enabled, onCheckedChange = { state.saveSkill(skill.copy(enabled = it)) })
                 }
                 Text(
                     "使用 ${skill.usageCount} 次 · 工具 ${skill.toolIds.ifEmpty { listOf("默认") }.joinToString("、")} · 触发词 " +
                         skill.triggerWords.joinToString("、").ifBlank { "—" },
-                    color = Muted, fontSize = 9.sp, lineHeight = 12.sp
+                    color = Muted, fontSize = 11.sp, lineHeight = 12.sp
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     TextButton(onClick = { onEditSkill(skill) }, contentPadding = PaddingValues(horizontal = 6.dp)) {
-                        Text("编辑", color = Blue, fontSize = 10.sp)
+                        Text("编辑", color = Blue, fontSize = 11.sp)
                     }
                     TextButton(onClick = { state.deleteSkill(skill.id) }, contentPadding = PaddingValues(horizontal = 6.dp)) {
-                        Text("删除", color = AssistantDown, fontSize = 10.sp)
+                        Text("删除", color = AssistantDown, fontSize = 11.sp)
                     }
                 }
             }
@@ -641,7 +641,7 @@ private fun AssistantSkillsPanel(state: AssistantFeatureState, onEditSkill: (Ass
         Text("我的配方", color = Ink, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
         Text(
             "配方 = 可重复执行的工具序列（数据，不是代码）；助手可用 recipe.run 运行，也可以按需写成报告。",
-            color = Muted, fontSize = 10.sp, lineHeight = 14.sp
+            color = Muted, fontSize = 11.sp, lineHeight = 14.sp
         )
         state.recipes.forEach { recipe ->
             Card(
@@ -653,10 +653,10 @@ private fun AssistantSkillsPanel(state: AssistantFeatureState, onEditSkill: (Ass
                     Text("${recipe.name}  /recipe ${recipe.id}", color = Ink, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                     Text(
                         "${recipe.steps.size} 步 · 工具 ${recipe.toolIds.joinToString("、").ifBlank { "无" }}",
-                        color = Muted, fontSize = 9.sp, lineHeight = 12.sp
+                        color = Muted, fontSize = 11.sp, lineHeight = 12.sp
                     )
                     recipe.summary.takeIf { it.isNotBlank() }?.let {
-                        Text(it, color = Muted, fontSize = 10.sp, lineHeight = 14.sp)
+                        Text(it, color = Muted, fontSize = 11.sp, lineHeight = 14.sp)
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         TextButton(
@@ -667,13 +667,13 @@ private fun AssistantSkillsPanel(state: AssistantFeatureState, onEditSkill: (Ass
                             Text(
                                 if (state.recipeRunInProgress) "运行中…" else "运行",
                                 color = if (state.recipeRunInProgress) Muted else Blue,
-                                fontSize = 10.sp
+                                fontSize = 11.sp
                             )
                         }
                         TextButton(
                             onClick = { state.deleteRecipe(recipe.id) },
                             contentPadding = PaddingValues(horizontal = 6.dp)
-                        ) { Text("删除", color = AssistantDown, fontSize = 10.sp) }
+                        ) { Text("删除", color = AssistantDown, fontSize = 11.sp) }
                     }
                 }
             }
@@ -768,7 +768,7 @@ private fun AssistantWorkflowsPanel(
     Row(verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text("会话工作流", color = Ink, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-            Text("自动保存 · 可继续、复制、导出或归档", color = Muted, fontSize = 10.sp, lineHeight = 14.sp)
+            Text("自动保存 · 可继续、复制、导出或归档", color = Muted, fontSize = 11.sp, lineHeight = 14.sp)
         }
     }
     Row(Modifier.fillMaxWidth().background(MarketTheme.colors.surface, RoundedCornerShape(14.dp)).padding(4.dp)) {
@@ -778,7 +778,7 @@ private fun AssistantWorkflowsPanel(
                 color = if (showArchived == archived) Ink else Color.Transparent,
                 shape = RoundedCornerShape(10.dp)
             ) {
-                Text(label, color = if (showArchived == archived) White else Muted, fontSize = 10.sp,
+                Text(label, color = if (showArchived == archived) White else Muted, fontSize = 11.sp,
                     modifier = Modifier.padding(vertical = 8.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
             }
         }
@@ -797,29 +797,29 @@ private fun AssistantWorkflowsPanel(
                 Text(workflow.title, color = Ink, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                 Text(
                     "${workflow.turnCount} 轮 · ${if (showArchived) "已归档" else "最近更新"} ${java.time.Instant.ofEpochMilli(workflow.updatedAtMillis).toString().take(16)}",
-                    color = Muted, fontSize = 9.sp
+                    color = Muted, fontSize = 11.sp
                 )
                 workflow.lastTurn?.let { last ->
-                    Text("最近：${last.question.take(40)}", color = Muted, fontSize = 10.sp)
+                    Text("最近：${last.question.take(40)}", color = Muted, fontSize = 11.sp)
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     TextButton(onClick = { state.resumeWorkflow(workflow.id); onDismiss() }, contentPadding = PaddingValues(horizontal = 6.dp)) {
-                        Text("继续", color = Blue, fontSize = 9.sp)
+                        Text("继续", color = Blue, fontSize = 11.sp)
                     }
                     TextButton(onClick = { onCopyWorkflow(workflow) }, contentPadding = PaddingValues(horizontal = 6.dp)) {
-                        Text("复制对话", color = Blue, fontSize = 9.sp)
+                        Text("复制对话", color = Blue, fontSize = 11.sp)
                     }
                     TextButton(onClick = { onExportWorkflow(workflow) }, contentPadding = PaddingValues(horizontal = 6.dp)) {
-                        Text("导出", color = Blue, fontSize = 9.sp)
+                        Text("导出", color = Blue, fontSize = 11.sp)
                     }
                     TextButton(
                         onClick = { state.archiveWorkflow(workflow.id, archived = !showArchived) },
                         contentPadding = PaddingValues(horizontal = 6.dp)
                     ) {
-                        Text(if (showArchived) "移出归档" else "归档", color = Muted, fontSize = 9.sp)
+                        Text(if (showArchived) "移出归档" else "归档", color = Muted, fontSize = 11.sp)
                     }
                     TextButton(onClick = { state.deleteWorkflow(workflow.id) }, contentPadding = PaddingValues(horizontal = 6.dp)) {
-                        Text("删除", color = AssistantDown, fontSize = 9.sp)
+                        Text("删除", color = AssistantDown, fontSize = 11.sp)
                     }
                 }
             }
@@ -832,10 +832,10 @@ private fun AssistantHabitsPanel(state: AssistantFeatureState, onExportMemory: (
     Row(verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text("使用习惯", color = Ink, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-            Text("分析方法、常看标的与使用习惯仅保存在本机；你可以随时导出或清空。", color = Muted, fontSize = 10.sp, lineHeight = 14.sp)
+            Text("分析方法、常看标的与使用习惯仅保存在本机；你可以随时导出或清空。", color = Muted, fontSize = 11.sp, lineHeight = 14.sp)
         }
-        TextButton(onClick = onExportMemory) { Text("导出", color = Blue, fontSize = 10.sp) }
-        TextButton(onClick = { state.clearMemory() }) { Text("清空", color = AssistantDown, fontSize = 10.sp) }
+        TextButton(onClick = onExportMemory) { Text("导出", color = Blue, fontSize = 11.sp) }
+        TextButton(onClick = { state.clearMemory() }) { Text("清空", color = AssistantDown, fontSize = 11.sp) }
     }
     val summary: HabitSummary = state.habits
     if (summary.isEmpty) {
@@ -849,7 +849,7 @@ private fun AssistantHabitsPanel(state: AssistantFeatureState, onExportMemory: (
     HabitList("常看标的", summary.topInstruments.map { "${it.key}（${it.count}）" })
     HabitList("记住的方法", summary.preferences.map { it.key })
     summary.lastActiveAtMillis?.let {
-        Text("最近使用：${java.time.Instant.ofEpochMilli(it).toString().take(16)}", color = Muted, fontSize = 9.sp)
+        Text("最近使用：${java.time.Instant.ofEpochMilli(it).toString().take(16)}", color = Muted, fontSize = 11.sp)
     }
 }
 
@@ -858,7 +858,7 @@ private fun HabitList(title: String, values: List<String>) {
     if (values.isEmpty()) return
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text(title, color = Ink, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-        Text(values.joinToString("、"), color = Muted, fontSize = 10.sp, lineHeight = 15.sp)
+        Text(values.joinToString("、"), color = Muted, fontSize = 11.sp, lineHeight = 15.sp)
     }
 }
 

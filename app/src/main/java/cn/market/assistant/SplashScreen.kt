@@ -179,13 +179,13 @@ internal fun MarketSplashScreen(errorMessage: String?, onRetry: () -> Unit) {
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             MarketIcon("assets", size = 13.dp, tint = palette.muted)
-            Text("持仓与流水只保存在本机，不上传", color = palette.muted, fontSize = 10.5.sp)
+            Text("持仓与流水只保存在本机，不上传", color = palette.muted, fontSize = 11.5.sp)
             Spacer(Modifier.width(2.dp))
-            Text("·", color = palette.muted.copy(alpha = 0.6f), fontSize = 10.5.sp)
+            Text("·", color = palette.muted.copy(alpha = 0.6f), fontSize = 11.5.sp)
             val version = androidx.compose.ui.platform.LocalContext.current.packageManager
                 .getPackageInfo(androidx.compose.ui.platform.LocalContext.current.packageName, 0)
                 .versionName
-            Text("v$version", color = palette.muted.copy(alpha = 0.75f), fontSize = 10.5.sp)
+            Text("v$version", color = palette.muted.copy(alpha = 0.75f), fontSize = 11.5.sp)
         }
     }
 }

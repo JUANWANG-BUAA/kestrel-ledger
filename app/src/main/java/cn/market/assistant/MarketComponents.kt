@@ -63,7 +63,11 @@ internal fun MarketCard(
     val geometry = MarketTheme.geometry
     val shape = RoundedCornerShape(geometry.card)
     val body: @Composable ColumnScope.() -> Unit = {
-        Column(Modifier.padding(geometry.md), verticalArrangement = Arrangement.spacedBy(geometry.sm), content = content)
+        Column(
+            Modifier.padding(horizontal = geometry.lg, vertical = geometry.md),
+            verticalArrangement = Arrangement.spacedBy(geometry.sm),
+            content = content
+        )
     }
     if (onClick == null) {
         Card(
@@ -519,7 +523,7 @@ internal fun MarketChoiceChip(
     val shape = RoundedCornerShape(geometry.chip)
     Box(
         modifier
-            .heightIn(min = 36.dp)
+            .heightIn(min = 34.dp)
             .clip(shape)
             .background(if (selected) palette.accentSoft else palette.surface)
             .then(if (selected) Modifier else Modifier.border(1.dp, palette.line.copy(alpha = 0.9f), shape))

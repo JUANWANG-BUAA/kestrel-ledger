@@ -317,7 +317,7 @@ internal fun MarketIndexCard(instrument: MarketInstrument, quote: MarketQuote?, 
                     quote == null -> instrument.market
                     quote.source == "daily-close" -> "近收 ${quote.displayTime()}"
                     else -> instrument.market
-                }, color = Muted, fontSize = 9.sp, maxLines = 1)
+                }, color = Muted, fontSize = 11.sp, maxLines = 1)
             }
             Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 AnimatedTicker(quote?.price?.let { String.format("%.2f", it) } ?: "—", Ink, 15.sp)

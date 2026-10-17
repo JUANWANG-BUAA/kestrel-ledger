@@ -22,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -119,7 +120,8 @@ internal fun MarketLargeTitle(
                 color = palette.ink,
                 fontSize = titleSize.sp,
                 fontWeight = FontWeight.Bold,
-                letterSpacing = (-0.8 + 0.4 * collapsed).sp,
+                fontFamily = FontFamily.Serif,
+                letterSpacing = (-0.4 + 0.2 * collapsed).sp,
                 maxLines = 1,
                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
             )

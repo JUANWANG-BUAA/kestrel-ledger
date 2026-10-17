@@ -76,7 +76,7 @@ internal fun AlertScreen(
             MarketBackButton(label = "总览", onClick = onBack)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text("提醒", color = Ink, style = MarketType.title)
-                Text("阈值规则 · 只陈述事实与来源时点 · 不提供买卖建议", color = Muted, fontSize = 10.sp)
+                Text("阈值规则 · 只陈述事实与来源时点 · 不提供买卖建议", color = Muted, fontSize = 11.sp)
             }
             TextButton(onClick = { state.checkNow(quotes, positions) }) { Text("立即检查", color = Blue, fontSize = 12.sp) }
         }
@@ -99,7 +99,7 @@ internal fun AlertScreen(
                             } else {
                                 "请在系统通知设置中允许养基助手；当前版本不需要运行时权限。"
                             },
-                            color = Muted, fontSize = 9.sp, lineHeight = 13.sp
+                            color = Muted, fontSize = 11.sp, lineHeight = 13.sp
                         )
                     }
                     TextButton(onClick = {
@@ -119,7 +119,7 @@ internal fun AlertScreen(
             }
         }
 
-        state.lastCheck?.let { Text(it, color = Muted, fontSize = 10.sp, lineHeight = 14.sp) }
+        state.lastCheck?.let { Text(it, color = Muted, fontSize = 11.sp, lineHeight = 14.sp) }
         state.lastFired?.let { fired ->
             Card(
                 Modifier.fillMaxWidth().padding(vertical = 4.dp),
@@ -148,7 +148,7 @@ internal fun AlertScreen(
             Text("快捷模板", color = Ink, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
             Text(
                 "一键加入后仍可修改阈值、去抖次数、冷却时间与静默时段；模板使用本机已有标的与账户口径。",
-                color = Muted, fontSize = 10.sp, lineHeight = 14.sp
+                color = Muted, fontSize = 11.sp, lineHeight = 14.sp
             )
             AlertFeatureState.templates().forEach { template ->
                 Row(
@@ -160,7 +160,7 @@ internal fun AlertScreen(
                             "${template.target} · ${template.kind.label} ${formatThreshold(template)}",
                             color = Ink, fontSize = 12.sp
                         )
-                        Text(template.kind.explanation, color = Muted, fontSize = 9.sp)
+                        Text(template.kind.explanation, color = Muted, fontSize = 11.sp)
                     }
                     Text("+ 加入", color = Blue, fontSize = 11.sp)
                 }
@@ -174,18 +174,18 @@ internal fun AlertScreen(
                 Column(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(
                         "${formatTime(event.firedAtMillis)} · ${event.ruleKind.label}",
-                        color = Muted, fontSize = 9.sp
+                        color = Muted, fontSize = 11.sp
                     )
                     Text(event.body, color = Ink, fontSize = 11.sp, lineHeight = 15.sp)
                 }
             }
             if (state.events.isNotEmpty()) {
-                TextButton(onClick = { state.clearEvents() }) { Text("清空触发记录", color = AssistantDown, fontSize = 10.sp) }
+                TextButton(onClick = { state.clearEvents() }) { Text("清空触发记录", color = AssistantDown, fontSize = 11.sp) }
             }
             Text(
                 "后台每 30 分钟用本机缓存评估一次（WorkManager 尽力调度，省电模式下可能延后）；" +
                     "前台刷新行情与账本后也会立即评估。提醒不构成投资建议，估值均为估算。",
-                color = Muted, fontSize = 9.sp, lineHeight = 13.sp, modifier = Modifier.padding(bottom = 20.dp)
+                color = Muted, fontSize = 11.sp, lineHeight = 13.sp, modifier = Modifier.padding(bottom = 20.dp)
             )
         }
     }
@@ -215,7 +215,7 @@ private fun AlertRuleCard(rule: AlertRule, state: AlertFeatureState, onEdit: () 
                         "${rule.target} · ${rule.kind.label} ${formatThreshold(rule)}",
                         color = Ink, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold
                     )
-                    Text(rule.kind.explanation, color = Muted, fontSize = 9.sp)
+                    Text(rule.kind.explanation, color = Muted, fontSize = 11.sp)
                 }
                 Switch(checked = rule.enabled, onCheckedChange = { state.toggleRule(rule, it) })
             }
@@ -226,14 +226,14 @@ private fun AlertRuleCard(rule: AlertRule, state: AlertFeatureState, onEdit: () 
                     append(" · 已触发 ${rule.triggerCount} 次")
                     if (rule.lastFiredAtMillis > 0) append(" · 最近 ${formatTime(rule.lastFiredAtMillis)}")
                 },
-                color = Muted, fontSize = 9.sp, lineHeight = 13.sp
+                color = Muted, fontSize = 11.sp, lineHeight = 13.sp
             )
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 TextButton(onClick = onEdit, contentPadding = PaddingValues(horizontal = 6.dp)) {
-                    Text("编辑", color = Blue, fontSize = 10.sp)
+                    Text("编辑", color = Blue, fontSize = 11.sp)
                 }
                 TextButton(onClick = { state.deleteRule(rule.id) }, contentPadding = PaddingValues(horizontal = 6.dp)) {
-                    Text("删除", color = AssistantDown, fontSize = 10.sp)
+                    Text("删除", color = AssistantDown, fontSize = 11.sp)
                 }
             }
         }
@@ -271,7 +271,7 @@ private fun AlertRuleEditor(
                     FilterChip(
                         selected = kind == option,
                         onClick = { kind = option },
-                        label = { Text(option.label, fontSize = 10.sp) },
+                        label = { Text(option.label, fontSize = 11.sp) },
                         colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(
                             selectedContainerColor = SoftBlue, selectedLabelColor = Ink,
                             containerColor = White, labelColor = Muted
@@ -279,24 +279,24 @@ private fun AlertRuleEditor(
                     )
                 }
             }
-            Text(kind.explanation, color = Muted, fontSize = 10.sp)
+            Text(kind.explanation, color = Muted, fontSize = 11.sp)
             if (kind.requiresTarget) {
                 OutlinedTextField(
                     value = targetId, onValueChange = { targetId = it.take(60) },
-                    label = { Text("标 ID（如 1.000300 / GOLD.SGE.AU9999 / 518880）", fontSize = 10.sp) },
+                    label = { Text("标 ID（如 1.000300 / GOLD.SGE.AU9999 / 518880）", fontSize = 11.sp) },
                     modifier = Modifier.fillMaxWidth(),
                     textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp)
                 )
                 OutlinedTextField(
                     value = targetLabel, onValueChange = { targetLabel = it.take(40) },
-                    label = { Text("显示名称（可选）", fontSize = 10.sp) },
+                    label = { Text("显示名称（可选）", fontSize = 11.sp) },
                     modifier = Modifier.fillMaxWidth(),
                     textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp)
                 )
             }
             OutlinedTextField(
                 value = threshold, onValueChange = { threshold = it.filter { char -> char.isDigit() || char == '.' || char == '-' }.take(12) },
-                label = { Text("阈值（${kind.unit}）", fontSize = 10.sp) },
+                label = { Text("阈值（${kind.unit}）", fontSize = 11.sp) },
                 modifier = Modifier.fillMaxWidth(),
                 textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp)
             )
@@ -304,14 +304,14 @@ private fun AlertRuleEditor(
                 OutlinedTextField(
                     value = requiredBreaches,
                     onValueChange = { requiredBreaches = it.filter(Char::isDigit).take(2) },
-                    label = { Text("连续次数", fontSize = 10.sp) },
+                    label = { Text("连续次数", fontSize = 11.sp) },
                     modifier = Modifier.weight(1f),
                     textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp)
                 )
                 OutlinedTextField(
                     value = cooldown,
                     onValueChange = { cooldown = it.filter(Char::isDigit).take(4) },
-                    label = { Text("冷却分钟", fontSize = 10.sp) },
+                    label = { Text("冷却分钟", fontSize = 11.sp) },
                     modifier = Modifier.weight(1f),
                     textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp)
                 )
@@ -319,7 +319,7 @@ private fun AlertRuleEditor(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("静默时段", color = Ink, fontSize = 12.sp)
-                    Text("静默期间不打扰，静默结束后仍满足条件才提醒", color = Muted, fontSize = 9.sp)
+                    Text("静默期间不打扰，静默结束后仍满足条件才提醒", color = Muted, fontSize = 11.sp)
                 }
                 Switch(checked = quietEnabled, onCheckedChange = { quietEnabled = it })
             }
@@ -327,13 +327,13 @@ private fun AlertRuleEditor(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(
                         value = quietStart, onValueChange = { quietStart = it.filter(Char::isDigit).take(2) },
-                        label = { Text("开始小时", fontSize = 10.sp) },
+                        label = { Text("开始小时", fontSize = 11.sp) },
                         modifier = Modifier.weight(1f),
                         textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp)
                     )
                     OutlinedTextField(
                         value = quietEnd, onValueChange = { quietEnd = it.filter(Char::isDigit).take(2) },
-                        label = { Text("结束小时", fontSize = 10.sp) },
+                        label = { Text("结束小时", fontSize = 11.sp) },
                         modifier = Modifier.weight(1f),
                         textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp)
                     )

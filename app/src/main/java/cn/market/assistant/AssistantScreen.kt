@@ -249,9 +249,9 @@ internal fun AssistantScreen(
                 Modifier.fillMaxWidth().padding(vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(message, color = Blue, fontSize = 10.sp, modifier = Modifier.weight(1f))
+                Text(message, color = Blue, fontSize = 11.sp, modifier = Modifier.weight(1f))
                 TextButton(onClick = { state.dismissStatus() }, contentPadding = PaddingValues(horizontal = 6.dp)) {
-                    Text("知道了", color = Muted, fontSize = 9.sp)
+                    Text("知道了", color = Muted, fontSize = 11.sp)
                 }
             }
         }
@@ -309,7 +309,7 @@ internal fun AssistantScreen(
                 }
             }
         }
-        attachmentError?.let { Text(it, color = AssistantDown, fontSize = 10.sp) }
+        attachmentError?.let { Text(it, color = AssistantDown, fontSize = 11.sp) }
         if (attachments.isNotEmpty()) {
             AssistantAttachmentRail(attachments, onRemove = { index -> attachments = attachments.filterIndexed { i, _ -> i != index } })
         }
@@ -414,7 +414,7 @@ private fun AssistantHeader(
                     Text(
                         if (state.isLive) state.settings.model else "连接模型",
                         color = if (state.isLive) Ink else Blue,
-                        fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis
+                        fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis
                     )
                     if (imageMode) MarketIcon("image", size = 12.dp, tint = Blue)
                 }
@@ -511,7 +511,7 @@ private fun AssistantOnboarding(
                 Text("今天要分析什么？", color = Ink, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
                 Text(
                     if (state.isLive) "行情、基金目录与本机持仓可一起分析" else "本机数据可用 · 连接模型解锁完整对话",
-                    color = Muted, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis
+                    color = Muted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis
                 )
             }
         }
@@ -536,7 +536,7 @@ private fun AssistantOnboarding(
                                 MarketIcon("forward", tint = Muted, size = 13.dp)
                             }
                             Text(action.title, color = Ink, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                            Text(action.detail, color = Muted, fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(action.detail, color = Muted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     }
                 }
@@ -550,18 +550,18 @@ private fun AssistantOnboarding(
                         color = palette.surfaceAlt,
                         shape = CircleShape
                     ) {
-                        Text("✳ ${skill.name}", color = Ink, fontSize = 10.sp, modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp))
+                        Text("✳ ${skill.name}", color = Ink, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp))
                     }
                 }
             }
         }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             TextButton(onClick = { onOpenSheet(AssistantSheet.SETTINGS) }, contentPadding = PaddingValues(horizontal = 2.dp)) {
-                Text("回复偏好", color = Blue, fontSize = 10.sp)
+                Text("回复偏好", color = Blue, fontSize = 11.sp)
             }
-            Text("·", color = Muted, fontSize = 10.sp)
+            Text("·", color = Muted, fontSize = 11.sp)
             TextButton(onClick = { onOpenSheet(AssistantSheet.HABITS) }, contentPadding = PaddingValues(horizontal = 2.dp)) {
-                Text(if (state.habits.isEmpty) "记忆与习惯" else "记忆 ${state.habits.totalEvents} 条", color = Blue, fontSize = 10.sp)
+                Text(if (state.habits.isEmpty) "记忆与习惯" else "记忆 ${state.habits.totalEvents} 条", color = Blue, fontSize = 11.sp)
             }
         }
     }

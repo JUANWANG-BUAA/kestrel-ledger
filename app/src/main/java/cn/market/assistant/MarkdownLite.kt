@@ -84,7 +84,7 @@ internal fun MarkdownLite(
                     is MarkdownBlock.Code -> CodeCard(block)
                     is MarkdownBlock.Table -> MarkdownTable(block, bodyColor, onOpenMarket)
                     is MarkdownBlock.Chart -> MarkdownChartCard(block)
-                    is MarkdownBlock.Divider -> Text("————————", color = mutedColor, fontSize = 10.sp)
+                    is MarkdownBlock.Divider -> Text("————————", color = mutedColor, fontSize = 11.sp)
                     is MarkdownBlock.Paragraph -> MarkdownInlineText(
                         block.text, bodyColor, 14.sp, 22.sp, onOpenMarket = onOpenMarket
                     )
@@ -267,17 +267,17 @@ private fun CodeCard(block: MarkdownBlock.Code) {
     Surface(color = MarketTheme.colors.surfaceAlt, shape = RoundedCornerShape(13.dp)) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 7.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(block.language?.uppercase() ?: "CODE", color = Muted, fontSize = 8.sp, modifier = Modifier.weight(1f))
+                Text(block.language?.uppercase() ?: "CODE", color = Muted, fontSize = 11.sp, modifier = Modifier.weight(1f))
                 TextButton(
                     onClick = {
                         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                         clipboard.setPrimaryClip(ClipData.newPlainText("assistant code", block.text))
                     },
                     contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
-                ) { Text("复制代码", color = Blue, fontSize = 9.sp) }
+                ) { Text("复制代码", color = Blue, fontSize = 11.sp) }
             }
             Text(
-                block.text, fontSize = 10.5.sp, fontFamily = FontFamily.Monospace,
+                block.text, fontSize = 11.5.sp, fontFamily = FontFamily.Monospace,
                 color = Ink, lineHeight = 15.sp, modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
             )
         }
@@ -293,13 +293,22 @@ private fun MarkdownTable(
     val palette = MarketTheme.colors
     Surface(color = palette.surface, shape = RoundedCornerShape(14.dp), border = androidx.compose.foundation.BorderStroke(1.dp, palette.line)) {
         Column(Modifier.fillMaxWidth()) {
+            val rowCount = table.rows.take(30).size
+            val weights = table.headers.mapIndexed { index, header ->
+                when {
+                    index == 0 -> 1.7f
+                    header.contains("来源") || header.contains("时点") -> 1.9f
+                    header.contains("代码") -> 1.2f
+                    else -> 1f
+                }
+            }
             TableRow(
                 table.headers, bodyColor, header = true, onOpenMarket = onOpenMarket,
-                modifier = Modifier.background(palette.accentSoft)
+                modifier = Modifier.background(palette.accentSoft), weights = weights
             )
             table.rows.take(30).forEachIndexed { index, row ->
-                TableRow(row, bodyColor, header = false, onOpenMarket = onOpenMarket)
-                if (index < table.rows.take(30).lastIndex) {
+                TableRow(row, bodyColor, header = false, onOpenMarket = onOpenMarket, weights = weights)
+                if (index < rowCount - 1) {
                     Box(Modifier.fillMaxWidth().height(1.dp).background(palette.line.copy(alpha = 0.7f)))
                 }
             }
@@ -313,7 +322,8 @@ private fun TableRow(
     bodyColor: androidx.compose.ui.graphics.Color,
     header: Boolean,
     onOpenMarket: (String) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    weights: List<Float>? = null
 ) {
     Row(
         modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = if (header) 7.dp else 6.dp),
@@ -323,7 +333,7 @@ private fun TableRow(
         cells.forEachIndexed { index, cell ->
             val numeric = isNumericTableCell(cell) || (header && isNumericHeader(cell))
             Box(
-                Modifier.weight(if (index == 0) 1.6f else 1f),
+                Modifier.weight(weights?.getOrNull(index) ?: if (index == 0) 1.6f else 1f),
                 contentAlignment = if (numeric) Alignment.CenterEnd else Alignment.CenterStart
             ) {
                 MarkdownInlineText(
@@ -356,7 +366,7 @@ private fun MarkdownChartCard(chart: MarkdownBlock.Chart) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 11.dp, vertical = 9.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(chart.title, color = Ink, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                Text(chart.unit, color = Muted, fontSize = 10.sp)
+                Text(chart.unit, color = Muted, fontSize = 11.sp)
             }
             Canvas(Modifier.fillMaxWidth().height(124.dp)) {
                 val left = 5.dp.toPx()
@@ -382,9 +392,9 @@ private fun MarkdownChartCard(chart: MarkdownBlock.Chart) {
                 }
             }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(chart.points.first().label, color = Muted, fontSize = 10.sp, modifier = Modifier.weight(1f), maxLines = 1)
+                Text(chart.points.first().label, color = Muted, fontSize = 11.sp, modifier = Modifier.weight(1f), maxLines = 1)
                 Text("${chart.points.last().value}${chart.unit.takeIf { it.isNotBlank() }?.let { " $it" }.orEmpty()}", color = Ink, fontSize = 11.sp, fontWeight = FontWeight.Medium)
-                Text(chart.points.last().label, color = Muted, fontSize = 10.sp, modifier = Modifier.padding(start = 8.dp), maxLines = 1)
+                Text(chart.points.last().label, color = Muted, fontSize = 11.sp, modifier = Modifier.padding(start = 8.dp), maxLines = 1)
             }
         }
     }

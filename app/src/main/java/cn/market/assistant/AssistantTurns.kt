@@ -175,12 +175,12 @@ internal fun AssistantTurnCard(
                         AssistantTurnStatus.DONE -> if (turn.offlineFallback) "本机事实模式" else "助手"
                         AssistantTurnStatus.FAILED -> "未完成"
                     },
-                    color = Muted, fontSize = 10.sp, fontWeight = FontWeight.Medium
+                    color = Muted, fontSize = 11.sp, fontWeight = FontWeight.Medium
                 ) }
-                turn.skillName?.let { Text("· $it", color = Blue, fontSize = 10.sp) }
+                turn.skillName?.let { Text("· $it", color = Blue, fontSize = 11.sp) }
                 Spacer(Modifier.weight(1f))
                 turn.modelLabel?.takeIf { turn.status == AssistantTurnStatus.RUNNING }?.let {
-                    Text(it, color = Muted, fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(it, color = Muted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
             if (turn.status == AssistantTurnStatus.RUNNING && turn.answer.isBlank() &&
@@ -261,13 +261,13 @@ internal fun AssistantTurnCard(
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(
                             "· ${citationLabel(citation.factKey)} · ${citation.value.orEmpty()} · ${citation.source ?: "—"} · ${citation.observedAt ?: "—"}",
-                            color = Muted, fontSize = 9.sp, modifier = Modifier.weight(1f)
+                            color = Muted, fontSize = 11.sp, modifier = Modifier.weight(1f)
                         )
                         marketId?.let { id ->
                             Text(
                                 "打开行情",
                                 color = Blue,
-                                fontSize = 9.sp,
+                                fontSize = 11.sp,
                                 modifier = Modifier.clickable { onOpenMarket(id) }
                             )
                         }
@@ -285,7 +285,7 @@ internal fun AssistantTurnCard(
                         contentPadding = PaddingValues(horizontal = 6.dp)
                     ) {
                         AnimatedContent(copied, label = "copy_feedback") { isCopied ->
-                            Text(if (isCopied) "已复制 ✓" else "复制", color = if (isCopied) Blue else Muted, fontSize = 10.sp)
+                            Text(if (isCopied) "已复制 ✓" else "复制", color = if (isCopied) Blue else Muted, fontSize = 11.sp)
                         }
                     }
                 }
@@ -295,7 +295,7 @@ internal fun AssistantTurnCard(
                         enabled = !state.busy,
                         contentPadding = PaddingValues(horizontal = 6.dp)
                     ) {
-                        Text(if (turn.status == AssistantTurnStatus.DONE) "重新生成" else "重试", color = Muted, fontSize = 10.sp)
+                        Text(if (turn.status == AssistantTurnStatus.DONE) "重新生成" else "重试", color = Muted, fontSize = 11.sp)
                     }
                 }
                 Spacer(Modifier.weight(1f))
@@ -304,7 +304,7 @@ internal fun AssistantTurnCard(
                     if (turn.usage.completionTokens > 0) append("↓${turn.usage.completionTokens} ")
                     turn.elapsedMillis?.takeIf { it > 0 }?.let { append("${it}ms") }
                 }
-                if (usageText.isNotBlank()) Text(usageText.trim(), color = Muted, fontSize = 9.sp)
+                if (usageText.isNotBlank()) Text(usageText.trim(), color = Muted, fontSize = 11.sp)
             }
         }
     }
@@ -329,7 +329,7 @@ internal fun AssistantActionPreviewCard(
         Text(proposal.summary, color = Ink, fontSize = 13.sp, lineHeight = 19.sp)
         if (proposal.kind == cn.market.assistant.domain.assistant.AssistantActionKind.RECORD_FUND_BUY ||
             proposal.kind == cn.market.assistant.domain.assistant.AssistantActionKind.RECORD_FUND_SELL
-        ) Text("这只会写入本机账本，不会向基金公司或券商提交订单。", color = Muted, fontSize = 10.sp)
+        ) Text("这只会写入本机账本，不会向基金公司或券商提交订单。", color = Muted, fontSize = 11.sp)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             TextButton(onClick = onConfirm, enabled = !busy) {
                 Text(if (busy) "正在保存…" else "确认并保存", color = Blue, fontSize = 11.sp)
@@ -355,7 +355,7 @@ internal fun AssistantStepRow(step: AssistantToolStepUi) {
         Column(Modifier.weight(1f)) {
             Text(step.toolId, color = Ink, fontSize = 11.sp, fontWeight = FontWeight.Medium)
             if (step.argumentSummary.isNotBlank()) {
-                Text(step.argumentSummary.take(120), color = Muted, fontSize = 9.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(step.argumentSummary.take(120), color = Muted, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
         }
         Text(
@@ -366,7 +366,7 @@ internal fun AssistantStepRow(step: AssistantToolStepUi) {
                         step.factCount == 0 -> "完成"
                         else -> "${step.factCount} 条事实"
                     } + (step.durationMillis?.let { " · ${it}ms" } ?: ""),
-            color = Muted, fontSize = 9.sp
+            color = Muted, fontSize = 11.sp
         )
     }
 }
@@ -391,12 +391,12 @@ internal fun AssistantAttachmentRail(
                     AssistantAttachmentThumbnail(attachment, Modifier.size(width = 54.dp, height = 44.dp))
                     Spacer(Modifier.width(8.dp))
                 } else {
-                    Text(attachment.extension.ifBlank { "FILE" }, color = Blue, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                    Text(attachment.extension.ifBlank { "FILE" }, color = Blue, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.width(6.dp))
                 }
                 Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                    Text(attachment.fileName.take(24), color = Ink, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(attachment.sizeLabel, color = Muted, fontSize = 8.sp)
+                    Text(attachment.fileName.take(24), color = Ink, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(attachment.sizeLabel, color = Muted, fontSize = 11.sp)
                 }
                 TextButton(onClick = { onRemove(index) }, contentPadding = PaddingValues(horizontal = 4.dp)) {
                     Text("×", color = Muted, fontSize = 12.sp)
@@ -412,7 +412,7 @@ internal fun AssistantAttachmentChip(attachment: AssistantAttachmentUi) {
         AssistantAttachmentThumbnail(attachment, Modifier.size(width = 128.dp, height = 96.dp))
     } else {
         Surface(color = SoftBlue, shape = RoundedCornerShape(12.dp)) {
-            Text("${attachment.extension.ifBlank { "文件" }} · ${attachment.fileName.take(18)}", color = Ink, fontSize = 10.sp, modifier = Modifier.padding(8.dp))
+            Text("${attachment.extension.ifBlank { "文件" }} · ${attachment.fileName.take(18)}", color = Ink, fontSize = 11.sp, modifier = Modifier.padding(8.dp))
         }
     }
 }
@@ -428,7 +428,7 @@ internal fun AssistantAttachmentThumbnail(attachment: AssistantAttachmentUi, mod
         )
     } else {
         Box(modifier.background(SoftBlue, RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
-            Text("图片", color = Blue, fontSize = 10.sp)
+            Text("图片", color = Blue, fontSize = 11.sp)
         }
     }
 }
@@ -511,9 +511,9 @@ internal fun AssistantComposer(
                         imageInputAvailable -> "$modelLabel · 图片已启用"
                         else -> "$modelLabel · 文本"
                     },
-                    color = Muted, fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis
+                    color = Muted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis
                 )
-                if (attachmentCount > 0) Text("已添加 $attachmentCount 个附件", color = Blue, fontSize = 9.sp)
+                if (attachmentCount > 0) Text("已添加 $attachmentCount 个附件", color = Blue, fontSize = 11.sp)
             }
             val canSend = !locked && (draft.isNotBlank() || attachmentCount > 0)
             val buttonColor by animateColorAsState(
@@ -553,10 +553,10 @@ internal fun AssistantComposer(
                     imageInputAvailable -> "图片与文本发送至当前模型 · 数据权限"
                     else -> "发送至当前模型 · 数据权限"
                 },
-                color = Muted, fontSize = 9.sp, modifier = Modifier.weight(1f), maxLines = 1,
+                color = Muted, fontSize = 11.sp, modifier = Modifier.weight(1f), maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            Text("非投资建议", color = Muted, fontSize = 8.sp)
+            Text("非投资建议", color = Muted, fontSize = 11.sp)
         }
     }
 }
@@ -571,15 +571,15 @@ internal fun UsageBar(usage: ChatUsage?, contextWindow: Int?, maxInputTokens: In
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Text("本轮输入 ${current.promptTokens} · 输出 ${current.completionTokens} tokens", color = Muted, fontSize = 8.sp)
-        current.reasoningTokens?.let { Text("思考 $it", color = Muted, fontSize = 8.sp) }
+        Text("本轮输入 ${current.promptTokens} · 输出 ${current.completionTokens} tokens", color = Muted, fontSize = 11.sp)
+        current.reasoningTokens?.let { Text("思考 $it", color = Muted, fontSize = 11.sp) }
         Text(
             when {
                 contextWindow != null -> "上下文 ${contextWindow.formatTokenCount()}"
                 maxInputTokens != null -> "最大输入 ${maxInputTokens.formatTokenCount()}"
                 else -> "上下文容量未提供"
             },
-            color = Muted, fontSize = 8.sp, maxLines = 1, overflow = TextOverflow.Ellipsis
+            color = Muted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis
         )
     }
 }

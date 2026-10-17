@@ -209,11 +209,11 @@ internal fun IndicatorPane(bars: List<MarketOhlcBar>, selectedIndex: Int, macd: 
         val values = MarketIndicators.rsi(bars)
         val selected = values.getOrNull(index)
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("RSI(14)", color = ChartInk, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+            Text("RSI(14)", color = ChartInk, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.width(8.dp))
-            Text(selected?.let { String.format("%.1f", it) } ?: "样本不足", color = ChartAccent, fontSize = 10.sp)
+            Text(selected?.let { String.format("%.1f", it) } ?: "样本不足", color = ChartAccent, fontSize = 11.sp)
             Spacer(Modifier.weight(1f))
-            Text("参考 30 / 70", color = ChartMuted, fontSize = 9.sp)
+            Text("参考 30 / 70", color = ChartMuted, fontSize = 11.sp)
         }
         Canvas(Modifier.fillMaxWidth().height(62.dp)) {
             val left = 6.dp.toPx(); val right = size.width - 6.dp.toPx()
@@ -235,12 +235,12 @@ internal fun IndicatorPane(bars: List<MarketOhlcBar>, selectedIndex: Int, macd: 
         val values = MarketIndicators.macd(bars)
         val selected = values.getOrNull(index)
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("MACD(12,26,9)", color = ChartInk, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+            Text("MACD(12,26,9)", color = ChartInk, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.width(8.dp))
             Text(selected?.let { "DIF ${String.format("%.3f", it.dif)} · DEA ${String.format("%.3f", it.dea)}" } ?: "—",
-                color = ChartAccent, fontSize = 9.sp)
+                color = ChartAccent, fontSize = 11.sp)
             Spacer(Modifier.weight(1f))
-            Text("柱 ${selected?.let { String.format("%.3f", it.histogram) } ?: "—"}", color = ChartMuted, fontSize = 9.sp)
+            Text("柱 ${selected?.let { String.format("%.3f", it.histogram) } ?: "—"}", color = ChartMuted, fontSize = 11.sp)
         }
         val up = ChartUp
         val down = ChartDown

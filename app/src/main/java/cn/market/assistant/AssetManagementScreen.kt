@@ -212,8 +212,8 @@ private fun TradeHistoryRow(trade: Trade, onReverse: () -> Unit) {
                 trade.confirmed -> "已确认"
                 else -> "待确认"
             }
-            Text("${trade.day} · $action · $status", color = Muted, fontSize = 10.sp)
-            Text(details, color = Muted, fontSize = 10.sp, maxLines = 2, lineHeight = 14.sp)
+            Text("${trade.day} · $action · $status", color = Muted, fontSize = 11.sp)
+            Text(details, color = Muted, fontSize = 11.sp, maxLines = 2, lineHeight = 14.sp)
         }
         Spacer(Modifier.width(12.dp))
         Column(horizontalAlignment = Alignment.End) {
@@ -266,7 +266,7 @@ private fun QuoteEditor(
         PortfolioQuoteRouter.availableSecids(asset, marketQuotes.values)
     }
     if (routeOptions.isNotEmpty()) {
-        Text("报价方式", color = Muted, fontSize = 10.sp)
+        Text("报价方式", color = Muted, fontSize = 11.sp)
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             FilterChip(
                 selected = asset.marketQuoteSecid == null,
@@ -275,7 +275,7 @@ private fun QuoteEditor(
                         .onSuccess { routeError = null; if (it) onSaved() }
                         .onFailure { routeError = it.message ?: "切换报价方式失败" }
                 },
-                label = { Text("手动", fontSize = 10.sp) }, colors = assetChipColors()
+                label = { Text("手动", fontSize = 11.sp) }, colors = assetChipColors()
             )
             routeOptions.forEach { secid ->
                 val routeName = marketQuotes[secid]?.name ?: if (secid == "GOLD.SGE.AU9999") "上金所 Au99.99" else secid
@@ -286,7 +286,7 @@ private fun QuoteEditor(
                             .onSuccess { routeError = null; if (it) onSaved() }
                             .onFailure { routeError = it.message ?: "切换报价方式失败" }
                     },
-                    label = { Text("行情 · ${routeName.take(10)}", fontSize = 10.sp) }, colors = assetChipColors()
+                    label = { Text("行情 · ${routeName.take(10)}", fontSize = 11.sp) }, colors = assetChipColors()
                 )
             }
         }
@@ -296,7 +296,7 @@ private fun QuoteEditor(
         position.quoteExpired -> "银行报价已过期；当前持仓估值已暂停"
         else -> "${portfolioQuoteSourceLabel(position.quoteSource)} · ${portfolioQuoteTimeLabel(position.quoteTime)}"
     }
-    Text(quoteDetail, color = Muted, fontSize = 10.sp)
+    Text(quoteDetail, color = Muted, fontSize = 11.sp)
     if (listedFundSecid != null) {
         Button(
             enabled = !fetchingListedQuote,
@@ -321,17 +321,17 @@ private fun QuoteEditor(
                 FilterChip(
                     selected = !bankMode,
                     onClick = { bankMode = false; routeError = null },
-                    label = { Text("单一克价", fontSize = 10.sp) }, colors = assetChipColors()
+                    label = { Text("单一克价", fontSize = 11.sp) }, colors = assetChipColors()
                 )
                 FilterChip(
                     selected = bankMode,
                     onClick = { bankMode = true; routeError = null },
-                    label = { Text("银行双向报价", fontSize = 10.sp) }, colors = assetChipColors()
+                    label = { Text("银行双向报价", fontSize = 11.sp) }, colors = assetChipColors()
                 )
             }
         }
         if (asset.kind == AssetKind.GOLD && bankMode) {
-            Text("账户持仓按银行买入/回购价估值；卖出价仅用于查看买卖价差。", color = Muted, fontSize = 10.sp, lineHeight = 14.sp)
+            Text("账户持仓按银行买入/回购价估值；卖出价仅用于查看买卖价差。", color = Muted, fontSize = 11.sp, lineHeight = 14.sp)
             NumericField(
                 bankBuybackValue,
                 { bankBuybackValue = it; routeError = null },
@@ -342,13 +342,13 @@ private fun QuoteEditor(
                 { bankSellValue = it; routeError = null },
                 "银行卖出价 · 你买入需付（元/克）"
             )
-            Text("报价有效期", color = Muted, fontSize = 10.sp)
+            Text("报价有效期", color = Muted, fontSize = 11.sp)
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 listOf(12, 24, 48, 72).forEach { hours ->
                     FilterChip(
                         selected = validityHours == hours,
                         onClick = { validityHours = hours },
-                        label = { Text("${hours}h", fontSize = 10.sp) }, colors = assetChipColors()
+                        label = { Text("${hours}h", fontSize = 11.sp) }, colors = assetChipColors()
                     )
                 }
             }
@@ -375,26 +375,26 @@ private fun QuoteEditor(
         }
     } else if (position.quote == null) {
         Text("已绑定 ${marketQuotes[asset.marketQuoteSecid]?.name ?: asset.marketQuoteSecid}；刷新行情后计入账户。",
-            color = Muted, fontSize = 10.sp, lineHeight = 14.sp)
+            color = Muted, fontSize = 11.sp, lineHeight = 14.sp)
     }
-    routeError?.let { Text(it, color = ErrorColor, fontSize = 10.sp, lineHeight = 14.sp) }
+    routeError?.let { Text(it, color = ErrorColor, fontSize = 11.sp, lineHeight = 14.sp) }
     position.manualGoldQuote?.let { quote ->
         val spread = quote.bankSellPrice - quote.bankBuybackPrice
         val spreadPct = spread.multiply(BigDecimal("100")).divide(quote.bankBuybackPrice, 2, RoundingMode.HALF_UP)
         Text(
             "银行回购 ¥${quote.bankBuybackPrice.portfolioMoney()}/克 · 银行卖出 ¥${quote.bankSellPrice.portfolioMoney()}/克 · 价差 ¥${spread.portfolioMoney()}（${spreadPct.toPlainString()}%）",
-            color = Ink, fontSize = 10.sp, lineHeight = 15.sp
+            color = Ink, fontSize = 11.sp, lineHeight = 15.sp
         )
         Text(
             "${portfolioQuoteTimeLabel(quote.observedAt)} · ${portfolioQuoteValidityLabel(quote.validUntil)}${if (position.quoteExpired) " · 已过期，估值不计入组合" else ""}",
-            color = if (position.quoteExpired) ErrorColor else Muted, fontSize = 10.sp, lineHeight = 14.sp
+            color = if (position.quoteExpired) ErrorColor else Muted, fontSize = 11.sp, lineHeight = 14.sp
         )
     }
     if (asset.kind == AssetKind.GOLD && asset.marketQuoteSecid == null) {
         val history = remember(asset.symbol, position.manualGoldQuote) { ledger.manualGoldQuoteHistory(asset.symbol, 5) }
         if (history.isNotEmpty()) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("银行报价历史 · 最近 ${history.size} 次", color = Muted, fontSize = 10.sp)
+                Text("银行报价历史 · 最近 ${history.size} 次", color = Muted, fontSize = 11.sp)
                 history.forEach { quote -> ManualGoldQuoteHistoryRow(quote) }
             }
         }
@@ -408,7 +408,7 @@ private fun QuoteEditor(
             "银行积存金可录入回购价与卖出价，持仓按回购价估值；国际现货不用于推算银行报价。"
         else -> null
     }
-    routeHint?.let { Text(it, color = Muted, fontSize = 10.sp, lineHeight = 14.sp) }
+    routeHint?.let { Text(it, color = Muted, fontSize = 11.sp, lineHeight = 14.sp) }
 }
 
 @Composable
@@ -417,7 +417,7 @@ private fun ManualGoldQuoteHistoryRow(quote: ManualGoldQuote) {
     val expired = runCatching { !Instant.now().isBefore(Instant.parse(quote.validUntil)) }.getOrDefault(true)
     Text(
         "${portfolioQuoteTimeLabel(quote.observedAt)} · 回购 ¥${quote.bankBuybackPrice.portfolioMoney()} · 卖出 ¥${quote.bankSellPrice.portfolioMoney()} · 价差 ¥${spread.portfolioMoney()} · ${if (expired) "已过期" else portfolioQuoteValidityLabel(quote.validUntil)}",
-        color = Muted, fontSize = 9.sp, lineHeight = 13.sp
+        color = Muted, fontSize = 11.sp, lineHeight = 13.sp
     )
 }
 

@@ -278,8 +278,8 @@ internal fun RecordScreen(
                                 AccountCashEventType.DIVIDEND -> "分红"
                                 else -> "现金事件"
                             }
-                            Text("${event.day} · $label${event.memo.takeIf { it.isNotBlank() }?.let { " · $it" } ?: ""}", color = Muted, fontSize = 10.sp, maxLines = 1)
-                            Text("${if (event.type == AccountCashEventType.WITHDRAWAL) "−" else "+"}¥${event.amount.portfolioMoney()}", color = Ink, fontSize = 10.sp)
+                            Text("${event.day} · $label${event.memo.takeIf { it.isNotBlank() }?.let { " · $it" } ?: ""}", color = Muted, fontSize = 11.sp, maxLines = 1)
+                            Text("${if (event.type == AccountCashEventType.WITHDRAWAL) "−" else "+"}¥${event.amount.portfolioMoney()}", color = Ink, fontSize = 11.sp)
                         }
                     }
                 }
@@ -355,7 +355,7 @@ internal fun RecordScreen(
             } else if (search.isBlank()) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text(if (filter == AssetKind.FUND) "常用基金" else "常用黄金", Modifier.weight(1f), color = Muted, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                    Text(if (filter == AssetKind.GOLD) "Au99.99 可联动上金所" else "名称可搜简称", color = Muted, fontSize = 10.sp)
+                    Text(if (filter == AssetKind.GOLD) "Au99.99 可联动上金所" else "名称可搜简称", color = Muted, fontSize = 11.sp)
                 }
                 Row(
                     Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
@@ -386,7 +386,7 @@ internal fun RecordScreen(
                     }
                     Text(
                         "已有持仓可切到「期初持仓」，只登记份额与历史成本，不补造过去的买入流水。",
-                        color = Muted, fontSize = 10.sp, lineHeight = 15.sp
+                        color = Muted, fontSize = 11.sp, lineHeight = 15.sp
                     )
                 }
             }

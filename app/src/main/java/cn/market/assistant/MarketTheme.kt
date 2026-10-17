@@ -14,6 +14,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
@@ -21,8 +22,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /**
- * Accent presets. These are the modern product colors (electric blue by default); the previous
- * warm-paper/amber identity is gone, together with the brown buttons that came with it.
+ * Accent presets for the "Modern Ledger" direction: ink, brass and a deep teal default rather than
+ * the generic electric-blue dashboard palette.
  */
 internal enum class MarketAccent(
     val label: String,
@@ -30,7 +31,7 @@ internal enum class MarketAccent(
     val softLight: Color,
     val softDark: Color
 ) {
-    BLUE("电蓝", Color(0xFF2563EB), Color(0xFFE3ECFE), Color(0xFF152744)),
+    BLUE("墨青", Color(0xFF1E5B54), Color(0xFFDCEBE7), Color(0xFF10302C)),
     TEAL("青碧", Color(0xFF0D9488), Color(0xFFDCF2EF), Color(0xFF0F2F2C)),
     VIOLET("紫罗兰", Color(0xFF7C5CFC), Color(0xFFECE7FE), Color(0xFF221B40)),
     CRIMSON("胭脂", Color(0xFFE5484D), Color(0xFFFCE5E6), Color(0xFF3B1A1D)),
@@ -52,9 +53,9 @@ internal enum class MarketFontScale(val label: String, val scale: Float) {
 }
 
 internal enum class MarketCorner(val label: String, val card: Dp, val panel: Dp) {
-    SHARP("直角", 10.dp, 14.dp),
-    STANDARD("标准", 16.dp, 22.dp),
-    ROUND("圆润", 22.dp, 28.dp)
+    SHARP("直角", 6.dp, 10.dp),
+    STANDARD("标准", 12.dp, 18.dp),
+    ROUND("圆润", 18.dp, 24.dp)
 }
 
 /**
@@ -93,12 +94,12 @@ internal data class MarketGeometry(
             return MarketGeometry(
                 xs = space(3.dp),
                 sm = space(6.dp),
-                md = space(10.dp),
-                lg = space(12.dp),
-                xl = space(16.dp),
+                md = space(12.dp),
+                lg = space(16.dp),
+                xl = space(20.dp),
                 card = corner.card,
                 panel = corner.panel,
-                chip = corner.card * 0.72f
+                chip = corner.card * 0.55f
             )
         }
     }
@@ -109,18 +110,21 @@ internal data class MarketGeometry(
  * columns, which is what makes a finance layout feel precise instead of hand-placed.
  */
 internal object MarketType {
-    val heroAmount = TextStyle(fontSize = 36.sp, fontWeight = FontWeight.Bold, letterSpacing = (-1.2).sp, fontFeatureSettings = "tnum")
+    val heroAmount = TextStyle(
+        fontSize = 38.sp, fontWeight = FontWeight.SemiBold, fontFamily = FontFamily.Serif,
+        letterSpacing = (-0.8).sp, fontFeatureSettings = "tnum"
+    )
     val amount = TextStyle(fontSize = 32.sp, fontWeight = FontWeight.Bold, letterSpacing = (-1.0).sp, fontFeatureSettings = "tnum")
-    val title = TextStyle(fontSize = 22.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.5).sp)
-    val section = TextStyle(fontSize = 15.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.2).sp)
-    val numberLarge = TextStyle(fontSize = 19.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.3).sp, fontFeatureSettings = "tnum")
+    val title = TextStyle(fontSize = 26.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Serif, letterSpacing = (-0.3).sp)
+    val section = TextStyle(fontSize = 16.sp, fontWeight = FontWeight.SemiBold, fontFamily = FontFamily.Serif, letterSpacing = (-0.1).sp)
+    val numberLarge = TextStyle(fontSize = 20.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.3).sp, fontFeatureSettings = "tnum")
     val number = TextStyle(fontSize = 15.sp, fontWeight = FontWeight.SemiBold, fontFeatureSettings = "tnum")
     val numberSmall = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.Medium, fontFeatureSettings = "tnum")
-    val nav = TextStyle(fontSize = 14.5.sp, fontWeight = FontWeight.Medium)
-    val body = TextStyle(fontSize = 13.sp, lineHeight = 19.sp)
-    val label = TextStyle(fontSize = 11.5.sp, fontWeight = FontWeight.Medium)
-    val caption = TextStyle(fontSize = 10.5.sp, lineHeight = 15.sp)
-    val heroLabel = TextStyle(fontSize = 11.5.sp, fontWeight = FontWeight.Medium, letterSpacing = 0.4.sp)
+    val nav = TextStyle(fontSize = 15.sp, fontWeight = FontWeight.Medium)
+    val body = TextStyle(fontSize = 14.sp, lineHeight = 20.sp)
+    val label = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.Medium)
+    val caption = TextStyle(fontSize = 11.5.sp, lineHeight = 16.sp)
+    val heroLabel = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.Medium, letterSpacing = 0.5.sp)
 }
 
 /** Darker (factor < 1) or lighter (factor > 1) version of a colour, used for the hero gradient. */
@@ -212,35 +216,35 @@ internal object MarketTheme {
 
 /** Light palette: cool neutral canvas, white surfaces, ink text and one strong accent. */
 internal fun lightColors(accent: MarketAccent) = MarketColors(
-    ink = Color(0xFF0E1520),
-    inkSoft = Color(0xFF48535F),
-    muted = Color(0xFF7C8794),
+    ink = Color(0xFF1B1A16),
+    inkSoft = Color(0xFF4A463D),
+    muted = Color(0xFF7B7365),
     accent = accent.seed,
     accentSoft = accent.softLight,
-    paper = Color(0xFFF2F4F8),
-    surface = Color(0xFFFFFFFF),
-    surfaceAlt = Color(0xFFEDF1F7),
-    line = Color(0xFFE3E8F0),
-    up = Color(0xFFE5484D),
-    down = Color(0xFF12A150),
-    warn = Color(0xFFD97706),
-    scrim = Color(0xFF0E1520)
+    paper = Color(0xFFF4F0E8),
+    surface = Color(0xFFFFFCF6),
+    surfaceAlt = Color(0xFFEDE6DA),
+    line = Color(0xFFD7CDBD),
+    up = Color(0xFFB23A32),
+    down = Color(0xFF2F7D5C),
+    warn = Color(0xFFB7791F),
+    scrim = Color(0xFF1B1A16)
 )
 
 /** Dark palette: same hue family, lowered luminance, borders instead of shadows. */
 internal fun darkColors(accent: MarketAccent) = MarketColors(
-    ink = Color(0xFFE9EEF4),
-    inkSoft = Color(0xFFB9C4D0),
-    muted = Color(0xFF8B98A6),
+    ink = Color(0xFFF1EBDD),
+    inkSoft = Color(0xFFCCC3B2),
+    muted = Color(0xFF9A9080),
     accent = accent.let { lighten(it.seed) },
     accentSoft = accent.softDark,
-    paper = Color(0xFF0B0F14),
-    surface = Color(0xFF141A21),
-    surfaceAlt = Color(0xFF1B232C),
-    line = Color(0xFF27313C),
-    up = Color(0xFFFF6369),
-    down = Color(0xFF30C48D),
-    warn = Color(0xFFE0A94A),
+    paper = Color(0xFF12110F),
+    surface = Color(0xFF1B1916),
+    surfaceAlt = Color(0xFF24211C),
+    line = Color(0xFF37322A),
+    up = Color(0xFFE4675D),
+    down = Color(0xFF5BBE8D),
+    warn = Color(0xFFD6A44A),
     scrim = Color(0xFF000000)
 )
 

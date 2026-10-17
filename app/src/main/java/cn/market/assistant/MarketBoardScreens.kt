@@ -154,13 +154,13 @@ internal fun MarketBoardTicker(
                     else -> "进入全量板块页浏览，或点击刷新同步行业与概念数据"
                 },
                 color = BoardMuted,
-                fontSize = 10.sp
+                fontSize = 11.sp
             )
             if (boards.isNotEmpty() && (loadingTypes.isNotEmpty() || message.isNotBlank())) {
                 Text(
                     if (loadingTypes.isNotEmpty()) "正在同步全市场板块数据…" else message,
                     color = BoardMuted,
-                    fontSize = 9.sp,
+                    fontSize = 11.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -577,7 +577,7 @@ private fun MarketBoardDetailSheet(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(board.name, color = BoardInk, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
-                    Text("${board.type.label}板块 · ${board.id.substringAfter('.')}", color = BoardMuted, fontSize = 10.sp)
+                    Text("${board.type.label}板块 · ${board.id.substringAfter('.')}", color = BoardMuted, fontSize = 11.sp)
                 }
                 TextButton(onClick = { loadChart(force = true) }, enabled = !loading) {
                     Text(if (loading) "更新中" else "刷新走势", color = BoardAccent)
@@ -611,7 +611,7 @@ private fun MarketBoardDetailSheet(
                     FilterChip(
                         selected = period == option,
                         onClick = { period = option },
-                        label = { Text(option.label, fontSize = 10.sp) },
+                        label = { Text(option.label, fontSize = 11.sp) },
                         colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(
                             selectedContainerColor = Color(0xFFF0E8DC),
                             selectedLabelColor = BoardInk,
@@ -628,7 +628,7 @@ private fun MarketBoardDetailSheet(
                     "${data.bars.first().day} — ${data.bars.last().day} · ${data.bars.size} 根 · 东方财富历史数据"
                 } ?: chartMessage,
                 color = BoardMuted,
-                fontSize = 10.sp,
+                fontSize = 11.sp,
                 lineHeight = 14.sp
             )
             Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp),
@@ -644,7 +644,7 @@ private fun MarketBoardDetailSheet(
                                     "已取 ${snapshot.members.size} 只 · 涨 $up / 跌 $down" +
                                         (concentration?.let { " · 前五市值占比 ${String.format("%.1f", it)}%" } ?: "")
                                 } ?: if (membersMessage.isBlank()) "读取成分股…" else membersMessage,
-                                color = BoardMuted, fontSize = 9.sp, lineHeight = 13.sp
+                                color = BoardMuted, fontSize = 11.sp, lineHeight = 13.sp
                             )
                         }
                         TextButton(onClick = { loadMembers(force = true) }, enabled = !membersLoading) {
@@ -656,7 +656,7 @@ private fun MarketBoardDetailSheet(
                             FilterChip(
                                 selected = memberSort == option,
                                 onClick = { memberSort = option },
-                                label = { Text(option.label, fontSize = 10.sp) },
+                                label = { Text(option.label, fontSize = 11.sp) },
                                 colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(
                                     selectedContainerColor = Color(0xFFF0E8DC),
                                     selectedLabelColor = BoardInk,

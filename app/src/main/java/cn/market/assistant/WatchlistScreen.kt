@@ -259,7 +259,7 @@ internal fun WatchlistScreen(
                                 Text(
                                     "移除",
                                     color = palette.muted.copy(alpha = 0.85f),
-                                    fontSize = 10.5.sp,
+                                    fontSize = 11.5.sp,
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(geometry.chip))
                                         .marketPressable { onToggle(instrument.secid, false) }
