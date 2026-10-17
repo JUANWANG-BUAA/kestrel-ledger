@@ -45,13 +45,15 @@ internal fun PortfolioRiskCard(
         mutableStateOf(parameters.minimumAcceptableAnnualReturn.asPercentInput())
     }
     var parameterError by remember(parameters.updatedAtMillis) { mutableStateOf<String?>(null) }
+    val palette = MarketTheme.colors
+    val geometry = MarketTheme.geometry
     Card(
         Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(19.dp),
-        colors = CardDefaults.cardColors(containerColor = White),
-        border = BorderStroke(1.dp, Color(0xFFD8D8D2))
+        shape = RoundedCornerShape(geometry.card),
+        colors = CardDefaults.cardColors(containerColor = palette.surface),
+        border = BorderStroke(1.dp, palette.line)
     ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.padding(geometry.lg), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text("账户风险观察", color = Ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                 Text("历史 · 252 交易日窗口", color = Muted, fontSize = 11.sp)
