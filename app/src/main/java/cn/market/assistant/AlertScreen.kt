@@ -1,6 +1,9 @@
 package cn.market.assistant
 
 import android.Manifest
+import android.content.Intent
+import android.os.Build
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
@@ -63,6 +66,7 @@ internal fun AlertScreen(
     var permissionGranted by remember { mutableStateOf(AlertNotifier.hasPermission(context)) }
     var editing by remember { mutableStateOf<AlertRule?>(null) }
     var editorOpen by remember { mutableStateOf(false) }
+    val runtimePermissionRequired = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         permissionGranted = granted
     }
@@ -85,11 +89,31 @@ internal fun AlertScreen(
             ) {
                 Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text("尚未授予通知权限", color = Ink, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                        Text("Android 13+ 需要通知权限；Android 16 会把进行中的进度通知提升为状态栏实时通知。", color = Muted, fontSize = 9.sp, lineHeight = 13.sp)
+                        Text(
+                            if (runtimePermissionRequired) "尚未授予通知权限" else "通知已关闭",
+                            color = Ink, fontSize = 12.sp, fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            if (runtimePermissionRequired) {
+                                "Android 13+ 需要通知权限；Android 16 会把进行中的进度通知提升为状态栏实时通知。"
+                            } else {
+                                "请在系统通知设置中允许养基助手；当前版本不需要运行时权限。"
+                            },
+                            color = Muted, fontSize = 9.sp, lineHeight = 13.sp
+                        )
                     }
-                    TextButton(onClick = { permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) }) {
-                        Text("授权", color = Blue, fontSize = 11.sp)
+                    TextButton(onClick = {
+                        if (runtimePermissionRequired) {
+                            permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        } else {
+                            val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                                putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            context.startActivity(intent)
+                        }
+                    }) {
+                        Text(if (runtimePermissionRequired) "授权" else "去设置", color = Blue, fontSize = 11.sp)
                     }
                 }
             }

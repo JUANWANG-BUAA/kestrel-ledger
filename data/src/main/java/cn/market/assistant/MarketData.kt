@@ -50,6 +50,7 @@ object MarketInstrumentCatalog {
         MarketInstrument("1.000832", "中证转债", "债券", "sh000832")
     )
     val byId = items.associateBy { it.secid }
+    fun supportsWatchlist(secid: String): Boolean = byId.containsKey(secid)
     val indices = items.take(11)
     val overview = listOf("1.000001", "0.399001", "0.399006", "1.000688", "100.NDX", "100.DJIA", "100.SPX", "100.N225", "100.KS11", "100.HSI").mapNotNull(byId::get)
     /** ETF stand-ins retained for quote fallback; the full sector universe comes from the board feed. */

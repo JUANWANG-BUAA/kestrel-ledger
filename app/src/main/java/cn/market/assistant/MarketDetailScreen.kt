@@ -82,6 +82,7 @@ internal fun MarketDetailScreen(
     onToggle: (Boolean) -> Unit, isWatched: Boolean, modifier: Modifier = Modifier
 ) {
     val instrument = MarketInstrumentCatalog.byId[secid]
+    val canWatch = MarketInstrumentCatalog.supportsWatchlist(secid)
     var period by remember(secid) { mutableStateOf(ChartPeriod.DAY) }
     var autoLive by remember(secid) { mutableStateOf(true) }
     var displayedQuote by remember(secid) { mutableStateOf(quote) }
@@ -166,7 +167,13 @@ internal fun MarketDetailScreen(
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             MarketBackButton(label = "自选", onClick = onBack)
             Spacer(Modifier.weight(1f))
-            TextButton(onClick = { onToggle(!isWatched) }) { Text(if (isWatched) "★ 已自选" else "☆ 加自选", color = MarketDetailAccent) }
+            if (canWatch) {
+                TextButton(onClick = { onToggle(!isWatched) }) {
+                    Text(if (isWatched) "★ 已自选" else "☆ 加自选", color = MarketDetailAccent)
+                }
+            } else {
+                Text("成分股暂不支持自选", color = MarketDetailMuted, fontSize = 11.sp)
+            }
         }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(instrument?.name ?: "行情详情", color = MarketDetailInk, fontSize = 25.sp, fontWeight = FontWeight.SemiBold)
@@ -233,11 +240,11 @@ internal fun MarketDetailScreen(
                     FilterChip(selected = showMacd, onClick = { showMacd = !showMacd }, label = { Text("MACD") }, colors = assetChipColors())
                 }
                 androidx.compose.animation.AnimatedContent(
-                    targetState = period to style,
+                    targetState = Triple(period, style, visibleBars),
                     transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(120)) },
                     label = "chart_transition"
-                ) {
-                    if (visibleBars.isNotEmpty()) MarketChart(visibleBars, style, showMa5, showMa20, showVolume, selectedIndex,
+                ) { (_, targetStyle, targetBars) ->
+                    if (targetBars.isNotEmpty()) MarketChart(targetBars, targetStyle, showMa5, showMa20, showVolume, selectedIndex,
                         Modifier.fillMaxWidth().height(220.dp), onIndexSelected = { selectedIndex = it })
                     else Box(Modifier.fillMaxWidth().height(220.dp), contentAlignment = Alignment.Center) {
                         Text(if (loading) "正在加载行情…" else "当前市场暂无此周期数据", color = MarketDetailMuted, fontSize = 13.sp)

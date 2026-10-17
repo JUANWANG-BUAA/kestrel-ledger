@@ -1,6 +1,7 @@
 package cn.market.assistant
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -8,6 +9,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -36,10 +38,21 @@ object AlertNotifier {
         manager.createNotificationChannel(channel)
     }
 
-    fun hasPermission(context: Context): Boolean =
-        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
-            PackageManager.PERMISSION_GRANTED
+    fun hasPermission(context: Context): Boolean {
+        val runtimeGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
+                PackageManager.PERMISSION_GRANTED
+        } else {
+            false
+        }
+        return shouldPostNotifications(
+            sdkInt = Build.VERSION.SDK_INT,
+            runtimePermissionGranted = runtimeGranted,
+            notificationsEnabled = NotificationManagerCompat.from(context).areNotificationsEnabled()
+        )
+    }
 
+    @SuppressLint("MissingPermission")
     fun post(context: Context, event: AlertEvent, progressPct: Int? = null, ongoing: Boolean = false) {
         if (!hasPermission(context)) return
         val notification = build(context, event, progressPct, ongoing)

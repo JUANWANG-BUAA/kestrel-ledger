@@ -810,12 +810,20 @@ private fun MarketApp(ledger: Ledger) {
                     val secid = route.second
                     if (secid == null) WatchlistScreen(
                         ledger.watchlist(), fundRepository, marketQuotes, marketLoading, marketMessage, ::refreshMarket,
-                        onToggle = { id, watched -> ledger.setWatched(id, watched); revision++ },
+                        onToggle = { id, watched ->
+                            runCatching { ledger.setWatched(id, watched) }
+                                .onSuccess { revision++ }
+                                .onFailure { marketMessage = it.userFacingMessage("自选保存失败") }
+                        },
                         onOpen = { selectedMarket = it; showSectors = false }, modifier = Modifier.padding(insets)
                     ) else MarketDetailScreen(
                         secid, marketQuotes[secid], marketRepository,
                         onBack = { selectedMarket = null },
-                        onToggle = { watched -> ledger.setWatched(secid, watched); revision++ },
+                        onToggle = { watched ->
+                            runCatching { ledger.setWatched(secid, watched) }
+                                .onSuccess { revision++ }
+                                .onFailure { marketMessage = it.userFacingMessage("自选保存失败") }
+                        },
                         isWatched = ledger.watchlist().contains(secid), modifier = Modifier.padding(insets)
                     )
                 }

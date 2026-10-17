@@ -608,9 +608,7 @@ private fun readAttachment(context: Context, uri: Uri, allowImage: Boolean): Ass
     }
     if (size > MAX_TEXT_ATTACHMENT_BYTES) return null
     val text = resolver.openInputStream(uri)?.use { input ->
-        val bytes = input.readNBytes(MAX_TEXT_ATTACHMENT_BYTES + 1)
-        if (bytes.size > MAX_TEXT_ATTACHMENT_BYTES) return null
-        String(bytes, Charsets.UTF_8)
+        readUtf8Limited(input, MAX_TEXT_ATTACHMENT_BYTES)
     } ?: return null
     if (text.isBlank()) return null
     return AssistantAttachmentUi(
