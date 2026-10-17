@@ -27,6 +27,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -69,10 +70,14 @@ internal fun MarketSplashScreen(errorMessage: String?, onRetry: () -> Unit) {
         label = "splash_ring"
     )
     var slowNote by remember { mutableStateOf(false) }
+    var elapsedSeconds by remember { mutableIntStateOf(0) }
     LaunchedEffect(errorMessage) {
         if (errorMessage == null) {
-            delay(3500)
-            slowNote = true
+            while (true) {
+                delay(1000)
+                elapsedSeconds++
+                if (elapsedSeconds >= 3) slowNote = true
+            }
         }
     }
 
@@ -147,7 +152,7 @@ internal fun MarketSplashScreen(errorMessage: String?, onRetry: () -> Unit) {
                 SplashProgressBar(Modifier.fillMaxWidth(0.62f), progress = ring)
                 Spacer(Modifier.height(14.dp))
                 Text(
-                    if (slowNote) "加密账本仍在打开，首次启动或数据升级会多花几秒" else "正在打开加密账本…",
+                    if (slowNote) "加密账本仍在打开 · 已等待 ${elapsedSeconds}s" else "正在打开加密账本…",
                     color = palette.muted,
                     fontSize = 12.sp,
                     textAlign = TextAlign.Center
