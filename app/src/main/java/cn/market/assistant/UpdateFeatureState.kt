@@ -31,7 +31,7 @@ internal data class UpdateSettings(
     val useMirrors: Boolean = true
 ) {
     companion object {
-        const val DEFAULT_REPOSITORY = "juanwang/market"
+        const val DEFAULT_REPOSITORY = "JUANWANG-BUAA/kestrel-ledger"
         val REPO = Regex("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
     }
 }

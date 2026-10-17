@@ -116,29 +116,25 @@ internal fun MarketSplashScreen(errorMessage: String?, onRetry: () -> Unit) {
                         .size(84.dp)
                         .marketShadow(RoundedCornerShape(geometry.panel), MarketElevation.raised)
                         .clip(RoundedCornerShape(geometry.panel))
-                        .background(
-                            Brush.linearGradient(
-                                listOf(palette.accent, palette.accent.shade(0.74f)),
-                                start = Offset.Zero,
-                                end = Offset(300f, 300f)
-                            )
-                        ),
+                        .background(Color(0xFF0B1220)),
                     contentAlignment = Alignment.Center
                 ) {
-                    // Rising line + dot: the product's one gesture, drawn instead of shipping a bitmap.
-                    Canvas(Modifier.size(46.dp)) {
-                        val stroke = 3.2.dp.toPx()
-                        val points = listOf(0.10f to 0.72f, 0.38f to 0.50f, 0.62f to 0.60f, 0.90f to 0.24f)
+                    // Same mark as the launcher icon: a rising line ending in a coin.
+                    Canvas(Modifier.size(52.dp)) {
+                        val gold = Color(0xFFE8C47A)
+                        val cream = Color(0xFFF4E3BE)
+                        drawCircle(gold.copy(alpha = 0.22f), radius = size.minDimension * 0.52f, style = Stroke(1.dp.toPx()))
+                        val points = listOf(0.16f to 0.72f, 0.40f to 0.50f, 0.60f to 0.60f, 0.84f to 0.30f)
                         points.zipWithNext { a, b ->
                             drawLine(
-                                Color.White,
+                                cream,
                                 Offset(size.width * a.first, size.height * a.second),
                                 Offset(size.width * b.first, size.height * b.second),
-                                strokeWidth = stroke,
+                                strokeWidth = 3.4.dp.toPx(),
                                 cap = StrokeCap.Round
                             )
                         }
-                        drawCircle(Color.White, radius = 4.dp.toPx(), center = Offset(size.width * 0.90f, size.height * 0.24f))
+                        drawCircle(gold, radius = 4.2.dp.toPx(), center = Offset(size.width * 0.84f, size.height * 0.30f))
                     }
                 }
             }
