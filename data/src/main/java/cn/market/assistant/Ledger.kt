@@ -1588,6 +1588,7 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
                 put("day", day.toString()); put("type", AccountCashEventType.OPENING_BALANCE.name)
                 put("amount", openingBalance.toPlainString()); put("memo", "期初现金")
             })
+            invalidatePortfolioFactsFrom(db, day)
             db.setTransactionSuccessful()
         } finally { endSerializedTransaction(db) }
     }
@@ -1625,6 +1626,7 @@ class Ledger(context: Context) : AccountCashRepository, AssistantSkillStore, Ass
                 put("occurred_at", occurredAt?.toString()); put("portfolio_value_before", valueBefore?.toPlainString())
                 put("valuation_complete", if (valuationComplete) 1 else 0)
             })
+            invalidatePortfolioFactsFrom(db, day, occurredAt)
             db.setTransactionSuccessful()
         } finally { endSerializedTransaction(db) }
     }
