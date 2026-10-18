@@ -92,8 +92,8 @@
           <span class="quiet">账本保存在手机里。不托管资产，不下单，也不推荐买卖。</span>
         </p>
         <div class="hero-actions">
-          <a class="button primary" href="https://gh-proxy.com/https://github.com/JUANWANG-BUAA/kestrel-ledger/releases/download/v0.2.3/app-release.apk" target="_blank" rel="noopener">
-            下载 Android 版 <span class="button-note">v0.2.3</span>
+          <a class="button primary" data-download href="https://gh-proxy.com/https://github.com/JUANWANG-BUAA/kestrel-ledger/releases/download/v0.2.4/app-release.apk" target="_blank" rel="noopener">
+            下载 Android 版 <span class="button-note">v0.2.4</span>
           </a>
           <a class="button secondary" href="https://github.com/JUANWANG-BUAA/kestrel-ledger" target="_blank" rel="noopener">
             查看源代码 <span aria-hidden="true">↗</span>
@@ -365,27 +365,32 @@
           <h2 id="download-title">从第一笔<br>开始记。</h2>
           <p>下载 Android 安装包，或先看源代码。更新会校验 SHA-256 和签名，签名不一致会拒绝安装。</p>
           <div class="hero-actions">
-            <a class="button primary light" href="https://gh-proxy.com/https://github.com/JUANWANG-BUAA/kestrel-ledger/releases/download/v0.2.3/app-release.apk" target="_blank" rel="noopener">
-              下载 APK（加速） <span class="button-note">v0.2.3</span>
+            <a class="button primary light" data-download href="https://gh-proxy.com/https://github.com/JUANWANG-BUAA/kestrel-ledger/releases/download/v0.2.4/app-release.apk" target="_blank" rel="noopener">
+              下载 APK（加速） <span class="button-note">v0.2.4</span>
             </a>
             <a class="button secondary dark-outline" href="https://github.com/JUANWANG-BUAA/kestrel-ledger/releases/latest" target="_blank" rel="noopener">
               GitHub 原地址 <span aria-hidden="true">↗</span>
             </a>
           </div>
           <p class="download-meta">Android 8.0+ · 约 16 MB · 无账号 · 无订阅</p>
+          <div class="download-fallback">
+            <button class="copy-button" type="button" data-copy-download>复制下载链接</button>
+            <span class="copy-status" data-copy-status role="status" aria-live="polite"></span>
+          </div>
+          <p class="download-tip" data-wechat-tip hidden>微信内置浏览器可能拦截 APK。请点右上角 ···，选择“在浏览器打开”后再下载。</p>
           <details class="mirror-note">
             <summary>大陆下载慢？换一个镜像</summary>
             <div class="mirror-list">
-              <a href="https://gh-proxy.com/https://github.com/JUANWANG-BUAA/kestrel-ledger/releases/download/v0.2.3/app-release.apk" target="_blank" rel="noopener">gh-proxy</a>
-              <a href="https://ghfast.top/https://github.com/JUANWANG-BUAA/kestrel-ledger/releases/download/v0.2.3/app-release.apk" target="_blank" rel="noopener">ghfast</a>
-              <a href="https://ghproxy.net/https://github.com/JUANWANG-BUAA/kestrel-ledger/releases/download/v0.2.3/app-release.apk" target="_blank" rel="noopener">ghproxy.net</a>
+              <a href="https://gh-proxy.com/https://github.com/JUANWANG-BUAA/kestrel-ledger/releases/download/v0.2.4/app-release.apk" target="_blank" rel="noopener">gh-proxy</a>
+              <a href="https://ghfast.top/https://github.com/JUANWANG-BUAA/kestrel-ledger/releases/download/v0.2.4/app-release.apk" target="_blank" rel="noopener">ghfast</a>
+              <a href="https://ghproxy.net/https://github.com/JUANWANG-BUAA/kestrel-ledger/releases/download/v0.2.4/app-release.apk" target="_blank" rel="noopener">ghproxy.net</a>
             </div>
-            <p>镜像只转发 release 文件，APK 的 SHA-256 与签名不变。<a href="https://github.com/JUANWANG-BUAA/kestrel-ledger/releases/download/v0.2.3/app-release.apk.sha256" target="_blank" rel="noopener">校验文件 ↗</a></p>
+            <p>镜像只转发 release 文件，APK 的 SHA-256 与签名不变。<a href="https://github.com/JUANWANG-BUAA/kestrel-ledger/releases/download/v0.2.4/app-release.apk.sha256" target="_blank" rel="noopener">校验文件 ↗</a></p>
           </details>
         </div>
         <div class="download-plate" aria-label="版本信息">
           <div class="plate-top"><span>版本</span><span>平台</span></div>
-          <strong>0.2.3</strong>
+          <strong>0.2.4</strong>
           <div class="plate-rows">
             <span>加密账本</span><span>本机</span>
             <span>备份</span><span>密码导出</span>
@@ -420,6 +425,10 @@
           <details>
             <summary>换手机怎么办？</summary>
             <p>在“关于与更新 → 账本数据与备份”里导出加密备份，再在新设备导入并输入同一个密码。密码不会保存，丢失后无法恢复。系统云备份和换机迁移不包含账本文件。</p>
+          </details>
+          <details>
+            <summary>下载后无法安装怎么办？</summary>
+            <p>先确认系统允许本应用“安装未知应用”。如果提示签名不一致，不要直接卸载旧版：先在旧版导出加密备份，再卸载、安装新包并恢复。应用不会绕过系统安装确认。</p>
           </details>
           <details>
             <summary>页面或下载很慢怎么办？</summary>

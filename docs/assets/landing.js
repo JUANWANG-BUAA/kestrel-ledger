@@ -45,6 +45,51 @@
   };
   if (media.addEventListener) media.addEventListener('change', onMediaChange);
 
+  var downloadStatus = document.querySelector('[data-copy-status]');
+  var copyButton = document.querySelector('[data-copy-download]');
+  var primaryDownload = document.querySelector('[data-download]');
+
+  function copyText(text) {
+    if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
+    return new Promise(function (resolve, reject) {
+      var area = document.createElement('textarea');
+      area.value = text;
+      area.setAttribute('readonly', '');
+      area.style.position = 'fixed';
+      area.style.opacity = '0';
+      document.body.appendChild(area);
+      area.select();
+      try {
+        var ok = document.execCommand('copy');
+        document.body.removeChild(area);
+        ok ? resolve() : reject(new Error('copy blocked'));
+      } catch (error) {
+        document.body.removeChild(area);
+        reject(error);
+      }
+    });
+  }
+
+  if (copyButton && primaryDownload) {
+    copyButton.addEventListener('click', function () {
+      copyText(primaryDownload.href).then(function () {
+        if (downloadStatus) downloadStatus.textContent = '链接已复制';
+      }).catch(function () {
+        if (downloadStatus) downloadStatus.textContent = '复制失败，请用浏览器打开';
+      });
+    });
+  }
+
+  document.querySelectorAll('[data-download]').forEach(function (link) {
+    link.addEventListener('click', function () {
+      if (downloadStatus) downloadStatus.textContent = '已发起下载；没有反应就复制链接';
+    });
+  });
+
+  if (/MicroMessenger/i.test(navigator.userAgent)) {
+    document.querySelectorAll('[data-wechat-tip]').forEach(function (tip) { tip.hidden = false; });
+  }
+
   var year = document.querySelector('[data-year]');
   if (year) year.textContent = String(new Date().getFullYear());
 

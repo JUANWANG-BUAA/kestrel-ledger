@@ -498,6 +498,12 @@ html[data-theme="dark"] .button.primary { color: #0d1714; }
 .backup-facts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 22px; }
 .backup-facts span { border: 1px solid var(--line); padding: 5px 8px; font-family: var(--mono); font-size: 9px; color: var(--accent); }
 
+.download-fallback { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+.copy-button { min-height: 36px; border: 1px solid rgba(248, 240, 226, 0.4); background: transparent; color: #f3e7d3; padding: 7px 11px; cursor: pointer; font-family: var(--mono); font-size: 9px; letter-spacing: 0.03em; }
+.copy-button:hover { border-color: #e2c68d; color: #e2c68d; }
+.copy-status { font-size: 10px; color: rgba(248, 240, 226, 0.58); }
+.download-tip { margin: 14px 0 0; border-left: 2px solid #e2c68d; padding: 8px 0 8px 11px; color: #f0d7a9; font-size: 11px; line-height: 1.7; }
+.download-tip[hidden] { display: none; }
 .mirror-note { margin-top: 18px; max-width: 610px; border-top: 1px solid rgba(248, 240, 226, 0.22); padding-top: 12px; }
 .mirror-note summary { cursor: pointer; list-style: none; display: flex; justify-content: space-between; gap: 20px; font-family: var(--mono); font-size: 9px; letter-spacing: 0.04em; color: rgba(248, 240, 226, 0.62); }
 .mirror-note summary::-webkit-details-marker { display: none; }
