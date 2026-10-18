@@ -1,5 +1,7 @@
 # 养基助手（代号 Market）
 
+> 宣传页：[https://juanwang-buaa.github.io/kestrel-ledger/](https://juanwang-buaa.github.io/kestrel-ledger/)（GitHub Pages，源码在 [`docs/index.html`](docs/index.html)）。
+
 > Android 原型已交付基金／黄金本地流水、账户现金、持仓核算、日周月事实报告、行情自选、行业/概念板块和数据健康页。当前代码使用 SQLCipher 加密本地账本，并以 Android Keystore 封装数据库密钥；首次升级会把既有 SQLite 账本导出到临时加密库，校验后再切换。设备上的旧库迁移与故障恢复尚未完成运行验收。新导出的备份文件另用用户密码加密。实现进度以 [`docs/13`](docs/13-首版产品与量化验收收口.md) 和 [`docs/14`](docs/14-全量优化任务清单.md) 为准，产品规划与数据源研究不代表 Android 功能已交付。
 
 本机命令行构建需要 JDK 21 和 Android SDK 35；若默认 `java` 是 JDK 27，请在构建命令前设置 `JAVA_HOME` 与 `ANDROID_HOME`。Debug APK 输出在 `app/build/outputs/apk/debug/app-debug.apk`。新安装会创建 SQLCipher 加密账本；升级会尝试无损迁移既有明文 SQLite 库，只有临时库校验通过后才切换。数据库密钥由本机 Android Keystore 密钥封装，应用云备份已关闭。旧库迁移、中断恢复和设备密钥异常仍需在设备上完成验收。新导出的备份文件经过用户密码加密，旧版明文备份仅为迁移兼容而允许导入。在设备验收完成前，请保留独立加密备份，不要把此原型作为唯一的敏感资产记录。

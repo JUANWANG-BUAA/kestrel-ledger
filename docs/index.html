@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>养基助手 · 把账本，放回自己手里</title>
+  <meta name="description" content="养基助手是一本留在 Android 本机的加密投资账本：记录真实流水，核算真实收益，用结构化 AI 把基金、黄金与市场数据讲清楚。不托管资产，不下单，不提供买卖建议。">
+  <meta name="theme-color" content="#f3efe6">
+  <meta property="og:type" content="website">
+  <meta property="og:locale" content="zh_CN">
+  <meta property="og:site_name" content="养基助手">
+  <meta property="og:title" content="养基助手 · 把账本，放回自己手里">
+  <meta property="og:description" content="一本留在本机的加密投资账本。真实流水、基金历史业绩、结构化 AI 回答，以及可以带走的加密备份。">
+  <meta property="og:url" content="https://juanwang-buaa.github.io/kestrel-ledger/">
+  <meta property="og:image" content="https://juanwang-buaa.github.io/kestrel-ledger/assets/og.jpg">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="canonical" href="https://juanwang-buaa.github.io/kestrel-ledger/">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%230b1220'/%3E%3Cpath d='M13 43 L24 31 L33 36 L48 19' fill='none' stroke='%23f4e3be' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='48' cy='19' r='5' fill='%23e8c47a'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="assets/landing.css">
+  <script>
+    (function () {
+      try {
+        var saved = localStorage.getItem('kestrel-theme');
+        var dark = saved ? saved === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
+        document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+      } catch (e) {}
+      document.documentElement.classList.add('js');
+    }());
+  </script>
+</head>
+<body>
+  <a class="skip-link" href="#main">跳到正文</a>
+
+  <header class="site-header">
+    <a class="brand" href="./" aria-label="养基助手首页">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 64 64" role="img">
+          <rect width="64" height="64" rx="16" fill="#0b1220"></rect>
+          <path d="M13 43 L24 31 L33 36 L48 19" fill="none" stroke="#f4e3be" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"></path>
+          <circle cx="48" cy="19" r="5" fill="#e8c47a"></circle>
+        </svg>
+      </span>
+      <span class="brand-copy">
+        <strong>养基助手</strong>
+        <span>MARKET / LOCAL LEDGER</span>
+      </span>
+    </a>
+
+    <div class="header-actions">
+      <nav class="site-nav" aria-label="主导航">
+        <a href="#ledger">账本</a>
+        <a href="#analysis">分析</a>
+        <a href="#assistant">AI</a>
+        <a href="#download">下载</a>
+      </nav>
+
+      <details class="mobile-menu">
+        <summary>目录</summary>
+        <div class="mobile-menu-panel">
+          <a href="#ledger">账本</a>
+          <a href="#analysis">分析</a>
+          <a href="#assistant">AI</a>
+          <a href="#download">下载</a>
+        </div>
+      </details>
+
+      <button class="theme-toggle" type="button" data-theme-toggle aria-label="切换深色或浅色外观">
+        <span class="theme-icon" aria-hidden="true" data-theme-icon>◐</span>
+        <span data-theme-label>深色</span>
+      </button>
+
+      <a class="header-github" href="https://github.com/JUANWANG-BUAA/kestrel-ledger" target="_blank" rel="noopener">
+        GitHub <span aria-hidden="true">↗</span>
+      </a>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="hero wrap" aria-labelledby="hero-title">
+      <div class="hero-copy reveal">
+        <p class="eyebrow">LOCAL-FIRST LEDGER · ANDROID</p>
+        <h1 id="hero-title">把账本，<br><em>放回自己手里。</em></h1>
+        <p class="hero-lead">
+          养基助手是一本留在本机的投资账本。记真实流水，算真实收益，
+          让 AI 把基金、黄金与市场数据讲清楚。
+          <span class="quiet">不托管资产，不下单，不给买卖建议。</span>
+        </p>
+        <div class="hero-actions">
+          <a class="button primary" href="https://github.com/JUANWANG-BUAA/kestrel-ledger/releases/latest" target="_blank" rel="noopener">
+            下载 Android 版 <span class="button-note">v0.2.2</span>
+          </a>
+          <a class="button secondary" href="https://github.com/JUANWANG-BUAA/kestrel-ledger" target="_blank" rel="noopener">
+            查看源代码 <span aria-hidden="true">↗</span>
+          </a>
+        </div>
+        <p class="hero-meta">Android 8.0+ · 约 16 MB · 本机加密 · 无账号</p>
+      </div>
+
+      <div class="hero-object reveal" aria-label="养基助手总览页截图">
+        <div class="object-topline">
+          <span>ASSET LEDGER</span>
+          <span>2026 / Q4</span>
+        </div>
+        <div class="phone-frame">
+          <div class="phone-speaker" aria-hidden="true"></div>
+          <img src="assets/screens/home.jpg" alt="养基助手总览页：总资产、持仓市值与我的持仓" width="900" height="2000" fetchpriority="high">
+        </div>
+        <div class="object-note">
+          <span class="rule-dot" aria-hidden="true"></span>
+          <span>本机加密账本</span>
+          <span class="note-divider" aria-hidden="true"></span>
+          <span>每笔流水都有日期与来源</span>
+        </div>
+        <span class="object-stamp" aria-hidden="true">本机<br>优先</span>
+      </div>
+    </section>
+
+    <section class="stats-strip wrap" aria-label="产品事实">
+      <div class="stat">
+        <span class="stat-key">DATA</span>
+        <strong>100%</strong>
+        <span>账本留在本机</span>
+      </div>
+      <div class="stat">
+        <span class="stat-key">ORDERS</span>
+        <strong>0</strong>
+        <span>不下单，不荐股</span>
+      </div>
+      <div class="stat">
+        <span class="stat-key">COVERAGE</span>
+        <strong>04</strong>
+        <span>基金 / 黄金 / A股 / 全球指数</span>
+      </div>
+      <div class="stat">
+        <span class="stat-key">TESTS</span>
+        <strong>263</strong>
+        <span>自动化测试通过</span>
+      </div>
+    </section>
+
+    <section id="ledger" class="section wrap" aria-labelledby="ledger-title">
+      <div class="section-kicker">
+        <span>01 / THE LEDGER</span>
+        <span class="kicker-rule" aria-hidden="true"></span>
+        <span>先记事实</span>
+      </div>
+      <div class="split">
+        <div class="split-copy reveal">
+          <h2 id="ledger-title">先把每一笔，<br>记成可以核对的事实。</h2>
+          <p>
+            买入、赎回、现金分红、红利再投、份额拆分、资产转移、外部入金出金。
+            交易日期可以回填，观察点会按历史重算，而不是把今天的数据套到过去。
+          </p>
+          <ul class="ruled-list">
+            <li><span>01</span><div><strong>SQLCipher + Android Keystore</strong><p>账本文件加密，密钥由本机 Keystore 封装。</p></div></li>
+            <li><span>02</span><div><strong>历史日期与快照重建</strong><p>补录历史交易后，从变更日起重算观察点和周期报告。</p></div></li>
+            <li><span>03</span><div><strong>现金与持仓分开核算</strong><p>入金、出金、分红和买卖对现金的影响，都能回到流水。</p></div></li>
+          </ul>
+        </div>
+        <figure class="split-visual reveal">
+          <div class="screen-frame">
+            <img src="assets/screens/positions.jpg" alt="持仓页：易方达蓝筹精选的市值、盈亏、份额和成本" width="900" height="2000">
+          </div>
+          <figcaption>持仓表 · 份额、成本、市值、来源时点在同一行对齐。</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section id="analysis" class="section wrap section-tinted" aria-labelledby="analysis-title">
+      <div class="section-kicker">
+        <span>02 / PERFORMANCE</span>
+        <span class="kicker-rule" aria-hidden="true"></span>
+        <span>再看时间</span>
+      </div>
+      <div class="split split-reverse">
+        <figure class="split-visual reveal">
+          <div class="screen-frame screen-frame-dark">
+            <img src="assets/screens/fund.jpg" alt="基金详情页：2026 年历史业绩、最大回撤、年化波动与风险指标" width="900" height="2000">
+          </div>
+          <figcaption>基金详情 · 业绩与风险（示例账本，非收益承诺）。</figcaption>
+        </figure>
+        <div class="split-copy reveal">
+          <h2 id="analysis-title">不只看今天涨跌，<br>看它在时间里的变化。</h2>
+          <p>
+            阶段收益、年化收益、最大回撤、波动率、夏普、索提诺、卡玛。
+            口径写在页面上，样本不足就不编数字。
+          </p>
+          <div class="metric-index">
+            <div><span>01</span><strong>1M / 6M / 1Y / 3Y / 5Y / 成立以来</strong></div>
+            <div><span>02</span><strong>累计净值口径 · 不足一年不年化</strong></div>
+            <div><span>03</span><strong>最大回撤 · 修复天数 · 当前回撤</strong></div>
+            <div><span>04</span><strong>近 252 个日收益的风险窗口</strong></div>
+          </div>
+          <p class="fine-print">风险指标需要足够的样本；没有数据时显示“暂不可算”，不补零。</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="assistant" class="section wrap" aria-labelledby="assistant-title">
+      <div class="section-kicker">
+        <span>03 / AI, WITH EVIDENCE</span>
+        <span class="kicker-rule" aria-hidden="true"></span>
+        <span>最后解释</span>
+      </div>
+      <div class="assistant-grid">
+        <div class="split-copy reveal">
+          <h2 id="assistant-title">让 AI 说结论，<br>也把证据摆在桌上。</h2>
+          <p>
+            回答固定成“结论 / 数据 / 结构或风险 / 数据缺口”。多标的使用表格，
+            持仓用可核对的来源时点，而不是一大段无法验证的散文。
+          </p>
+          <div class="assistant-points">
+            <div><span>结论</span><p>先给一句能判断的答案。</p></div>
+            <div><span>数据</span><p>工具事实卡、表格、来源与时点。</p></div>
+            <div><span>边界</span><p>数据缺失就说缺失，不编造。</p></div>
+          </div>
+          <p class="fine-print">
+            使用你自己的模型 API Key。关闭“发送持仓明细”时，不发送历史对话；
+            模型输出仍可能出错，以数据与来源为准。
+          </p>
+        </div>
+        <figure class="assistant-visual reveal">
+          <div class="screen-frame screen-frame-ai">
+            <img src="assets/screens/ai.jpg" alt="AI 助手返回结论、数据表格和结构风险说明" width="900" height="2000">
+          </div>
+          <figcaption>结构化回答 · 示例问题「比较最新指数报价」。</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section class="section wrap daily" aria-labelledby="daily-title">
+      <div class="section-kicker">
+        <span>04 / EVERYDAY</span>
+        <span class="kicker-rule" aria-hidden="true"></span>
+        <span>每天用得上</span>
+      </div>
+      <div class="section-head">
+        <h2 id="daily-title">行情是入口，<br>账本才是答案。</h2>
+        <p>从行情、自选和提醒进入，但最后都回到你的真实持仓与流水。</p>
+      </div>
+      <div class="daily-grid">
+        <article class="daily-card">
+          <span class="card-index">A / WATCHLIST</span>
+          <h3>自选是一张表，不是一叠卡。</h3>
+          <p>对齐最新价、涨跌幅和来源时点；点击行进入详情，移除用一个小叉。</p>
+          <img src="assets/screens/watchlist.jpg" alt="自选页表格：标的、最新价、涨跌幅、来源时间" width="900" height="2000">
+        </article>
+        <article class="daily-card daily-card-note">
+          <span class="card-index">B / ALERTS</span>
+          <h3>提醒只说事实。</h3>
+          <p>价格、涨跌幅、关键报价过期、持仓盈亏。提醒会写明来源与时点，不会催促你交易。</p>
+          <div class="quote-block">
+            <p>“这只是一种记录，不是一条指令。”</p>
+            <span>产品原则 · NO ADVICE</span>
+          </div>
+        </article>
+        <article class="daily-card daily-card-note">
+          <span class="card-index">C / BACKUP</span>
+          <h3>账本可以带走。</h3>
+          <p>导出的备份由你的密码加密；恢复时会先解锁、再确认覆盖，不把数据锁在这台手机里。</p>
+          <div class="backup-facts">
+            <span>AES-GCM</span><span>PBKDF2</span><span>本地恢复</span>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="gallery-section wrap" aria-labelledby="gallery-title">
+      <div class="section-head gallery-head">
+        <div>
+          <span class="section-kicker">SCREENS, NOT PROMISES</span>
+          <h2 id="gallery-title">再靠近一点看。</h2>
+        </div>
+        <p>浅色与深色都经过同一套账本语义；截图来自开发版，数字为测试账本。</p>
+      </div>
+      <div class="gallery" role="list">
+        <figure role="listitem">
+          <img src="assets/screens/home.jpg" alt="浅色总览页" width="900" height="2000">
+          <figcaption>总览 / 浅色</figcaption>
+        </figure>
+        <figure role="listitem">
+          <img src="assets/screens/dark.jpg" alt="深色分析页" width="900" height="2000">
+          <figcaption>分析 / 深色</figcaption>
+        </figure>
+        <figure role="listitem">
+          <img src="assets/screens/fund.jpg" alt="基金历史业绩页" width="900" height="2000">
+          <figcaption>基金 / 业绩与风险</figcaption>
+        </figure>
+        <figure role="listitem">
+          <img src="assets/screens/ai.jpg" alt="AI 结构化回答" width="900" height="2000">
+          <figcaption>AI / 结构化回答</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section class="section wrap audience" aria-labelledby="audience-title">
+      <div class="section-kicker">
+        <span>FIT / NOT FIT</span>
+        <span class="kicker-rule" aria-hidden="true"></span>
+        <span>说清楚</span>
+      </div>
+      <div class="audience-grid">
+        <div class="audience-copy">
+          <h2 id="audience-title">给愿意核对的人。</h2>
+          <p>它不是“替你赚钱”的工具，而是一本你可以检查、备份和带走的账本。</p>
+        </div>
+        <div class="fit-column">
+          <h3>可能会喜欢</h3>
+          <ul>
+            <li>有基金、黄金或指数持仓，想自己记账</li>
+            <li>关心长期收益、回撤和风险，而不只是当日涨跌</li>
+            <li>愿意保管自己的 API Key、备份密码和本机数据</li>
+            <li>使用 Android 手机，接受开发中的独立应用</li>
+          </ul>
+        </div>
+        <div class="fit-column not-fit">
+          <h3>可能不适合</h3>
+          <ul>
+            <li>想要自动下单、托管资产或“荐股”</li>
+            <li>希望所有数据自动同步到云端账号</li>
+            <li>完全不想处理备份密码</li>
+            <li>使用 iPhone 或平板作为主力设备</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section id="download" class="download-section wrap" aria-labelledby="download-title">
+      <div class="download-card">
+        <div class="download-copy">
+          <p class="eyebrow">START WITH THE FIRST ENTRY</p>
+          <h2 id="download-title">一本账本，<br>先从第一笔开始。</h2>
+          <p>下载 Android 安装包，或先看看源代码。更新会校验 SHA-256 与签名；签名不一致时会拒绝安装。</p>
+          <div class="hero-actions">
+            <a class="button primary light" href="https://github.com/JUANWANG-BUAA/kestrel-ledger/releases/latest" target="_blank" rel="noopener">
+              下载 v0.2.2 <span aria-hidden="true">↓</span>
+            </a>
+            <a class="button secondary dark-outline" href="https://github.com/JUANWANG-BUAA/kestrel-ledger" target="_blank" rel="noopener">
+              GitHub 仓库 <span aria-hidden="true">↗</span>
+            </a>
+          </div>
+          <p class="download-meta">Android 8.0+ · APK · 无账号 · 无订阅</p>
+        </div>
+        <div class="download-plate" aria-label="版本信息">
+          <div class="plate-top"><span>RELEASE</span><span>ANDROID</span></div>
+          <strong>0.2.2</strong>
+          <div class="plate-rows">
+            <span>加密账本</span><span>本机</span>
+            <span>备份</span><span>密码导出</span>
+            <span>投资建议</span><span>无</span>
+          </div>
+          <a href="https://github.com/JUANWANG-BUAA/kestrel-ledger/releases" target="_blank" rel="noopener">查看全部版本与校验值 ↗</a>
+        </div>
+      </div>
+    </section>
+
+    <section class="section wrap faq" aria-labelledby="faq-title">
+      <div class="section-kicker">
+        <span>FAQ</span>
+        <span class="kicker-rule" aria-hidden="true"></span>
+        <span>最后几件事</span>
+      </div>
+      <div class="faq-grid">
+        <h2 id="faq-title">不绕弯子的<br>几个回答。</h2>
+        <div class="faq-list">
+          <details>
+            <summary>数据到底存在哪里？</summary>
+            <p>账本、流水、快照和偏好保存在 Android 本机的加密数据库中；数据库密钥由 Android Keystore 封装。应用不要求账号，也不会把你的持仓自动同步到服务器。AI 问答只发送当前问题和你授权的信息。</p>
+          </details>
+          <details>
+            <summary>它会告诉我买什么、卖什么吗？</summary>
+            <p>不会。它只整理事实、来源、时点和风险，不提供买卖建议，也不接入交易下单。任何示例数字都不代表未来收益。</p>
+          </details>
+          <details>
+            <summary>基金估值一定准吗？</summary>
+            <p>不保证。估值依赖净值、基准行情和披露持仓；数据过期、样本不足或路由不成立时会明确显示“不可用”。估值不是基金公司公布的净值，也不构成收益承诺。</p>
+          </details>
+          <details>
+            <summary>换手机怎么办？</summary>
+            <p>在“关于与更新 → 账本数据与备份”里导出加密备份，再在新设备导入并输入同一个密码。备份密码不会保存；丢失密码无法恢复。系统云备份和换机迁移已显式排除账本文件。</p>
+          </details>
+          <details>
+            <summary>为什么只有 Android？</summary>
+            <p>当前版本是面向 Android 的独立应用，先把本机账本、基金历史业绩和结构化 AI 做扎实。iOS、平板和更多市场仍在规划中。</p>
+          </details>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer wrap">
+    <div class="footer-brand">
+      <span class="brand-mark small" aria-hidden="true">
+        <svg viewBox="0 0 64 64" role="img">
+          <rect width="64" height="64" rx="16" fill="#0b1220"></rect>
+          <path d="M13 43 L24 31 L33 36 L48 19" fill="none" stroke="#f4e3be" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"></path>
+          <circle cx="48" cy="19" r="5" fill="#e8c47a"></circle>
+        </svg>
+      </span>
+      <div><strong>养基助手</strong><span>MARKET / LOCAL LEDGER</span></div>
+    </div>
+    <p class="footer-note">记录事实，保留判断。仅供研究与个人记账，不构成投资建议。</p>
+    <div class="footer-links">
+      <a href="https://github.com/JUANWANG-BUAA/kestrel-ledger" target="_blank" rel="noopener">GitHub ↗</a>
+      <a href="https://github.com/JUANWANG-BUAA/kestrel-ledger/releases" target="_blank" rel="noopener">Releases ↗</a>
+      <a href="https://github.com/JUANWANG-BUAA/kestrel-ledger/tree/main/docs" target="_blank" rel="noopener">文档 ↗</a>
+    </div>
+    <div class="footer-bottom">
+      <span>© <span data-year>2026</span> kestrel-ledger</span>
+      <span>本机优先 · 无账号 · 不下单</span>
+    </div>
+  </footer>
+
+  <script src="assets/landing.js"></script>
+</body>
+</html>
