@@ -44,10 +44,12 @@ class UpdateClient(
         val repo = repository.trim().trim('/')
         if (!REPO.matches(repo)) return@withContext Result.failure(IOException("仓库格式应为 owner/repo"))
         val attempts = buildList {
-            add(Mirror("GitHub 官方", "") to "https://api.github.com/repos/$repo/releases/latest")
+            // Prefer mirrors when enabled: on mainland networks the official API can hang
+            // before the first byte, and the fallback never gets a chance to run.
             mirrors.forEach { mirror ->
                 add(mirror to "${mirror.prefix}https://api.github.com/repos/$repo/releases/latest")
             }
+            add(Mirror("GitHub 官方", "") to "https://api.github.com/repos/$repo/releases/latest")
         }
         var lastError = "无法连接更新源"
         attempts.forEach { (mirror, url) ->
@@ -76,13 +78,11 @@ class UpdateClient(
         if (target.exists() && target.length() == release.sizeBytes && sha256(target) == release.sha256) {
             return@withContext Result.success(target)
         }
-        val sources = buildList {
-            add("GitHub 官方" to release.apkUrl)
-            mirrorDownloadUrls(release.apkUrl, mirrors).forEach { add(it) }
-        }
+        val sources = downloadOrder(release.apkUrl, mirrors)
         var lastError = "下载失败"
         sources.forEach { (label, url) ->
             try {
+                onProgress(0L, release.sizeBytes)
                 downloadTo(url, target, release.sizeBytes, onProgress)
                 if (target.length() != release.sizeBytes) {
                     lastError = "下载大小与发布信息不一致"
@@ -140,9 +140,13 @@ class UpdateClient(
                 target.outputStream().use { output ->
                     val buffer = ByteArray(64 * 1024)
                     var downloaded = 0L
+                    val startedAt = System.currentTimeMillis()
                     while (true) {
                         val read = input.read(buffer)
                         if (read <= 0) break
+                        require(System.currentTimeMillis() - startedAt <= MAX_SOURCE_DURATION_MS) {
+                            "下载源超时，尝试下一个源"
+                        }
                         require(downloaded + read <= maxOf(expectedSize, 1L)) { "APK 实际大小超过发布信息" }
                         output.write(buffer, 0, read)
                         downloaded += read
@@ -211,6 +215,12 @@ class UpdateClient(
 
         fun mirrorDownloadUrls(apkUrl: String, mirrors: List<Mirror>): List<Pair<String, String>> =
             mirrors.map { it.label to "${it.prefix}$apkUrl" }
+
+        /** Mirrors first keeps a mainland download from waiting for a stalled official socket. */
+        fun downloadOrder(apkUrl: String, mirrors: List<Mirror>): List<Pair<String, String>> =
+            mirrorDownloadUrls(apkUrl, mirrors) + ("GitHub 官方" to apkUrl)
+
+        const val MAX_SOURCE_DURATION_MS = 30_000L
 
         fun sha256(file: File): String {
             val digest = MessageDigest.getInstance("SHA-256")
