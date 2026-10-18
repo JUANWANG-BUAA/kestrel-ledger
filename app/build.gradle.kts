@@ -15,8 +15,8 @@ android {
         applicationId = "cn.market.assistant"
         minSdk = 26
         targetSdk = 35
-        versionCode = (System.getenv("VERSION_CODE") ?: "203").toInt()
-        versionName = System.getenv("VERSION_NAME") ?: "0.2.3"
+        versionCode = (System.getenv("VERSION_CODE") ?: "204").toInt()
+        versionName = System.getenv("VERSION_NAME") ?: "0.2.4"
     }
     signingConfigs {
         if (releaseKeystore != null) {
